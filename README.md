@@ -27,7 +27,7 @@ This project contains three parts:
 
 ## 🛠️ Tech Stack
 
-- **Frontend:** HTML, CSS, JavaScript/React
+- **Frontend:** React Native and vite 
 - **Backend:** Node.js, Express
 - **Database:** MongoDB
 - **Version Control:** Git & GitHub
