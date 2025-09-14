@@ -21,7 +21,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Your Replit API base URL
 const API_BASE_URL = 'http://localhost:5000/api';
-
 interface Contact {
   id: string;
   name: string;
@@ -194,7 +193,6 @@ export default function BuyAirtime() {
     }
   };
 
-  // Replace your makeApiRequest function with this debug version temporarily
 // Replace your makeApiRequest function with this cleaner version
 const makeApiRequest = async (endpoint, options = {}) => {
   console.log(`🔵 API Request: ${endpoint}`);

@@ -212,20 +212,10 @@ export default function PinSetupScreen() {
                 <Text style={styles.errorText}>{error}</Text>
               ) : (
                 <Text style={styles.helpText}>
-                  Enter a 4-digit number. Avoid obvious combinations like 1234 or 0000.
+                 
                 </Text>
               )}
             </View>
-
-            {/* Security Tips */}
-            <View style={styles.tipsCard}>
-              <Text style={styles.tipsTitle}>💡 PIN Security Tips</Text>
-              <Text style={styles.tipItem}>• Use a unique combination that's easy for you to remember</Text>
-              <Text style={styles.tipItem}>• Avoid sequential numbers (1234, 4321)</Text>
-              <Text style={styles.tipItem}>• Avoid repeated digits (1111, 2222)</Text>
-              <Text style={styles.tipItem}>• Don't use your birthday or phone number</Text>
-            </View>
-
             <TouchableOpacity
               style={[styles.proceedBtn, !isPinValid && styles.proceedDisabled]}
               disabled={!isPinValid}

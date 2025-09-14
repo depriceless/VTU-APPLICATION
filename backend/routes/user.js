@@ -1,14 +1,11 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
+const mongoose = require('mongoose'); // ADD THIS LINE
 const User = require("../models/User");
 const { authenticate } = require("../middleware/auth"); // your JWT auth middleware
 
 const router = express.Router();
 
-/**
- * PUT /api/user/change-password
- * Protected route - requires JWT token
- */
 router.put("/change-password", authenticate, async (req, res) => {
   try {
     const { oldPassword, newPassword } = req.body;
@@ -41,6 +38,5 @@ router.put("/change-password", authenticate, async (req, res) => {
     res.status(500).json({ success: false, message: "Server error updating password" });
   }
 });
-
 
 module.exports = router;

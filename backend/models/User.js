@@ -86,7 +86,21 @@ const userSchema = new mongoose.Schema({
     idNumber: String,
     idExpiryDate: Date,
     verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' }
-  }
+  },
+
+  // ADD THESE NEW FIELDS HERE - INSIDE THE SCHEMA DEFINITION
+  suspendedAt: { type: Date },
+  suspensionReason: { type: String },
+  suspensionExpiresAt: { type: Date },
+  suspensionType: { type: String, enum: ['temporary', 'permanent'], default: 'temporary' },
+  suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  deletedAt: { type: Date },
+  deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  lastLoginIP: { type: String },
+  registrationIP: { type: String },
+  failedLoginAttempts: { type: Number, default: 0 },
+  lockedUntil: { type: Date }
+
 }, {
   timestamps: true,
   toJSON: { 
@@ -97,6 +111,10 @@ const userSchema = new mongoose.Schema({
       delete ret.resetPasswordToken;
       delete ret.emailVerificationToken;
       delete ret.__v;
+      
+      // Add computed status fields for admin interface
+      ret.status = doc.getStatus ? doc.getStatus() : 'unknown';
+      
       return ret;
     }
   },
@@ -111,6 +129,13 @@ userSchema.index({ isActive: 1 });
 userSchema.index({ kycLevel: 1 });
 userSchema.index({ accountType: 1 });
 
+// ADD THESE NEW INDEXES
+userSchema.index({ suspendedAt: 1 });
+userSchema.index({ isActive: 1, suspendedAt: 1 });
+userSchema.index({ deletedAt: 1 });
+userSchema.index({ createdAt: -1 });
+userSchema.index({ lastLogin: -1 });
+
 // Virtuals
 userSchema.virtual('displayName').get(function() { return this.name || this.username; });
 userSchema.virtual('accountAge').get(function() {
@@ -119,6 +144,23 @@ userSchema.virtual('accountAge').get(function() {
 });
 userSchema.virtual('wallet', { ref: 'Wallet', localField: '_id', foreignField: 'userId', justOne: true });
 userSchema.virtual('transactions', { ref: 'Transaction', localField: '_id', foreignField: 'userId' });
+
+// ADD THESE NEW VIRTUALS
+userSchema.virtual('isSuspended').get(function() {
+  if (!this.suspendedAt) return false;
+  if (this.suspensionType === 'permanent') return true;
+  if (this.suspensionExpiresAt && this.suspensionExpiresAt > new Date()) return true;
+  return false;
+});
+
+userSchema.virtual('suspensionStatus').get(function() {
+  if (!this.suspendedAt) return 'active';
+  if (this.suspensionType === 'permanent') return 'permanently_suspended';
+  if (this.suspensionExpiresAt) {
+    return this.suspensionExpiresAt > new Date() ? 'temporarily_suspended' : 'suspension_expired';
+  }
+  return 'suspended';
+});
 
 // Hash password
 userSchema.pre('save', async function(next) {
@@ -133,6 +175,19 @@ userSchema.pre('save', async function(next) {
   if (!this.isModified('pin') || !this.pin) return next();
   const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS) || 12;
   this.pin = await bcrypt.hash(this.pin, saltRounds);
+  next();
+});
+
+// ADD THIS PRE-SAVE MIDDLEWARE FOR SUSPENSION EXPIRY
+userSchema.pre('save', function(next) {
+  // Auto-activate if suspension has expired
+  if (this.suspendedAt && this.suspensionExpiresAt && this.suspensionExpiresAt <= new Date()) {
+    this.isActive = true;
+    this.suspendedAt = undefined;
+    this.suspensionReason = undefined;
+    this.suspensionExpiresAt = undefined;
+    this.suspensionType = undefined;
+  }
   next();
 });
 
@@ -184,6 +239,45 @@ userSchema.methods.getTransactionLimit = function() {
   return limits[this.kycLevel] || 50000;
 };
 
+// ADD THESE NEW INSTANCE METHODS
+userSchema.methods.suspend = function(reason, expiresAt = null, suspendedBy = null) {
+  this.isActive = false;
+  this.suspendedAt = new Date();
+  this.suspensionReason = reason;
+  this.suspensionExpiresAt = expiresAt;
+  this.suspensionType = expiresAt ? 'temporary' : 'permanent';
+  this.suspendedBy = suspendedBy;
+  return this.save();
+};
+
+userSchema.methods.unsuspend = function() {
+  this.isActive = true;
+  this.suspendedAt = undefined;
+  this.suspensionReason = undefined;
+  this.suspensionExpiresAt = undefined;
+  this.suspensionType = undefined;
+  this.suspendedBy = undefined;
+  return this.save();
+};
+
+userSchema.methods.softDelete = function(deletedBy = null) {
+  this.isActive = false;
+  this.deletedAt = new Date();
+  this.deletedBy = deletedBy;
+  return this.save();
+};
+
+userSchema.methods.getStatus = function() {
+  if (this.deletedAt) return 'deleted';
+  if (this.suspendedAt && (this.suspensionType === 'permanent' || 
+      (this.suspensionExpiresAt && this.suspensionExpiresAt > new Date()))) {
+    return 'suspended';
+  }
+  if (!this.isEmailVerified) return 'pending_verification';
+  if (this.isActive) return 'active';
+  return 'inactive';
+};
+
 // Static methods
 userSchema.statics.findByEmailOrPhone = function(emailOrPhone) {
   const emailRegex = /^\S+@\S+\.\S+$/;
@@ -197,5 +291,31 @@ userSchema.statics.findByEmailOrPhone = function(emailOrPhone) {
 };
 userSchema.statics.findActiveUsers = function() { return this.find({ isActive: true }); };
 userSchema.statics.findByKycLevel = function(level) { return this.find({ kycLevel: level }); };
+
+// ADD THESE NEW STATIC METHODS
+userSchema.statics.findSuspended = function() {
+  return this.find({ 
+    suspendedAt: { $exists: true },
+    $or: [
+      { suspensionType: 'permanent' },
+      { suspensionExpiresAt: { $gt: new Date() } }
+    ]
+  });
+};
+
+userSchema.statics.findExpiredSuspensions = function() {
+  return this.find({ 
+    suspendedAt: { $exists: true },
+    suspensionType: 'temporary',
+    suspensionExpiresAt: { $lte: new Date() },
+    isActive: false
+  });
+};
+
+userSchema.statics.autoUnsuspendExpired = async function() {
+  const expiredUsers = await this.findExpiredSuspensions();
+  const updatePromises = expiredUsers.map(user => user.unsuspend());
+  return Promise.all(updatePromises);
+};
 
 module.exports = mongoose.model('User', userSchema);

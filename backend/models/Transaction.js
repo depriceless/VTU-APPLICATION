@@ -36,7 +36,6 @@ const transactionSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [500, "Description cannot exceed 500 characters"]
-    // ❌ removed required:true (some auto-transactions won’t need it)
   },
   reference: {
     type: String,
@@ -53,11 +52,8 @@ const transactionSchema = new mongoose.Schema({
   category: {
     type: String,
     enum: ["funding", "withdrawal", "transfer", "payment", "refund", "fee", "bonus", "betting"],
-
     default: "funding"
   },
-
-  // For transfers
   relatedTransactionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Transaction"
@@ -66,37 +62,31 @@ const transactionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: "Wallet"
   },
-
-  // Payment gateway details
   gateway: {
-    provider: String, // "paystack", "flutterwave", "manual", etc.
+    provider: String,
     gatewayReference: String,
     gatewayResponse: mongoose.Schema.Types.Mixed
   },
-
-  // Additional metadata (✅ now has defaults)
- metadata: {
-  ip_address: { type: String },
-  user_agent: { type: String },
-  source: { type: String },
-  notes: { type: String },
-  tags: [{ type: String }],
-  failureReason: String,
-  cancellationReason: String,
-  betting: {
-    provider: { 
-      type: String, 
-      enum: ['BET9JA', 'SPORTYBET', 'NAIRABET', 'BETWAY', '1XBET', 'BETKING', 'MERRYBET']
-    },
-    customerId: String,
-    customerName: String,
-    retryCount: { type: Number, default: 0 },
-    lastRetryAt: Date,
-    providerResponse: mongoose.Schema.Types.Mixed
-  }
-},
-
-  // Timestamps
+  metadata: {
+    ip_address: { type: String },
+    user_agent: { type: String },
+    source: { type: String },
+    notes: { type: String },
+    tags: [{ type: String }],
+    failureReason: String,
+    cancellationReason: String,
+    betting: {
+      provider: { 
+        type: String, 
+        enum: ['BET9JA', 'SPORTYBET', 'NAIRABET', 'BETWAY', '1XBET', 'BETKING', 'MERRYBET']
+      },
+      customerId: String,
+      customerName: String,
+      retryCount: { type: Number, default: 0 },
+      lastRetryAt: Date,
+      providerResponse: mongoose.Schema.Types.Mixed
+    }
+  },
   processedAt: {
     type: Date,
     default: Date.now
@@ -162,29 +152,28 @@ transactionSchema.statics.findByReference = function (reference) {
   return this.findOne({ reference });
 };
 
+// ✅ CORRECTED: getUserTransactions method - ADD ObjectId conversion
 transactionSchema.statics.getUserTransactions = function (userId, options = {}) {
-  const { page = 1, limit = 20, type = null, status = null, startDate = null, endDate = null } = options;
+  const { page = 1, limit = 20, type = null, status = null, category = null } = options;
 
-  const query = { userId };
+  // ✅ CRITICAL FIX: Convert string userId to ObjectId
+  const query = { userId: new mongoose.Types.ObjectId(userId) };
+  
   if (type) query.type = type;
   if (status) query.status = status;
-  if (startDate || endDate) {
-    query.createdAt = {};
-    if (startDate) query.createdAt.$gte = new Date(startDate);
-    if (endDate) query.createdAt.$lte = new Date(endDate);
-  }
+  if (category) query.category = category;
 
   return this.find(query)
-    .populate("walletId", "balance")
+    .populate('walletId', 'balance')
     .sort({ createdAt: -1 })
-    .limit(limit)
-    .skip((page - 1) * limit);
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
 };
 
 transactionSchema.statics.getWalletTransactions = function (walletId, options = {}) {
   const { page = 1, limit = 20, type = null, status = null } = options;
 
-  const query = { walletId };
+  const query = { walletId: new mongoose.Types.ObjectId(walletId) };
   if (type) query.type = type;
   if (status) query.status = status;
 
@@ -214,7 +203,7 @@ transactionSchema.statics.getUserBettingTransactions = function(userId, options 
   } = options;
 
   const query = {
-    userId,
+    userId: new mongoose.Types.ObjectId(userId),
     category: 'betting'
   };
 
@@ -248,7 +237,7 @@ transactionSchema.statics.getBettingStats = function(userId, period = '30d') {
   startDate.setDate(startDate.getDate() - days);
 
   const match = {
-    userId: mongoose.Types.ObjectId(userId),
+    userId: new mongoose.Types.ObjectId(userId),
     category: 'betting',
     createdAt: { $gte: startDate }
   };
@@ -273,7 +262,7 @@ transactionSchema.statics.getDailyBettingTotal = function(userId) {
   return this.aggregate([
     {
       $match: {
-        userId: mongoose.Types.ObjectId(userId),
+        userId: new mongoose.Types.ObjectId(userId),
         category: 'betting',
         status: 'completed',
         createdAt: { $gte: today }
@@ -334,6 +323,76 @@ transactionSchema.methods.incrementBettingRetry = function() {
   this.status = 'pending';
   
   return this.save();
+};
+
+// ✅ NEW: Get transactions by status
+transactionSchema.statics.getTransactionsByStatus = function(userId, status, options = {}) {
+  const { page = 1, limit = 20 } = options;
+
+  const query = { 
+    userId: new mongoose.Types.ObjectId(userId),
+    status: status 
+  };
+
+  return this.find(query)
+    .populate('walletId', 'balance')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
+};
+
+// ✅ NEW: Get transactions by date range
+transactionSchema.statics.getTransactionsByDateRange = function(userId, startDate, endDate, options = {}) {
+  const { page = 1, limit = 20 } = options;
+
+  const query = { 
+    userId: new mongoose.Types.ObjectId(userId),
+    createdAt: {
+      $gte: new Date(startDate),
+      $lte: new Date(endDate)
+    }
+  };
+
+  return this.find(query)
+    .populate('walletId', 'balance')
+    .sort({ createdAt: -1 })
+    .limit(parseInt(limit))
+    .skip((parseInt(page) - 1) * parseInt(limit));
+};
+
+// ✅ NEW: Get transaction summary (total credits, debits, etc.)
+transactionSchema.statics.getTransactionSummary = function(userId) {
+  return this.aggregate([
+    {
+      $match: {
+        userId: new mongoose.Types.ObjectId(userId),
+        status: 'completed'
+      }
+    },
+    {
+      $group: {
+        _id: '$type',
+        count: { $sum: 1 },
+        totalAmount: { $sum: '$amount' }
+      }
+    }
+  ]);
+};
+
+// ✅ NEW: Get recent transactions (simplified version)
+transactionSchema.statics.getRecentTransactions = function(userId, limit = 10) {
+  return this.find({ 
+    userId: new mongoose.Types.ObjectId(userId) 
+  })
+  .select('type amount description status createdAt category')
+  .sort({ createdAt: -1 })
+  .limit(parseInt(limit));
+};
+
+transactionSchema.statics.generateReference = function(prefix = 'TXN') {
+  const timestamp = Date.now().toString().slice(-8);
+  const random = Math.random().toString(36).substr(2, 4).toUpperCase();
+  return `${prefix}_${timestamp}_${random}`;
 };
 
 module.exports = mongoose.model("Transaction", transactionSchema);

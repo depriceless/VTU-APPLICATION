@@ -43,7 +43,17 @@ const authenticate = async (req, res, next) => {
     }
 
     console.log('✅ Authentication successful');
-    req.user = decoded;
+    
+    // ✅ CRITICAL FIX: Set proper user object with ID fields
+    req.user = {
+      ...decoded,           // Keep all token payload data
+      id: user._id,         // Add user ID from database
+      _id: user._id,        // Also include _id for consistency
+      name: user.name,      // Add user details for convenience
+      email: user.email
+    };
+    
+    console.log('✅ req.user object:', req.user);
     next();
   } catch (error) {
     console.log('❌ Authentication error:', error.message);

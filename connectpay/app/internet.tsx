@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import internetsucessmodal from './internetsucessmodal';
+import InternetSuccessModal from './internetsucessmodal';
 
 import {
   View,
@@ -1218,20 +1218,20 @@ export default function BuyInternet() {
       </Modal>
 
       {/* Success Modal */}
-      {showSuccessModal && successData && (
-        <SuccessModal
-          visible={showSuccessModal}
-          onClose={handleCloseSuccessModal}
-          onBuyMore={handleBuyMoreInternet}
-          transaction={successData.transaction}
-          networkName={successData.providerName}
-          phone={successData.customerNumber}
-          amount={successData.amount}
-          newBalance={successData.newBalance}
-          serviceType="internet"
-          planDetails={successData.plan}
-        />
-      )}
+      {/* Success Modal */}
+{showSuccessModal && successData && (
+  <InternetSuccessModal
+    visible={showSuccessModal}
+    onClose={handleCloseSuccessModal}
+    onBuyMore={handleBuyMoreInternet}
+    transaction={successData.transaction}
+    providerName={successData.providerName}
+    customerNumber={successData.customerNumber}
+    amount={successData.amount}
+    newBalance={successData.newBalance}
+    planDetails={successData.plan}
+  />
+)}
     </View>
   );
 }
