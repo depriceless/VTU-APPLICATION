@@ -2,6 +2,11 @@ import React, { useState, useEffect } from 'react';
 import UserManagement from './UserManagement';
 import TransactionManagement from './TransactionManagement';
 import ServiceManagement from './ServiceManagement';
+import FinancialManagement from './FinancialManagement';
+import SystemManagement from './SystemManagement';
+import AdminManagement from './AdminManagement';
+import NotificationManagement from './NotificationManagement';
+import SupportTicketDetail from './SupportTicketDetail';
 
 const AdminDashboard = () => {
   const [isExpanded, setIsExpanded] = useState(false); // Start collapsed on mobile
@@ -53,10 +58,44 @@ const AdminDashboard = () => {
     };
   }, []);
 
+// Check screen size
+  useEffect(() => {
+    const checkScreenSize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      if (mobile && isExpanded) {
+        setIsExpanded(false);
+      }
+    };
+
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, [isExpanded]);
+
+  // Add this useEffect right here:
+// Add this useEffect right here:
+// Add this useEffect right here:
+useEffect(() => {
+  console.log('Setting up showTicket event listener');
+  
+  const handleShowTicket = (event) => {
+    console.log('Received showTicket event:', event.detail);
+    console.log('Setting activeMenu to:', `ticket-${event.detail.ticketId}`);
+    setActiveMenu(`ticket-${event.detail.ticketId}`);
+  };
+  
+  window.addEventListener('showTicket', handleShowTicket);
+  return () => {
+    console.log('Cleaning up showTicket event listener');
+    window.removeEventListener('showTicket', handleShowTicket);
+  };
+}, []);
+
   // API functions to fetch real data from your backend
   const fetchDashboardStats = async () => {
     try {
-      const response = await fetch('http://localhost:5000/api/dashboard/stats');
+      const response = await fetch('http://192.168.126.7:5000/api/dashboard/stats');
       if (!response.ok) throw new Error('Failed to fetch dashboard stats');
       
       const data = await response.json();
@@ -97,7 +136,7 @@ const AdminDashboard = () => {
   const fetchRecentActivities = async () => {
     try {
       setActivitiesLoading(true);
-      const response = await fetch('http://localhost:5000/api/dashboard/recent-activities');
+      const response = await fetch('http://192.168.126.7:5000/api/dashboard/recent-activities');
       if (!response.ok) throw new Error('Failed to fetch activities');
       
       const data = await response.json();
@@ -114,7 +153,7 @@ const AdminDashboard = () => {
 
   const fetchMenuStats = async () => {
   try {
-    const response = await fetch('http://localhost:5000/api/services/stats');
+    const response = await fetch('http://192.168.126.7:5000/api/services/stats');
     if (!response.ok) throw new Error('Failed to fetch menu stats');
     
     const data = await response.json();
@@ -139,7 +178,7 @@ const AdminDashboard = () => {
       return;
     }
     
-    const response = await fetch('http://localhost:5000/api/admin/profile', {
+    const response = await fetch('http://192.168.126.7:5000/api/admin/profile', {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
@@ -1405,7 +1444,7 @@ const AdminDashboard = () => {
           </div>
         )}
 
-       {/* Content Body */}
+{/* Content Body */}
 <div style={{
   flex: 1,
   padding: isMobile ? '16px' : '24px',
@@ -1413,29 +1452,50 @@ const AdminDashboard = () => {
   overflowX: 'hidden'
 }}>
   {activeMenu === 'dashboard' 
-? renderDashboardContent() 
-: activeMenu === 'profile' 
-? renderProfileContent()
-: activeMenu === 'users' || activeMenu === 'all-users'
-? renderUserManagementContent()
-: activeMenu === 'transactions' || 
-  activeMenu === 'all-transactions' || 
-  activeMenu === 'failed-transactions' || 
-  activeMenu === 'pending-transactions' || 
-  activeMenu === 'refunds'
-? <TransactionManagement />
-: activeMenu === 'services' || 
-  activeMenu === 'airtime' || 
-  activeMenu === 'data' || 
-  activeMenu === 'cable-tv' || 
-  activeMenu === 'electricity' || 
-  activeMenu === 'service-pricing' || 
-  activeMenu === 'service-status'
-? <ServiceManagement />
-: renderSubMenuContent()
-}
-        </div>
-      </div>
+    ? renderDashboardContent() 
+    : activeMenu === 'profile' 
+    ? renderProfileContent()
+    : activeMenu === 'users' || activeMenu === 'all-users'
+    ? renderUserManagementContent()
+    : activeMenu === 'transactions' || 
+      activeMenu === 'all-transactions' || 
+      activeMenu === 'failed-transactions' || 
+      activeMenu === 'pending-transactions' || 
+      activeMenu === 'refunds'
+    ? <TransactionManagement />
+    : activeMenu === 'services' || 
+      activeMenu === 'airtime' || 
+      activeMenu === 'data' || 
+      activeMenu === 'cable-tv' || 
+      activeMenu === 'electricity' || 
+      activeMenu === 'service-pricing' || 
+      activeMenu === 'service-status'
+    ? <ServiceManagement />
+    : activeMenu === 'financial' ||
+      activeMenu === 'revenue' ||
+      activeMenu === 'commission' ||
+      activeMenu === 'wallet' ||
+      activeMenu === 'settlements' ||
+      activeMenu === 'tax-reports'
+    ? <FinancialManagement />
+    : activeMenu === 'system' || 
+      activeMenu === 'api-config' || 
+      activeMenu === 'system-health' || 
+      activeMenu === 'error-logs'
+    ? <SystemManagement />
+    : activeMenu === 'admin' ||
+      activeMenu === 'admin-users' ||
+      activeMenu === 'permissions' ||
+      activeMenu === 'admin-logs'
+    ? <AdminManagement />
+    : activeMenu === 'notifications'
+    ? <NotificationManagement />
+    : activeMenu.startsWith('ticket-')
+    ? <SupportTicketDetail ticketId={activeMenu.replace('ticket-', '')} />
+    : renderSubMenuContent()
+  }
+</div>
+</div>
 
       {/* Backdrop for dropdown */}
       {showProfileDropdown && (

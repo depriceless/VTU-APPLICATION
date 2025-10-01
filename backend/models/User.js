@@ -39,11 +39,18 @@ const userSchema = new mongoose.Schema({
     minlength: [6, 'Password must be at least 6 characters'],
     select: false
   },
-  pin: {
-    type: String,
-    select: false,
-    match: [/^\d{4}$/, 'PIN must be exactly 4 digits']
-  },
+pin:{
+  type: String,
+  select: false,
+  validate: {
+    validator: function(v) {
+      if (!v) return true; // Allow empty/undefined
+      if (v.startsWith('$2')) return true; // Allow hashed PINs
+      return /^\d{4}$/.test(v); // Validate unhashed PINs
+    },
+    message: 'PIN must be exactly 4 digits'
+  }
+},
   isPinSetup: { type: Boolean, default: false },
   isEmailVerified: { type: Boolean, default: false },
   isPhoneVerified: { type: Boolean, default: false },
@@ -211,9 +218,10 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 userSchema.methods.comparePin = async function(candidatePin) {
-  if (!this.pin) throw new Error('PIN not set');
+  if (!this.pin) return false;
   return await bcrypt.compare(candidatePin, this.pin);
 };
+
 userSchema.methods.updateLastLogin = function() {
   this.lastLogin = new Date();
   return this.save();

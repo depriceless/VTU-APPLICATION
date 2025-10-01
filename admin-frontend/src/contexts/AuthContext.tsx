@@ -123,7 +123,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
         // Verify token in background (non-blocking)
         try {
-          const response = await fetch('http://localhost:5000/api/admin/auth/verify', {
+          const response = await fetch('http://192.168.126.7:5000/api/admin/auth/verify', {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${storedToken}`
@@ -265,7 +265,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     if (!authState.token) return false;
 
     try {
-      const response = await fetch('http://localhost:5000/api/admin/auth/refresh', {
+      const response = await fetch('http://192.168.126.7:5000/api/admin/auth/refresh', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

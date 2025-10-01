@@ -1,7 +1,5 @@
-import React, { useState, useEffect } from 'react';
-// Add this import at the top of your app/buy-airtime.tsx file
+import React, { useState, useEffect, useContext } from 'react';
 import SuccessModal from './SuccessModal';
-
 import {
   View,
   Text,
@@ -18,9 +16,15 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthContext } from '../contexts/AuthContext';
 
 // Your Replit API base URL
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
+
 interface Contact {
   id: string;
   name: string;
@@ -49,6 +53,8 @@ interface PinStatus {
 }
 
 export default function BuyAirtime() {
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
@@ -66,14 +72,13 @@ export default function BuyAirtime() {
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
 
-  // Add these state variables with your other useState declarations
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
   // Quick amount presets
   const quickAmounts = [100, 200, 500, 1000, 2000, 5000];
 
-  // ---------- Network Detection ----------
+  // Network Detection
   const detectNetwork = (phoneNumber: string): string | null => {
     const prefix = phoneNumber.substring(0, 4);
     const mtnPrefixes = ['0803', '0806', '0703', '0706', '0813', '0816', '0810', '0814', '0903', '0906', '0913', '0916'];
@@ -88,7 +93,7 @@ export default function BuyAirtime() {
     return null;
   };
 
-  // ---------- Validation ----------
+  // Validation
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const amountNum = parseInt(amount) || 0;
   const isAmountValid = amountNum >= 50 && amountNum <= 100000;
@@ -110,34 +115,32 @@ export default function BuyAirtime() {
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
-
-    // Debug function to check stored tokens
-    const debugTokenStorage = async () => {
-      console.log('🐛 DEBUG: Checking token storage...');
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const value = await AsyncStorage.getItem(key);
-        console.log(`🐛 ${key}:`, value ? `"${value}"` : 'null');
-      }
-    };
-
-    // Call debug function
-    debugTokenStorage();
-
-    // Add delay to ensure auth is ready
+    
+    // Initialize balance from AuthContext
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        lastUpdated: Date.now(),
+      });
+    }
+    
+    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
-    }, 2000); // Increased delay to 2 seconds
+    }, 1000);
   }, []);
 
   // Refresh balance when stepping to review page
- useEffect(() => {
-  if (currentStep === 2) {
-    fetchUserBalance();
-  }
-}, [currentStep]);
+  useEffect(() => {
+    if (currentStep === 2) {
+      fetchUserBalance();
+    }
+  }, [currentStep]);
+
   // Clear PIN when stepping to PIN entry
   useEffect(() => {
     if (currentStep === 3) {
@@ -152,222 +155,169 @@ export default function BuyAirtime() {
     saveFormState();
   }, [phone, amount, selectedNetwork]);
 
-  // ---------- FIXED API Helper Functions ----------
+  // FIXED: Simple token getter using AuthContext
   const getAuthToken = async () => {
+    if (!token) {
+      console.log('No token available from AuthContext');
+      throw new Error('Authentication required');
+    }
+    return token;
+  };
+
+  // FIXED: Updated API request function
+  const makeApiRequest = async (endpoint, options = {}) => {
+    console.log(`API Request: ${endpoint}`);
+    
     try {
-      // Try multiple possible token keys for compatibility
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
+      const authToken = await getAuthToken();
+      
+      const requestConfig = {
+        method: 'GET',
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...options.headers,
+        },
+      };
 
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        console.log(`🔍 Checking storage key "${key}":`, token ? `Found (${token.length} chars)` : 'Not found');
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+      const response = await fetch(fullUrl, requestConfig);
 
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
+      let responseText = '';
+      try {
+        responseText = await response.text();
+      } catch (textError) {
+        throw new Error('Unable to read server response');
+      }
 
-          // Basic JWT format validation (should have 3 parts separated by dots)
-          const tokenParts = cleanToken.split('.');
-          if (tokenParts.length === 3) {
-            console.log(`✅ Found valid JWT token with key: ${key}`);
-            console.log(`🔑 Token preview: ${cleanToken.substring(0, 30)}...`);
-            return cleanToken;
-          } else {
-            console.log(`⚠️ Token from "${key}" is not a valid JWT format (${tokenParts.length} parts)`);
-          }
+      let data = {};
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
         }
       }
 
-      // Log all storage contents for debugging
-      console.log('🔍 All AsyncStorage contents:');
-      const allKeys = await AsyncStorage.getAllKeys();
-      for (const key of allKeys) {
-        const value = await AsyncStorage.getItem(key);
-        console.log(`  ${key}: ${value ? `${value.substring(0, 50)}...` : 'null'}`);
+      // Handle authentication errors
+      if (response.status === 401) {
+        throw new Error('Session expired. Please login again.');
       }
 
-      console.log('❌ No valid JWT token found in any storage key');
-      throw new Error('No authentication token found');
+      if (!response.ok) {
+        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
+        
+        if (endpoint === '/purchase' && data && typeof data === 'object') {
+          const error = new Error(errorMessage);
+          (error as any).responseData = data;
+          (error as any).httpStatus = response.status;
+          throw error;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      return data;
+
     } catch (error) {
-      console.error('❌ Error getting auth token:', error);
-      throw new Error('Authentication required');
+      console.error(`API Error for ${endpoint}:`, error.message);
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        throw new Error('Network connection failed. Please check your internet connection.');
+      }
+
+      if (error.message.includes('Authentication') || 
+          error.message.includes('Session expired') ||
+          error.responseData) {
+        throw error;
+      }
+
+      throw new Error(error.message || 'Request failed');
     }
   };
 
-// Replace your makeApiRequest function with this cleaner version
-const makeApiRequest = async (endpoint, options = {}) => {
-  console.log(`🔵 API Request: ${endpoint}`);
-  
-  try {
-    // Get authentication token
-    const token = await getAuthToken();
-    console.log('🔑 Token obtained for API request');
-
-    const requestConfig = {
-      method: 'GET',
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options.headers,
-      },
-    };
-
-    const fullUrl = `${API_BASE_URL}${endpoint}`;
-    console.log('🌐 Request URL:', fullUrl);
-    console.log('📤 Method:', requestConfig.method);
-
-    if (requestConfig.body) {
-      console.log('📄 Request has body, length:', requestConfig.body.length);
-    }
-
-    const response = await fetch(fullUrl, requestConfig);
-    console.log('📊 Response status:', response.status, response.ok ? '✅' : '❌');
-
-    // Read response text
-    let responseText = '';
-    try {
-      responseText = await response.text();
-    } catch (textError) {
-      console.error('❌ Failed to read response text:', textError);
-      throw new Error('Unable to read server response');
-    }
-
-    // Parse JSON if response has content
-    let data = {};
-    if (responseText.trim()) {
-      try {
-        data = JSON.parse(responseText);
-        console.log('✅ JSON parsed, success:', data.success);
-      } catch (parseError) {
-        console.error('❌ JSON parse error:', parseError);
-        console.log('📄 Raw response preview:', responseText.substring(0, 200));
-        throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
-      }
-    } else {
-      console.log('⚠️ Empty response received');
-    }
-
-    // Handle authentication errors
-    if (response.status === 401) {
-      console.error('❌ 401 Unauthorized - clearing tokens');
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-      for (const key of tokenKeys) {
-        await AsyncStorage.removeItem(key);
-      }
-      throw new Error('Session expired. Please login again.');
-    }
-
-    // Handle other HTTP errors
-    if (!response.ok) {
-      const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-      console.error(`❌ API Error:`, errorMessage);
-      
-      // For specific endpoints, preserve the full error data
-      if (endpoint === '/purchase' && data && typeof data === 'object') {
-        const error = new Error(errorMessage);
-        (error as any).responseData = data;
-        (error as any).httpStatus = response.status;
-        throw error;
-      }
-      
-      throw new Error(errorMessage);
-    }
-
-    console.log('✅ API request successful');
-    return data;
-
-  } catch (error) {
-    console.error(`💥 API Error for ${endpoint}:`, error.message);
-
-    // Handle specific error types
-    if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-      throw new Error('Network connection failed. Please check your internet connection.');
-    }
-
-    // Re-throw auth errors and custom errors as-is
-    if (error.message.includes('Authentication') || 
-        error.message.includes('Session expired') ||
-        error.responseData) {
-      throw error;
-    }
-
-    // Generic error fallback
-    throw new Error(error.message || 'Request failed');
-  }
-};
-
-  // ---------- PIN Functions ----------
+  // PIN Functions
   const checkPinStatus = async () => {
-  try {
-    console.log('🔄 Checking PIN status...');
-    const token = await getAuthToken();
-    console.log('🔑 Using token for PIN status:', token.substring(0, 30) + '...');
-    
-    const response = await makeApiRequest('/purchase/pin-status');
-    console.log('✅ PIN status response:', JSON.stringify(response, null, 2));
-    
-    if (response.success) {
-      setPinStatus(response);
-    } else {
-      console.log('⚠️ PIN status check failed:', response);
-    }
-  } catch (error) {
-    console.error('❌ Error checking PIN status:', error);
-  }
-};
-
-const fetchUserBalance = async () => {
-  setIsLoadingBalance(true);
-  try {
-    console.log("🔄 Fetching balance from /balance");
-    const balanceData = await makeApiRequest("/balance");
-
-    if (balanceData.success && balanceData.balance) {
-      const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
-      
-      // Since you're not using bonus anymore, simplify the structure
-      const realBalance = {
-        main: balanceAmount,     // Main balance from your wallet model
-        bonus: 0,               // No bonus system
-        total: balanceAmount,   // Total = main since no bonus
-        amount: balanceAmount,  // Keep this for backward compatibility
-        currency: balanceData.balance.currency || "NGN",
-        lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
-      };
-
-      setUserBalance(realBalance);
-      await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-      console.log("✅ Balance fetched and stored:", realBalance);
-    } else {
-      throw new Error(balanceData.message || "Balance fetch failed");
-    }
-  } catch (error) {
-    console.error("❌ Balance fetch error:", error);
-    
-    // Try to use cached balance as fallback
     try {
-      const cachedBalance = await AsyncStorage.getItem("userBalance");
-      if (cachedBalance) {
-        const parsedBalance = JSON.parse(cachedBalance);
-        setUserBalance({
-          ...parsedBalance,
-          lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-        });
-        console.log("✅ Using cached balance:", parsedBalance);
+      console.log('Checking PIN status...');
+      const response = await makeApiRequest('/purchase/pin-status');
+      
+      if (response.success) {
+        setPinStatus(response);
+      }
+    } catch (error) {
+      console.error('Error checking PIN status:', error);
+    }
+  };
+
+  // FIXED: Updated balance fetch using AuthContext
+  const fetchUserBalance = async () => {
+    setIsLoadingBalance(true);
+    try {
+      console.log("Refreshing balance from AuthContext");
+      
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
+        
+        const realBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+        };
+
+        setUserBalance(realBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        console.log("Balance updated from AuthContext:", realBalance);
       } else {
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
+      }
+    } catch (error) {
+      console.error("Balance fetch error:", error);
+      
+      // Try to use cached balance as fallback
+      try {
+        const cachedBalance = await AsyncStorage.getItem("userBalance");
+        if (cachedBalance) {
+          const parsedBalance = JSON.parse(cachedBalance);
+          setUserBalance(parsedBalance);
+        } else {
+          setUserBalance(null);
+        }
+      } catch (cacheError) {
         setUserBalance(null);
       }
-    } catch (cacheError) {
-      console.error("❌ Cache error:", cacheError);
-      setUserBalance(null);
+    } finally {
+      setIsLoadingBalance(false);
     }
-  } finally {
-    setIsLoadingBalance(false);
-  }
-};
-
-
+  };
 
   const saveFormState = async () => {
     try {
@@ -423,16 +373,15 @@ const fetchUserBalance = async () => {
     }
   };
 
-  // ---------- Network logos ----------
-const networks = [
-  { id: 'mtn', label: 'MTN', logo: require('../assets/images/mtnlogo.jpg') },
-  { id: 'airtel', label: 'AIRTEL', logo: require('../assets/images/Airtelogo.png') },
-  { id: 'glo', label: 'GLO', logo: require('../assets/images/glologo.png') },
-  { id: '9mobile', label: '9MOBILE', logo: require('../assets/images/9mobilelogo.jpg') },
-];
+  // Network logos
+  const networks = [
+    { id: 'mtn', label: 'MTN', logo: require('../assets/images/mtnlogo.jpg') },
+    { id: 'airtel', label: 'AIRTEL', logo: require('../assets/images/Airtelogo.png') },
+    { id: 'glo', label: 'GLO', logo: require('../assets/images/glologo.png') },
+    { id: '9mobile', label: '9MOBILE', logo: require('../assets/images/9mobilelogo.jpg') },
+  ];
 
-
-  // ---------- Contact Selection ----------
+  // Contact Selection
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -496,117 +445,98 @@ const networks = [
     setAmount(quickAmount.toString());
   };
 
-// Add this enhanced debug version to your component
-// Replace your validatePinAndPurchase function with this clean version
-// Replace your validatePinAndPurchase function with this debug version
-const validatePinAndPurchase = async () => {
-  console.log('=== PAYMENT START ===');
-  
-  if (!isPinValid) {
-    console.log('❌ PIN invalid:', pin);
-    setPinError('PIN must be exactly 4 digits');
-    return;
-  }
+  // Payment processing
+  const validatePinAndPurchase = async () => {
+    console.log('=== PAYMENT START ===');
+    
+    if (!isPinValid) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
+    }
 
-  console.log('✅ Starting payment process...');
-  setIsValidatingPin(true);
-  setIsProcessingPayment(true);
-  setPinError('');
+    setIsValidatingPin(true);
+    setIsProcessingPayment(true);
+    setPinError('');
 
-  try {
-    console.log('📦 Payment payload:', {
-      type: 'airtime',
-      network: selectedNetwork,
-      phone: phone,
-      amount: amountNum,
-      pinProvided: !!pin
-    });
-
-    const response = await makeApiRequest('/purchase', {
-      method: 'POST',
-      body: JSON.stringify({
-        type: 'airtime',
-        network: selectedNetwork,
-        phone: phone,
-        amount: amountNum,
-        pin: pin,
-      }),
-    });
-
-    console.log('📊 Purchase response:', response);
-
-    if (response.success === true) {
-      console.log('🎉 Payment successful!');
-      
-      // Save recent number
-      await saveRecentNumber(phone);
-      
-      // Update balance - handle both response formats
-      if (response.newBalance) {
-        const balanceAmount = response.newBalance.amount || 
-                             response.newBalance.totalBalance || 
-                             response.newBalance.mainBalance || 0;
-        
-        const updatedBalance = {
-          main: balanceAmount,
-          bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          currency: response.newBalance.currency || "NGN",
-          lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-        };
-
-        setUserBalance(updatedBalance);
-        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-        console.log('💰 Balance updated:', updatedBalance);
-      }
-
-      // Clear form
-      await AsyncStorage.removeItem('airtimeFormState');
-
-      // Prepare success data
-      const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
-      setSuccessData({
-        transaction: response.transaction || {},
-        networkName,
-        phone,
-        amount: response.transaction?.amount || amountNum,
-        newBalance: response.newBalance
+    try {
+      const response = await makeApiRequest('/purchase', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'airtime',
+          network: selectedNetwork,
+          phone: phone,
+          amount: amountNum,
+          pin: pin,
+        }),
       });
 
-      setTimeout(() => {
-        setShowSuccessModal(true);
-      }, 300);
+      if (response.success === true) {
+        console.log('Payment successful!');
+        
+        // Save recent number
+        await saveRecentNumber(phone);
+        
+        // Update balance
+        if (response.newBalance) {
+          const balanceAmount = response.newBalance.amount || 
+                               response.newBalance.totalBalance || 
+                               response.newBalance.mainBalance || 0;
+          
+          const updatedBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: response.newBalance.currency || "NGN",
+            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+          };
 
-    } else {
-      console.log('❌ Payment failed:', response.message);
-      
-      // Handle specific PIN errors
-      if (response.message && response.message.toLowerCase().includes('pin')) {
-        setPinError(response.message);
+          setUserBalance(updatedBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+        }
+
+        // Clear form
+        await AsyncStorage.removeItem('airtimeFormState');
+
+        // Prepare success data
+        const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
+        setSuccessData({
+          transaction: response.transaction || {},
+          networkName,
+          phone,
+          amount: response.transaction?.amount || amountNum,
+          newBalance: response.newBalance
+        });
+
+        setTimeout(() => {
+          setShowSuccessModal(true);
+        }, 300);
+
+      } else {
+        if (response.message && response.message.toLowerCase().includes('pin')) {
+          setPinError(response.message);
+        }
+        
+        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
+
+    } catch (error) {
+      console.error('Payment error:', error);
       
-      Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
-    }
+      if (error.message.includes('locked') || error.message.includes('attempts')) {
+        setPinError(error.message);
+      } else if (error.message.includes('PIN')) {
+        setPinError(error.message);
+      } else {
+        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+      }
 
-  } catch (error) {
-    console.error('💥 Payment error:', error);
-    
-    // Handle different error types
-    if (error.message.includes('locked') || error.message.includes('attempts')) {
-      setPinError(error.message);
-    } else if (error.message.includes('PIN')) {
-      setPinError(error.message);
-    } else {
-      Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+    } finally {
+      setIsValidatingPin(false);
+      setIsProcessingPayment(false);
+      console.log('=== PAYMENT END ===');
     }
-
-  } finally {
-    setIsValidatingPin(false);
-    setIsProcessingPayment(false);
-    console.log('=== PAYMENT END ===');
-  }
-};
+  };
 
   const getNetworkSpecificValidation = (number: string): string => {
     if (!isPhoneValid) return 'Enter valid 11-digit number starting with 070, 080, 081, or 090';
@@ -619,19 +549,14 @@ const validatePinAndPurchase = async () => {
     return '';
   };
 
-  // Add these handler functions (put them before your return statement)
   const handleCloseSuccessModal = () => {
-    console.log('User closed success modal');
     setShowSuccessModal(false);
     setSuccessData(null);
   };
 
   const handleBuyMoreAirtime = () => {
-    console.log('User selected: Buy More Airtime');
     setShowSuccessModal(false);
     setSuccessData(null);
-
-    // Reset form
     setCurrentStep(1);
     setPhone('');
     setAmount('');
@@ -642,10 +567,7 @@ const validatePinAndPurchase = async () => {
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Buy Airtime</Text>
-      </View>
+      
 
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
@@ -782,85 +704,84 @@ const validatePinAndPurchase = async () => {
         </ScrollView>
       )}
 
-     {/* STEP 2: REVIEW/SUMMARY */}
-{currentStep === 2 && (
-  <ScrollView
-    style={styles.scrollContent}
-    contentContainerStyle={{ paddingBottom: 40 }}
-  >
-    {/* Balance Card - Updated for simplified structure */}
-{/* Balance Card - Simplified professional display */}
-<View style={styles.balanceCard}>
-  <View style={styles.balanceHeader}>
-    <Text style={styles.balanceTitle}>Wallet Balance</Text>
-    <TouchableOpacity 
-      style={styles.refreshBtn} 
-      onPress={fetchUserBalance}
-      disabled={isLoadingBalance}
-    >
-      {isLoadingBalance ? (
-        <ActivityIndicator size="small" color="#ff3b30" />
-      ) : (
-        <Text style={styles.refreshText}>🔄</Text>
-      )}
-    </TouchableOpacity>
-  </View>
-
-  {userBalance ? (
-    <>
-      <Text style={styles.totalBalance}>
-        ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
-      </Text>
-
-      <Text style={styles.lastUpdated}>
-        Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-      </Text>
-
-      {/* Show balance after transaction */}
-      {amountNum > 0 && (
-        <View style={styles.transactionPreview}>
-          <Text style={styles.previewLabel}>After purchase:</Text>
-          <Text style={[
-            styles.previewAmount,
-            (userBalance.total - amountNum) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-          ]}>
-            ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum).toLocaleString()}
-          </Text>
-        </View>
-      )}
-
-      {/* Insufficient balance warning */}
-      {amountNum > (userBalance.total || userBalance.amount || 0) && (
-        <View style={styles.insufficientBalanceWarning}>
-          <Text style={styles.warningText}>
-            ⚠️ Insufficient balance for this transaction
-          </Text>
-          <TouchableOpacity 
-            style={styles.topUpBtn}
-            onPress={() => {/* Navigate to top-up */}}
-          >
-            <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </>
-  ) : (
-    <View style={styles.loadingBalance}>
-      <Text style={styles.noBalanceText}>
-        {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
-      </Text>
-      {!isLoadingBalance && (
-        <TouchableOpacity 
-          style={styles.retryBtn}
-          onPress={fetchUserBalance}
+      {/* STEP 2: REVIEW/SUMMARY */}
+      {currentStep === 2 && (
+        <ScrollView
+          style={styles.scrollContent}
+          contentContainerStyle={{ paddingBottom: 40 }}
         >
-          <Text style={styles.retryBtnText}>Tap to Retry</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  )}
-</View>
-    
+          {/* Balance Card */}
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceHeader}>
+              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <TouchableOpacity 
+                style={styles.refreshBtn} 
+                onPress={fetchUserBalance}
+                disabled={isLoadingBalance}
+              >
+                {isLoadingBalance ? (
+                  <ActivityIndicator size="small" color="#ff3b30" />
+                ) : (
+                  <Text style={styles.refreshText}>🔄</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {userBalance ? (
+              <>
+                <Text style={styles.totalBalance}>
+                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                </Text>
+
+                <Text style={styles.lastUpdated}>
+                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
+                </Text>
+
+                {/* Show balance after transaction */}
+                {amountNum > 0 && (
+                  <View style={styles.transactionPreview}>
+                    <Text style={styles.previewLabel}>After purchase:</Text>
+                    <Text style={[
+                      styles.previewAmount,
+                      (userBalance.total - amountNum) < 0 ? styles.insufficientPreview : styles.sufficientPreview
+                    ]}>
+                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+
+                {/* Insufficient balance warning */}
+                {amountNum > (userBalance.total || userBalance.amount || 0) && (
+                  <View style={styles.insufficientBalanceWarning}>
+                    <Text style={styles.warningText}>
+                      ⚠️ Insufficient balance for this transaction
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.topUpBtn}
+                      onPress={() => {/* Navigate to top-up */}}
+                    >
+                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.loadingBalance}>
+                <Text style={styles.noBalanceText}>
+                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+                </Text>
+                {!isLoadingBalance && (
+                  <TouchableOpacity 
+                    style={styles.retryBtn}
+                    onPress={fetchUserBalance}
+                  >
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
+          
           {/* Summary Card */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Purchase Summary</Text>
@@ -1151,7 +1072,7 @@ const validatePinAndPurchase = async () => {
         </View>
       </Modal>
 
-      {/* Add this to your JSX return statement (at the very end, just before the closing </View>) */}
+      {/* Success Modal */}
       {showSuccessModal && successData && (
         <SuccessModal
           visible={showSuccessModal}
@@ -1168,33 +1089,16 @@ const validatePinAndPurchase = async () => {
   );
 }
 
-// ---------- Styles ----------
+// Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
 
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 3,
-    // Updated shadow styles for modern compatibility
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  
 
-  scrollContent: { 
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
-    flex: 1 
-  },
+
+ scrollContent: { 
+  flex: 1 
+},
 
   section: { margin: 16, marginBottom: 24 },
   label: { 
@@ -1293,7 +1197,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#ff3b30',
     alignItems: 'center',
-    // Updated shadow styles
     shadowColor: '#ff3b30',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -1423,31 +1326,6 @@ const styles = StyleSheet.create({
     color: '#28a745',
     textAlign: 'center',
     marginBottom: 16,
-  },
-  balanceBreakdown: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  balanceItem: {
-    alignItems: 'center',
-  },
-  balanceLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  balanceAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  balanceBonusAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ff8c00',
   },
   lastUpdated: {
     fontSize: 11,
@@ -1735,29 +1613,29 @@ const styles = StyleSheet.create({
   },
 
   transactionPreview: {
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  marginTop: 12,
-  paddingTop: 12,
-  borderTopWidth: 1,
-  borderTopColor: '#f0f0f0',
-},
-previewLabel: {
-  fontSize: 14,
-  color: '#666',
-  fontWeight: '500',
-},
-previewAmount: {
-  fontSize: 16,
-  fontWeight: '600',
-},
-sufficientPreview: {
-  color: '#28a745',
-},
-insufficientPreview: {
-  color: '#dc3545',
-},
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  previewLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  previewAmount: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sufficientPreview: {
+    color: '#28a745',
+  },
+  insufficientPreview: {
+    color: '#dc3545',
+  },
 
   emptyText: {
     textAlign: 'center',

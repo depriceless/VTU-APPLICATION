@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
+import DataSuccessModal from './DataSuccessModal';
 import {
   View,
   Text,
@@ -15,12 +16,15 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import DataSuccessModal from './DataSuccessModal';
+import { AuthContext } from '../contexts/AuthContext';
 
-// API base URL - update this to your actual API URL
-const API_BASE_URL = 'http://localhost:5000/api';
+// Your Replit API base URL
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
 
-// Interfaces (unchanged)
 interface Contact {
   id: string;
   name: string;
@@ -58,6 +62,8 @@ interface DataPlan {
 }
 
 export default function BuyData() {
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<DataPlan | null>(null);
@@ -79,9 +85,8 @@ export default function BuyData() {
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [showPlans, setShowPlans] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Network Detection (unchanged)
+  // Network Detection
   const detectNetwork = (phoneNumber: string): string | null => {
     const prefix = phoneNumber.substring(0, 4);
     const mtnPrefixes = ['0803', '0806', '0703', '0706', '0813', '0816', '0810', '0814', '0903', '0906', '0913', '0916'];
@@ -96,17 +101,13 @@ export default function BuyData() {
     return null;
   };
 
-  // Validation (unchanged)
+  // Validation
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
- const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.amount <= userBalance.total : true;
-const canProceed = isPhoneValid && 
-                   selectedNetwork && 
-                   selectedPlan && 
-                   !isLoadingPlans &&
-                   !authError;
+  const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.amount <= userBalance.total : true;
+  const canProceed = isPhoneValid && selectedNetwork && selectedPlan && !isLoadingPlans;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Auto-detect network when phone changes (unchanged)
+  // Auto-detect network when phone changes
   useEffect(() => {
     if (isPhoneValid) {
       const detectedNetwork = detectNetwork(phone);
@@ -132,7 +133,23 @@ const canProceed = isPhoneValid &&
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
-    initializeData();
+    
+    // Initialize balance from AuthContext
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        lastUpdated: Date.now(),
+      });
+    }
+    
+    // Fetch updated data
+    setTimeout(() => {
+      fetchUserBalance();
+      checkPinStatus();
+    }, 1000);
   }, []);
 
   // Refresh balance when stepping to review page
@@ -151,92 +168,91 @@ const canProceed = isPhoneValid &&
     }
   }, [currentStep]);
 
-  // Initialize data with better error handling
-  const initializeData = async () => {
-    try {
-      await fetchUserBalance();
-      await checkPinStatus();
-    } catch (error) {
-      console.log('Initialization completed with some errors:', error.message);
-    }
-  };
+  // Save form state whenever it changes
+  useEffect(() => {
+    saveFormState();
+  }, [phone, selectedNetwork, selectedPlan]);
 
-  // Improved authentication token getter
-  const getAuthToken = async (): Promise<string> => {
-    try {
-      // Try to get token from common storage keys
-      const tokenKeys = [
-        'userToken', 'authToken', 'token', 'accessToken', 
-        'userData', 'authData', 'user'
-      ];
-      
-      for (const key of tokenKeys) {
-        try {
-          const item = await AsyncStorage.getItem(key);
-          if (item) {
-            // If it's a JSON string, parse it
-            try {
-              const parsed = JSON.parse(item);
-              if (parsed.token) return parsed.token;
-              if (parsed.accessToken) return parsed.accessToken;
-              if (parsed.authToken) return parsed.authToken;
-            } catch (e) {
-              // If it's not JSON, use it as is if it looks like a token
-              if (typeof item === 'string' && item.length > 20) {
-                return item;
-              }
-            }
-          }
-        } catch (error) {
-          console.log(`Error retrieving ${key}:`, error);
-        }
-      }
-      
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('Auth token retrieval error:', error);
-      setAuthError('Please login to continue');
+  // FIXED: Simple token getter using AuthContext
+  const getAuthToken = async () => {
+    if (!token) {
+      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
+    return token;
   };
 
-  // Improved API request handler
-  const makeApiRequest = async (endpoint: string, options: any = {}) => {
+  // FIXED: Updated API request function
+  const makeApiRequest = async (endpoint, options = {}) => {
+    console.log(`API Request: ${endpoint}`);
+    
     try {
-      let token;
-      try {
-        token = await getAuthToken();
-        setAuthError(null);
-      } catch (authError) {
-        setAuthError('Please login to continue');
-        throw new Error('Authentication required');
-      }
-
-      const requestOptions = {
+      const authToken = await getAuthToken();
+      
+      const requestConfig = {
+        method: 'GET',
         ...options,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
+          'Accept': 'application/json',
           ...options.headers,
         },
       };
 
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, requestOptions);
-      
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+      const response = await fetch(fullUrl, requestConfig);
+
+      let responseText = '';
+      try {
+        responseText = await response.text();
+      } catch (textError) {
+        throw new Error('Unable to read server response');
+      }
+
+      let data = {};
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
+        }
+      }
+
+      // Handle authentication errors
+      if (response.status === 401) {
+        throw new Error('Session expired. Please login again.');
+      }
+
       if (!response.ok) {
-        if (response.status === 401) {
-          setAuthError('Session expired. Please login again.');
-          throw new Error('Authentication failed');
+        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
+        
+        if (endpoint === '/purchase' && data && typeof data === 'object') {
+          const error = new Error(errorMessage);
+          (error as any).responseData = data;
+          (error as any).httpStatus = response.status;
+          throw error;
         }
         
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Request failed with status ${response.status}`);
+        throw new Error(errorMessage);
       }
-      
-      return await response.json();
+
+      return data;
+
     } catch (error) {
-      console.error(`API request error for ${endpoint}:`, error);
-      throw error;
+      console.error(`API Error for ${endpoint}:`, error.message);
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        throw new Error('Network connection failed. Please check your internet connection.');
+      }
+
+      if (error.message.includes('Authentication') || 
+          error.message.includes('Session expired') ||
+          error.responseData) {
+        throw error;
+      }
+
+      throw new Error(error.message || 'Request failed');
     }
   };
 
@@ -260,186 +276,87 @@ const canProceed = isPhoneValid &&
     }
   };
 
-  // Check PIN status
+  // PIN Functions
   const checkPinStatus = async () => {
     try {
+      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
       
       if (response.success) {
         setPinStatus(response);
-      } else {
-        // Set default values if API fails
-        setPinStatus({
-          isPinSet: true,
-          hasPinSet: true,
-          isLocked: false,
-          lockTimeRemaining: 0,
-          attemptsRemaining: 3,
-        });
       }
     } catch (error) {
       console.error('Error checking PIN status:', error);
-      // Set default values on error
-      setPinStatus({
-        isPinSet: true,
-        hasPinSet: true,
-        isLocked: false,
-        lockTimeRemaining: 0,
-        attemptsRemaining: 3,
-      });
     }
   };
 
-  // Fetch user balance
+  // FIXED: Updated balance fetch using AuthContext
   const fetchUserBalance = async () => {
-  setIsLoadingBalance(true);
-  try {
-    console.log("🔄 Fetching balance from /balance");
-    const balanceData = await makeApiRequest("/balance");
-
-    if (balanceData.success && balanceData.balance) {
-      const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+    setIsLoadingBalance(true);
+    try {
+      console.log("Refreshing balance from AuthContext");
       
-      // Use same structure as airtime component
-      const realBalance = {
-        main: balanceAmount,     // Main balance from your wallet model
-        bonus: 0,               // No bonus system
-        total: balanceAmount,   // Total = main since no bonus
-        amount: balanceAmount,  // Keep this for backward compatibility
-        currency: balanceData.balance.currency || "NGN",
-        lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
-      };
-
-      setUserBalance(realBalance);
-      await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-      console.log("✅ Balance fetched and stored:", realBalance);
-    } else {
-      throw new Error(balanceData.message || "Balance fetch failed");
-    }
-  } catch (error) {
-    console.error("❌ Balance fetch error:", error);
-    
-    // Try to use cached balance as fallback
-    try {
-      const cachedBalance = await AsyncStorage.getItem("userBalance");
-      if (cachedBalance) {
-        const parsedBalance = JSON.parse(cachedBalance);
-        setUserBalance({
-          ...parsedBalance,
-          lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-        });
-        console.log("✅ Using cached balance:", parsedBalance);
-      } else {
-        setUserBalance(null);
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
       }
-    } catch (cacheError) {
-      console.error("❌ Cache error:", cacheError);
-      setUserBalance(null);
-    }
-  } finally {
-    setIsLoadingBalance(false);
-  }
-};
-
-  // FIXED: Combined PIN validation and payment processing
-  const processPayment = async () => {
-    if (!isPinValid) {
-      setPinError('PIN must be exactly 4 digits');
-      return;
-    }
-
-    setIsProcessingPayment(true);
-    setPinError('');
-
-    try {
-      // FIXED: Send the correct data structure that matches the backend expectations
-      const purchaseData = {
-        type: 'data',
-        network: selectedNetwork,
-        phone: phone,
-        planId: selectedPlan?.id, // FIXED: Send planId instead of plan object
-        plan: selectedPlan?.name, // Also send plan name for backend processing
-        amount: selectedPlan?.amount,
-        pin: pin,
-      };
-
-      console.log('Sending purchase data:', purchaseData); // Debug log
-
-      const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify(purchaseData),
-      });
-
-      if (response.success) {
-        // Save to recent numbers
-        await saveRecentNumber(phone);
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
         
-        // Update balance
-       if (response.newBalance) {
-  const balanceAmount = response.newBalance.amount || 
-                       response.newBalance.totalBalance || 
-                       response.newBalance.mainBalance || 0;
-  
-  const updatedBalance = {
-    main: balanceAmount,
-    bonus: 0,
-    total: balanceAmount,
-    amount: balanceAmount,
-    currency: response.newBalance.currency || "NGN",
-    lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-  };
+        const realBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+        };
 
-  setUserBalance(updatedBalance);
-  await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-  console.log('💰 Balance updated:', updatedBalance);
-}
-
-        // Show success
-        setSuccessData({
-          transaction: response.transaction,
-          networkName: networks.find(n => n.id === selectedNetwork)?.label,
-          phone,
-          amount: selectedPlan?.amount,
-          dataPlan: selectedPlan?.name,
-          newBalance: response.newBalance
-        });
-        
-        setShowSuccessModal(true);
-        
-        // Clear form state
-        await AsyncStorage.removeItem('dataFormState');
+        setUserBalance(realBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        // Handle specific error cases
-        if (response.message?.includes('Invalid PIN')) {
-          setPinError(response.message);
-        } else if (response.message?.includes('locked')) {
-          setPinError(response.message);
-          // Refresh PIN status
-          await checkPinStatus();
-        } else {
-          Alert.alert('Purchase Failed', response.message || 'Transaction failed');
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
         }
       }
     } catch (error) {
-      console.error('Payment processing error:', error);
+      console.error("Balance fetch error:", error);
       
-      // Handle specific error types
-      if (error.message?.includes('Invalid PIN')) {
-        setPinError(error.message);
-      } else if (error.message?.includes('locked')) {
-        setPinError(error.message);
-        await checkPinStatus();
-      } else if (error.message?.includes('Authentication')) {
-        setAuthError(error.message);
-      } else {
-        Alert.alert('Error', error.message || 'Payment processing failed');
+      // Try to use cached balance as fallback
+      try {
+        const cachedBalance = await AsyncStorage.getItem("userBalance");
+        if (cachedBalance) {
+          const parsedBalance = JSON.parse(cachedBalance);
+          setUserBalance(parsedBalance);
+        } else {
+          setUserBalance(null);
+        }
+      } catch (cacheError) {
+        setUserBalance(null);
       }
     } finally {
-      setIsProcessingPayment(false);
+      setIsLoadingBalance(false);
     }
   };
 
-  // Storage functions (unchanged)
   const saveFormState = async () => {
     try {
       const formState = { phone, selectedNetwork, selectedPlan };
@@ -502,7 +419,7 @@ const canProceed = isPhoneValid &&
     { id: '9mobile', label: '9MOBILE', logo: require('../assets/images/9mobilelogo.jpg') },
   ];
 
-  // Contact selection functions (unchanged)
+  // Contact Selection
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -566,9 +483,104 @@ const canProceed = isPhoneValid &&
     Alert.alert('Info', 'This would use your registered phone number. For demo, please enter a number manually.');
   };
 
-  // Quick amount selection for data plans
   const handleQuickPlanSelect = (plan: DataPlan) => {
     setSelectedPlan(plan);
+  };
+
+  // Payment processing
+  const validatePinAndPurchase = async () => {
+    console.log('=== DATA PAYMENT START ===');
+    
+    if (!isPinValid) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
+    }
+
+    setIsValidatingPin(true);
+    setIsProcessingPayment(true);
+    setPinError('');
+
+    try {
+      const response = await makeApiRequest('/purchase', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'data',
+          network: selectedNetwork,
+          phone: phone,
+          planId: selectedPlan?.id,
+          plan: selectedPlan?.name,
+          amount: selectedPlan?.amount,
+          pin: pin,
+        }),
+      });
+
+      if (response.success === true) {
+        console.log('Data payment successful!');
+        
+        // Save recent number
+        await saveRecentNumber(phone);
+        
+        // Update balance
+        if (response.newBalance) {
+          const balanceAmount = response.newBalance.amount || 
+                               response.newBalance.totalBalance || 
+                               response.newBalance.mainBalance || 0;
+          
+          const updatedBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: response.newBalance.currency || "NGN",
+            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(updatedBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+        }
+
+        // Clear form
+        await AsyncStorage.removeItem('dataFormState');
+
+        // Prepare success data
+        const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
+        setSuccessData({
+          transaction: response.transaction || {},
+          networkName,
+          phone,
+          amount: response.transaction?.amount || selectedPlan?.amount,
+          dataPlan: selectedPlan?.name,
+          newBalance: response.newBalance
+        });
+
+        setTimeout(() => {
+          setShowSuccessModal(true);
+        }, 300);
+
+      } else {
+        if (response.message && response.message.toLowerCase().includes('pin')) {
+          setPinError(response.message);
+        }
+        
+        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
+      }
+
+    } catch (error) {
+      console.error('Data payment error:', error);
+      
+      if (error.message.includes('locked') || error.message.includes('attempts')) {
+        setPinError(error.message);
+      } else if (error.message.includes('PIN')) {
+        setPinError(error.message);
+      } else {
+        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+      }
+
+    } finally {
+      setIsValidatingPin(false);
+      setIsProcessingPayment(false);
+      console.log('=== DATA PAYMENT END ===');
+    }
   };
 
   const getNetworkSpecificValidation = (number: string): string => {
@@ -598,31 +610,9 @@ const canProceed = isPhoneValid &&
     setPinError('');
   };
 
-  const handleLoginRedirect = () => {
-    setAuthError(null);
-    // Add your navigation logic here to go to login screen
-    console.log('Navigate to login screen');
-  };
-
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Buy Data</Text>
-      </View>
-
-      {/* Auth Error Banner */}
-      {authError && (
-        <View style={styles.authErrorBanner}>
-          <Text style={styles.authErrorText}>🔐 {authError}</Text>
-          <TouchableOpacity 
-            style={styles.loginButton}
-            onPress={handleLoginRedirect}
-          >
-            <Text style={styles.loginButtonText}>Login</Text>
-          </TouchableOpacity>
-        </View>
-      )}
+   
 
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
@@ -765,78 +755,77 @@ const canProceed = isPhoneValid &&
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          
-         {/* Balance Card - Fixed version matching the airtime component */}
-<View style={styles.balanceCard}>
-  <View style={styles.balanceHeader}>
-    <Text style={styles.balanceTitle}>Wallet Balance</Text>
-    <TouchableOpacity 
-      style={styles.refreshBtn} 
-      onPress={fetchUserBalance}
-      disabled={isLoadingBalance}
-    >
-      {isLoadingBalance ? (
-        <ActivityIndicator size="small" color="#ff3b30" />
-      ) : (
-        <Text style={styles.refreshText}>🔄</Text>
-      )}
-    </TouchableOpacity>
-  </View>
+          {/* Balance Card */}
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceHeader}>
+              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <TouchableOpacity 
+                style={styles.refreshBtn} 
+                onPress={fetchUserBalance}
+                disabled={isLoadingBalance}
+              >
+                {isLoadingBalance ? (
+                  <ActivityIndicator size="small" color="#ff3b30" />
+                ) : (
+                  <Text style={styles.refreshText}>🔄</Text>
+                )}
+              </TouchableOpacity>
+            </View>
 
-  {userBalance ? (
-    <>
-      <Text style={styles.totalBalance}>
-        ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
-      </Text>
+            {userBalance ? (
+              <>
+                <Text style={styles.totalBalance}>
+                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                </Text>
 
-      <Text style={styles.lastUpdated}>
-        Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-      </Text>
+                <Text style={styles.lastUpdated}>
+                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
+                </Text>
 
-      {/* Show balance after transaction */}
-      {selectedPlan && (
-        <View style={styles.transactionPreview}>
-          <Text style={styles.previewLabel}>After purchase:</Text>
-          <Text style={[
-            styles.previewAmount,
-            (userBalance.total - selectedPlan.amount) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-          ]}>
-            ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.amount).toLocaleString()}
-          </Text>
-        </View>
-      )}
+                {/* Show balance after transaction */}
+                {selectedPlan && (
+                  <View style={styles.transactionPreview}>
+                    <Text style={styles.previewLabel}>After purchase:</Text>
+                    <Text style={[
+                      styles.previewAmount,
+                      (userBalance.total - selectedPlan.amount) < 0 ? styles.insufficientPreview : styles.sufficientPreview
+                    ]}>
+                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.amount).toLocaleString()}
+                    </Text>
+                  </View>
+                )}
 
-      {/* Insufficient balance warning */}
-      {selectedPlan && selectedPlan.amount > (userBalance.total || userBalance.amount || 0) && (
-        <View style={styles.insufficientBalanceWarning}>
-          <Text style={styles.warningText}>
-            ⚠️ Insufficient balance for this transaction
-          </Text>
-          <TouchableOpacity 
-            style={styles.topUpBtn}
-            onPress={() => {/* Navigate to top-up */}}
-          >
-            <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </>
-  ) : (
-    <View style={styles.loadingBalance}>
-      <Text style={styles.noBalanceText}>
-        {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
-      </Text>
-      {!isLoadingBalance && (
-        <TouchableOpacity 
-          style={styles.retryBtn}
-          onPress={fetchUserBalance}
-        >
-          <Text style={styles.retryBtnText}>Tap to Retry</Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  )}
-</View>
+                {/* Insufficient balance warning */}
+                {selectedPlan && selectedPlan.amount > (userBalance.total || userBalance.amount || 0) && (
+                  <View style={styles.insufficientBalanceWarning}>
+                    <Text style={styles.warningText}>
+                      ⚠️ Insufficient balance for this transaction
+                    </Text>
+                    <TouchableOpacity 
+                      style={styles.topUpBtn}
+                      onPress={() => {/* Navigate to top-up */}}
+                    >
+                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            ) : (
+              <View style={styles.loadingBalance}>
+                <Text style={styles.noBalanceText}>
+                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+                </Text>
+                {!isLoadingBalance && (
+                  <TouchableOpacity 
+                    style={styles.retryBtn}
+                    onPress={fetchUserBalance}
+                  >
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          </View>
 
           {/* Summary Card */}
           <View style={styles.summaryCard}>
@@ -926,14 +915,13 @@ const canProceed = isPhoneValid &&
           <TouchableOpacity
             style={[
               styles.proceedBtn, 
-              (!hasEnoughBalance || authError) && styles.proceedDisabled
+              !hasEnoughBalance && styles.proceedDisabled
             ]}
-            disabled={!hasEnoughBalance || !!authError}
+            disabled={!hasEnoughBalance}
             onPress={() => setCurrentStep(3)}
           >
             <Text style={styles.proceedText}>
-              {authError ? 'Please Login First' : 
-               !hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
             </Text>
           </TouchableOpacity>
 
@@ -978,7 +966,7 @@ const canProceed = isPhoneValid &&
             </View>
           )}
 
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && !authError && (
+          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
             <>
               {/* Transaction Summary */}
               <View style={styles.pinSummaryCard}>
@@ -1069,16 +1057,16 @@ const canProceed = isPhoneValid &&
               <TouchableOpacity
                 style={[
                   styles.proceedBtn,
-                  (!isPinValid || isProcessingPayment) && styles.proceedDisabled
+                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
                 ]}
-                disabled={!isPinValid || isProcessingPayment}
-                onPress={processPayment}
+                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+                onPress={validatePinAndPurchase}
               >
-                {isProcessingPayment ? (
+                {isValidatingPin || isProcessingPayment ? (
                   <View style={styles.loadingRow}>
                     <ActivityIndicator size="small" color="#fff" />
                     <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      Processing Payment...
+                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
                     </Text>
                   </View>
                 ) : (
@@ -1090,24 +1078,11 @@ const canProceed = isPhoneValid &&
             </>
           )}
 
-          {authError && (
-            <View style={styles.authErrorCard}>
-              <Text style={styles.authErrorCardTitle}>🔐 Authentication Required</Text>
-              <Text style={styles.authErrorCardText}>{authError}</Text>
-              <TouchableOpacity 
-                style={styles.loginCardButton}
-                onPress={handleLoginRedirect}
-              >
-                <Text style={styles.loginCardButtonText}>Login Now</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
           {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(2)}
-            disabled={isProcessingPayment}
+            disabled={isValidatingPin || isProcessingPayment}
           >
             <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
           </TouchableOpacity>
@@ -1203,94 +1178,12 @@ const canProceed = isPhoneValid &&
 // Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  authErrorBanner: {
-    backgroundColor: '#fff3cd',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffeaa7',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
-  },
-  authErrorText: {
-    color: '#856404',
-    fontSize: 12,
-    fontWeight: '500',
-    flex: 1,
-  },
-  loginButton: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  authErrorCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
-    alignItems: 'center',
-  },
-  authErrorCardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  authErrorCardText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  loginCardButton: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-  },
-  loginCardButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  scrollContent: { 
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
-    flex: 1 
-  },
+
+
+scrollContent: { 
+  flex: 1 
+},
+
   section: { margin: 16, marginBottom: 24 },
   label: { 
     fontSize: 16, 
@@ -1298,6 +1191,7 @@ const styles = StyleSheet.create({
     marginBottom: 8, 
     color: '#333' 
   },
+
   buttonRow: { flexDirection: 'row' },
   actionBtn: {
     borderWidth: 1,
@@ -1308,6 +1202,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
+
   networkRow: { 
     flexDirection: 'row', 
     justifyContent: 'space-between',
@@ -1330,6 +1225,7 @@ const styles = StyleSheet.create({
   },
   networkLogo: { width: 40, height: 40, resizeMode: 'contain', marginBottom: 4 },
   networkLabel: { fontSize: 10, fontWeight: '600', color: '#666' },
+
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -1350,6 +1246,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '500'
   },
+
   proceedBtn: {
     margin: 16,
     padding: 16,
@@ -1372,6 +1269,7 @@ const styles = StyleSheet.create({
     fontSize: 16, 
     fontWeight: '600' 
   },
+
   backBtn: {
     backgroundColor: '#6c757d',
     marginTop: 8,
@@ -1380,11 +1278,13 @@ const styles = StyleSheet.create({
   backBtnText: {
     color: '#fff',
   },
+
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
+
   summaryCard: {
     margin: 16,
     padding: 20,
@@ -1444,6 +1344,8 @@ const styles = StyleSheet.create({
     color: '#ff3b30',
     fontWeight: '700',
   },
+
+  // Balance Card Styles
   balanceCard: {
     margin: 16,
     padding: 20,
@@ -1480,31 +1382,6 @@ const styles = StyleSheet.create({
     color: '#28a745',
     textAlign: 'center',
     marginBottom: 16,
-  },
-  balanceBreakdown: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  balanceItem: {
-    alignItems: 'center',
-  },
-  balanceLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  balanceAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  balanceBonusAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ff8c00',
   },
   lastUpdated: {
     fontSize: 11,
@@ -1568,6 +1445,8 @@ const styles = StyleSheet.create({
   negativeBalance: {
     color: '#dc3545',
   },
+
+  // PIN Entry Styles
   pinCard: {
     margin: 16,
     padding: 24,
@@ -1644,6 +1523,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
+
   pinSummaryCard: {
     margin: 16,
     padding: 20,
@@ -1664,6 +1544,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
+
   attemptsWarning: {
     color: '#ff8c00',
     fontSize: 14,
@@ -1674,6 +1555,8 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
   },
+
+  // Account Locked Styles
   lockedCard: {
     margin: 16,
     padding: 20,
@@ -1701,6 +1584,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 20,
   },
+
+  // No PIN Set Styles
   noPinCard: {
     margin: 16,
     padding: 20,
@@ -1728,6 +1613,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 20,
   },
+
+  // Modal Styles
   modalContainer: { 
     flex: 1, 
     backgroundColor: '#fff',
@@ -1754,6 +1641,7 @@ const styles = StyleSheet.create({
     color: '#666',
     fontWeight: 'bold',
   },
+
   contactItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1779,12 +1667,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
   },
+
+  transactionPreview: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  previewLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  previewAmount: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  sufficientPreview: {
+    color: '#28a745',
+  },
+  insufficientPreview: {
+    color: '#dc3545',
+  },
+
   emptyText: {
     textAlign: 'center',
     color: '#999',
     fontSize: 16,
     marginTop: 40,
   },
+
+  // Data Plan Styles
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',

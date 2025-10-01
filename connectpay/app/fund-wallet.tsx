@@ -1,80 +1,125 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert 
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert
 } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
+import { Ionicons } from '@expo/vector-icons';
 
-// ✅ IMPROVED: Better TypeScript interfaces
-type PaymentMethod = 'palmpay' | 'wema' | 'sterling' | 'manual' | 'card';
-
-interface BankData {
-  bankName: string;
-  accountName: string;
-  accountNumber: string;
-  reference?: string;
-}
-
-interface CardInfo {
-  cardNumber: string;
-  expiry: string;
-  cvv: string;
-}
-
-interface FundWalletProps {
-  onClose?: () => void;
-  onSuccess?: () => void;
-  token?: string;
-  currentBalance?: number;
-}
-
-// ✅ NEW: API Configuration - centralized and easily configurable
 const API_CONFIG = {
-  BASE_URL: 'https://your-backend.com/api', // Replace with actual API URL
+  BASE_URL: 'http://10.157.13.7:5000/api',
   ENDPOINTS: {
-    PAYMENT_METHODS: '/payment-methods',
-    CREATE_ACCOUNT: '/create-account',
-    PAY_CARD: '/pay-card',
-    FUND_WALLET: '/fund-wallet'
+    CREATE_ACCOUNT: '/monnify/create-reserved-account',
+    GET_ACCOUNTS: '/monnify/user-accounts',
   }
 };
 
-// ✅ NEW: Payment method configurations
 const PAYMENT_METHODS = [
-  { id: 'palmpay', label: 'PALMPAY', icon: 'card-outline' },
-  { id: 'wema', label: 'WEMA BANK', icon: 'business-outline' },
-  { id: 'sterling', label: 'STERLING', icon: 'business-outline' },
-  { id: 'manual', label: 'BANK TRANSFER', icon: 'swap-horizontal-outline' },
+  { id: 'monnify', label: 'BANK TRANSFER', icon: 'business-outline' },
   { id: 'card', label: 'DEBIT CARD', icon: 'card-outline' }
-] as const;
+];
 
-const FundWallet: React.FC<FundWalletProps> = ({ 
-  onClose, 
-  onSuccess, 
-  token, 
-  currentBalance = 0 
-}) => {
-  // ✅ IMPROVED: Better state management with proper typing
+export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
   const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('palmpay');
-  const [loading, setLoading] = useState(false);
-  const [fetchingPaymentInfo, setFetchingPaymentInfo] = useState(false);
-  const [bankData, setBankData] = useState<BankData | null>(null);
-  const [cardInfo, setCardInfo] = useState<CardInfo>({ cardNumber: '', expiry: '', cvv: '' });
+  const [paymentMethod, setPaymentMethod] = useState('monnify');
+  const [loading, setLoading] = useState(true);
+  const [bankData, setBankData] = useState(null);
+  const [cardInfo, setCardInfo] = useState({ cardNumber: '', expiry: '', cvv: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  // ✅ NEW: Input validation helpers
-  const validateAmount = (value: string): boolean => {
+  useEffect(() => {
+    fetchAccountDetails();
+  }, []);
+
+  const makeAPICall = async (url, options) => {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && { Authorization: `Bearer ${token}` }),
+          ...options.headers,
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+
+      return data;
+    } catch (error) {
+      console.error('API call failed:', error);
+      throw error;
+    }
+  };
+
+  const fetchAccountDetails = async () => {
+  setLoading(true);
+  try {
+    console.log('Fetching account details...');
+    const response = await makeAPICall(
+      `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CREATE_ACCOUNT}`, 
+      { method: 'POST' }
+    );
+
+    console.log('Full API Response:', JSON.stringify(response, null, 2));
+
+    if (response.success) {
+      const accounts = response.data.accounts;
+      
+      // Log to see the actual structure
+      console.log('Raw accounts:', accounts);
+      console.log('Number of accounts:', accounts.length);
+      console.log('First account:', JSON.stringify(accounts[0], null, 2));
+      
+      // Check if accounts[0] has nested accounts
+      const actualAccounts = accounts[0]?.accounts || accounts;
+      console.log('Actual accounts to display:', actualAccounts);
+      
+      // Store all accounts in an array
+      const allAccounts = actualAccounts.map((acc) => ({
+        bankName: acc.bankName || acc.bank_name,
+        accountNumber: acc.accountNumber || acc.account_number,
+        accountName: acc.accountName || acc.account_name
+      }));
+
+      console.log('Formatted accounts:', allAccounts);
+
+      setBankData({
+        accounts: allAccounts,
+        reference: response.data.accountReference,
+        // Keep backward compatibility
+        bankName: allAccounts[0]?.bankName,
+        accountName: allAccounts[0]?.accountName,
+        accountNumber: allAccounts[0]?.accountNumber,
+        secondBank: allAccounts[1]?.bankName,
+        secondAccountNumber: allAccounts[1]?.accountNumber
+      });
+
+      console.log('All accounts loaded:', allAccounts.length);
+    } else {
+      setError(response.message || 'Failed to get account details');
+    }
+  } catch (error) {
+    console.error('Fetch account details error:', error);
+    setError(error.message || 'Failed to load account details');
+  } finally {
+    setLoading(false);
+  }
+};
+
+  const validateAmount = (value) => {
     const numericAmount = Number(value);
     return value.trim() !== '' && !isNaN(numericAmount) && numericAmount > 0 && numericAmount <= 1000000;
   };
 
-  const validateCardNumber = (cardNumber: string): boolean => {
+  const validateCardNumber = (cardNumber) => {
     const cleaned = cardNumber.replace(/\s/g, '');
     return /^\d{13,19}$/.test(cleaned);
   };
 
-  const validateExpiry = (expiry: string): boolean => {
+  const validateExpiry = (expiry) => {
     const regex = /^(0[1-9]|1[0-2])\/\d{2}$/;
     if (!regex.test(expiry)) return false;
 
@@ -90,79 +135,17 @@ const FundWallet: React.FC<FundWalletProps> = ({
     return true;
   };
 
-  const validateCVV = (cvv: string): boolean => {
+  const validateCVV = (cvv) => {
     return /^\d{3,4}$/.test(cvv);
   };
 
-  // ✅ IMPROVED: Better API error handling
-  const makeAPICall = async (url: string, options: RequestInit) => {
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-          ...options.headers,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error('API call failed:', error);
-      throw error;
-    }
-  };
-
-  // ✅ IMPROVED: Fetch dynamic payment method info with better error handling
-  useEffect(() => {
-    const fetchPaymentMethodInfo = async () => {
-      if (!['wema', 'sterling', 'palmpay'].includes(paymentMethod)) {
-        setBankData(null);
-        return;
-      }
-
-      setFetchingPaymentInfo(true);
-      try {
-        const data = await makeAPICall(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PAYMENT_METHODS}`, {
-          method: 'GET',
-        });
-
-        const methodInfo = data.find((m: any) => m.method === paymentMethod);
-        if (methodInfo) {
-          setBankData({
-            bankName: methodInfo.bankName,
-            accountName: methodInfo.accountName,
-            accountNumber: methodInfo.accountNumber,
-            reference: methodInfo.reference,
-          });
-        } else {
-          setBankData(null);
-        }
-      } catch (error) {
-        console.log('Error fetching payment methods:', error);
-        setBankData(null);
-      } finally {
-        setFetchingPaymentInfo(false);
-      }
-    };
-
-    fetchPaymentMethodInfo();
-  }, [paymentMethod, token]);
-
-  // ✅ NEW: Format card number with spaces for better UX
-  const formatCardNumber = (text: string): string => {
+  const formatCardNumber = (text) => {
     const cleaned = text.replace(/\s/g, '');
     const match = cleaned.match(/.{1,4}/g);
     return match ? match.join(' ').substr(0, 19) : cleaned;
   };
 
-  // ✅ NEW: Format expiry date
-  const formatExpiry = (text: string): string => {
+  const formatExpiry = (text) => {
     const cleaned = text.replace(/\D/g, '');
     if (cleaned.length >= 2) {
       return cleaned.substring(0, 2) + '/' + cleaned.substring(2, 4);
@@ -170,461 +153,360 @@ const FundWallet: React.FC<FundWalletProps> = ({
     return cleaned;
   };
 
-  // ✅ IMPROVED: Enhanced validation and error handling
-  const handleFundWallet = async () => {
+  const handleCardPayment = async () => {
     const numericAmount = Number(amount);
 
-    // Clear previous messages
     setError('');
     setSuccess('');
 
-    // Validate amount
     if (!validateAmount(amount)) {
       setError('Please enter a valid amount (₦1 - ₦1,000,000)');
       return;
     }
 
-    // Validate card info if card payment
-    if (paymentMethod === 'card') {
-      if (!validateCardNumber(cardInfo.cardNumber)) {
-        setError('Please enter a valid card number');
-        return;
-      }
-      if (!validateExpiry(cardInfo.expiry)) {
-        setError('Please enter a valid expiry date (MM/YY)');
-        return;
-      }
-      if (!validateCVV(cardInfo.cvv)) {
-        setError('Please enter a valid CVV (3-4 digits)');
-        return;
-      }
+    if (!validateCardNumber(cardInfo.cardNumber)) {
+      setError('Please enter a valid card number');
+      return;
+    }
+    if (!validateExpiry(cardInfo.expiry)) {
+      setError('Please enter a valid expiry date (MM/YY)');
+      return;
+    }
+    if (!validateCVV(cardInfo.cvv)) {
+      setError('Please enter a valid CVV (3-4 digits)');
+      return;
     }
 
     setLoading(true);
 
     try {
-      if (['wema', 'sterling', 'palmpay'].includes(paymentMethod)) {
-        // ✅ IMPROVED: Create virtual account with better data handling
-        const response = await makeAPICall(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CREATE_ACCOUNT}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            bank: paymentMethod.toUpperCase(),
-            amount: numericAmount,
-            customer_email: 'user@example.com', // ✅ TODO: Replace with real user email from props/context
-            customer_name: 'John Doe',          // ✅ TODO: Replace with real user name from props/context
-          }),
-        });
+      const [expiry_month, expiry_year] = cardInfo.expiry.split('/');
+      const cleanedCardNumber = cardInfo.cardNumber.replace(/\s/g, '');
 
-        if (response.status === 'success' || response.success) {
-          const accountData = {
-            bankName: response.data.bank_name || `${paymentMethod.toUpperCase()} Bank`,
-            accountName: response.data.account_name,
-            accountNumber: response.data.account_number,
-            reference: response.data.reference,
-          };
+      const response = await makeAPICall(`${API_CONFIG.BASE_URL}/card/pay`, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: numericAmount,
+          card_number: cleanedCardNumber,
+          cvv: cardInfo.cvv,
+          expiry_month,
+          expiry_year: `20${expiry_year}`,
+        }),
+      });
 
-          setBankData(accountData);
-          setSuccess(`Virtual account created! Transfer ₦${numericAmount.toLocaleString()} to account: ${response.data.account_number}`);
+      if (response.status === 'success' || response.success) {
+        setSuccess(`Wallet funded successfully with ₦${numericAmount.toLocaleString()}!`);
 
-          // ✅ NEW: Auto-close after successful account creation (optional)
-          setTimeout(() => {
-            if (onSuccess) onSuccess();
-          }, 3000);
-
-        } else {
-          setError(response.message || 'Failed to create virtual account. Please try again.');
-        }
-
-      } else if (paymentMethod === 'card') {
-        // ✅ IMPROVED: Process card payment with better validation
-        const [expiry_month, expiry_year] = cardInfo.expiry.split('/');
-        const cleanedCardNumber = cardInfo.cardNumber.replace(/\s/g, '');
-
-        const response = await makeAPICall(`${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PAY_CARD}`, {
-          method: 'POST',
-          body: JSON.stringify({
-            amount: numericAmount,
-            card_number: cleanedCardNumber,
-            cvv: cardInfo.cvv,
-            expiry_month,
-            expiry_year: `20${expiry_year}`, // Convert YY to YYYY
-            email: 'user@example.com', // ✅ TODO: Replace with real user email
-          }),
-        });
-
-        if (response.status === 'success' || response.success) {
-          setSuccess(`Wallet funded successfully with ₦${numericAmount.toLocaleString()}! Card ending in ${cleanedCardNumber.slice(-4)}`);
-
-          // ✅ NEW: Show success and auto-close
-          setTimeout(() => {
-            if (onSuccess) onSuccess();
-          }, 2000);
-
-        } else {
-          setError(response.message || 'Card payment failed. Please check your card details and try again.');
-        }
-
-      } else if (paymentMethod === 'manual') {
-        // ✅ IMPROVED: Better manual transfer instructions
-        Alert.alert(
-          'Manual Bank Transfer',
-          'Please transfer the amount to any of our bank accounts and your wallet will be credited automatically.',
-          [
-            { text: 'OK', style: 'default' }
-          ]
-        );
-        setSuccess('Please use bank transfer to fund your wallet. Check our bank details above.');
+        setTimeout(() => {
+          setAmount('');
+          setCardInfo({ cardNumber: '', expiry: '', cvv: '' });
+          if (onSuccess) onSuccess();
+        }, 2000);
+      } else {
+        setError(response.message || 'Card payment failed');
       }
-
-    } catch (error: any) {
-      console.error('Fund wallet error:', error);
-      setError('Network error occurred. Please check your connection and try again.');
+    } catch (error) {
+      setError(error.message || 'Network error occurred');
     } finally {
       setLoading(false);
-      // ✅ IMPROVED: Clear form only on success
-      if (!error) {
-        setAmount('');
-        setCardInfo({ cardNumber: '', expiry: '', cvv: '' });
-      }
     }
   };
 
-  // ✅ NEW: Quick amount buttons for better UX
-  const quickAmounts = [500, 1000, 2000, 5000, 10000];
-
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
-      {/* ✅ UPDATED: Simple header without close button */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Fund Wallet</Text>
-      </View>
-
-      {/* ✅ NEW: Current balance display */}
-      {currentBalance > 0 && (
-        <View style={styles.balanceCard}>
-          
-        </View>
-      )}
-
-      <Text style={styles.juicyText}>Top up now and enjoy seamless payments!</Text>
-
-      {/* ✅ NEW: Quick amount buttons */}
-      <View style={styles.quickAmountsContainer}>
-        <Text style={styles.quickAmountsLabel}>Quick Select</Text>
-        <View style={styles.quickAmountsRow}>
-          {quickAmounts.map((quickAmount) => (
-            <TouchableOpacity
-              key={quickAmount}
-              style={[styles.quickAmountButton, amount === quickAmount.toString() && styles.quickAmountButtonActive]}
-              onPress={() => {
-                setAmount(quickAmount.toString());
-                setError('');
-                setSuccess('');
-              }}
-            >
-              <Text style={[styles.quickAmountText, amount === quickAmount.toString() && styles.quickAmountTextActive]}>
-                ₦{quickAmount.toLocaleString()}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* ✅ IMPROVED: Amount input with better formatting */}
-      <TextInput
-        style={[styles.input, error && error.includes('amount') && styles.inputError]}
-        placeholder="Enter amount (₦1 - ₦1,000,000)"
-        placeholderTextColor="#aaa"
-        keyboardType="numeric"
-        value={amount}
-        onChangeText={(text) => { 
-          const numericText = text.replace(/[^0-9]/g, '');
-          setAmount(numericText); 
-          setError(''); 
-          setSuccess(''); 
-        }}
-      />
-
-      {/* ✅ IMPROVED: Error and success messages */}
-      {error ? <Text style={styles.errorText}>⚠️ {error}</Text> : null}
-      {success ? <Text style={styles.successText}>✅ {success}</Text> : null}
-
-      {/* ✅ IMPROVED: Payment method selection */}
-      <View style={styles.methodContainer}>
-        <Text style={styles.methodLabel}>Select Payment Method</Text>
-        <View style={styles.methodGrid}>
-          {PAYMENT_METHODS.map((method) => (
-            <TouchableOpacity
-              key={method.id}
-              style={[styles.methodButton, paymentMethod === method.id && styles.methodButtonActive]}
-              onPress={() => {
-                setPaymentMethod(method.id as PaymentMethod);
-                setError('');
-                setSuccess('');
-                setBankData(null);
-              }}
-            >
-              <Ionicons 
-                name={method.icon as any} 
-                size={20} 
-                color={paymentMethod === method.id ? '#ff3b30' : '#666'} 
-              />
-              <Text style={[styles.methodText, paymentMethod === method.id && styles.methodTextActive]}>
-                {method.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* ✅ IMPROVED: Bank account display with loading state */}
-      {['wema', 'sterling', 'palmpay'].includes(paymentMethod) && (
-        <View style={styles.bankCard}>
-          {fetchingPaymentInfo ? (
-            <View style={styles.bankCardLoading}>
-              <ActivityIndicator color="#fff" size="small" />
-              <Text style={styles.bankCardLoadingText}>Getting account details...</Text>
-            </View>
-          ) : bankData ? (
-            <>
-              <Text style={styles.bankCardTitle}>Transfer Details</Text>
-              <Text style={styles.bankCardText}>Bank: {bankData.bankName}</Text>
-              <Text style={styles.bankCardText}>Account Name: {bankData.accountName}</Text>
-              <Text style={styles.bankCardText}>Account Number: {bankData.accountNumber}</Text>
-              {bankData.reference && (
-                <Text style={styles.bankCardText}>Reference: {bankData.reference}</Text>
-              )}
-              <Text style={styles.bankCardNote}>
-                Transfer exactly ₦{amount ? Number(amount).toLocaleString() : '0'} to this account
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.bankCardText}>Account details will appear here</Text>
-          )}
-        </View>
-      )}
-
-      {/* ✅ IMPROVED: Card input with better formatting and validation */}
-      {paymentMethod === 'card' && (
-        <View style={styles.cardContainer}>
-          <Text style={styles.cardLabel}>Enter Card Details</Text>
-          <TextInput
-            style={[styles.input, error && error.includes('card') && styles.inputError]}
-            placeholder="1234 5678 9012 3456"
-            value={cardInfo.cardNumber}
-            keyboardType="numeric"
-            maxLength={19}
-            onChangeText={(text) => {
-              const formatted = formatCardNumber(text);
-              setCardInfo({...cardInfo, cardNumber: formatted});
-              setError('');
-            }}
-          />
-          <View style={styles.cardRow}>
-            <TextInput
-              style={[styles.inputHalf, error && error.includes('expiry') && styles.inputError]}
-              placeholder="MM/YY"
-              value={cardInfo.expiry}
-              keyboardType="numeric"
-              maxLength={5}
-              onChangeText={(text) => {
-                const formatted = formatExpiry(text);
-                setCardInfo({...cardInfo, expiry: formatted});
-                setError('');
-              }}
-            />
-            <TextInput
-              style={[styles.inputHalf, error && error.includes('CVV') && styles.inputError]}
-              placeholder="CVV"
-              value={cardInfo.cvv}
-              keyboardType="numeric"
-              maxLength={4}
-              secureTextEntry
-              onChangeText={(text) => {
-                const numericText = text.replace(/[^0-9]/g, '');
-                setCardInfo({...cardInfo, cvv: numericText});
-                setError('');
-              }}
-            />
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Payment Method Selection */}
+        <View style={styles.section}>
+          <Text style={styles.label}>Select Payment Method</Text>
+          <View style={styles.methodGrid}>
+            {PAYMENT_METHODS.map((method) => (
+              <TouchableOpacity
+                key={method.id}
+                style={[styles.methodButton, paymentMethod === method.id && styles.methodButtonActive]}
+                onPress={() => {
+                  setPaymentMethod(method.id);
+                  setError('');
+                  setSuccess('');
+                }}
+              >
+                <Ionicons 
+                  name={method.icon} 
+                  size={20} 
+                  color={paymentMethod === method.id ? '#ff3b30' : '#666'} 
+                />
+                <Text style={[styles.methodText, paymentMethod === method.id && styles.methodTextActive]}>
+                  {method.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
+
+        {/* Error/Success Messages */}
+        {error ? (
+          <View style={styles.messageContainer}>
+            <Text style={styles.errorText}>⚠️ {error}</Text>
+          </View>
+        ) : null}
+        
+        {success ? (
+          <View style={styles.messageContainer}>
+            <Text style={styles.successText}>✅ {success}</Text>
+          </View>
+        ) : null}
+
+        {paymentMethod === 'monnify' && (
+  <View style={styles.section}>
+    <Text style={styles.label}>Your Permanent Account Details</Text>
+    <View style={styles.bankCard}>
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator color="#ff3b30" size="small" />
+          <Text style={styles.loadingText}>Loading account details...</Text>
+        </View>
+      ) : bankData ? (
+        <>
+          {/* Display ALL accounts */}
+          {bankData.accounts && bankData.accounts.length > 0 ? (
+            bankData.accounts.map((account, index) => (
+              <View 
+                key={index} 
+                style={[
+                  styles.accountBlock,
+                  index < bankData.accounts.length - 1 && styles.accountWithBorder
+                ]}
+              >
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Bank:</Text>
+                  <Text style={styles.accountValue}>{account.bankName}</Text>
+                </View>
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Account Name:</Text>
+                  <Text style={styles.accountValue}>{account.accountName}</Text>
+                </View>
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Account Number:</Text>
+                  <Text style={[styles.accountValue, styles.accountNumber]}>
+                    {account.accountNumber}
+                  </Text>
+                </View>
+              </View>
+            ))
+          ) : (
+            // Fallback to old structure if accounts array doesn't exist
+            <>
+              <View style={styles.accountBlock}>
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Bank:</Text>
+                  <Text style={styles.accountValue}>{bankData.bankName}</Text>
+                </View>
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Account Name:</Text>
+                  <Text style={styles.accountValue}>{bankData.accountName}</Text>
+                </View>
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Account Number:</Text>
+                  <Text style={[styles.accountValue, styles.accountNumber]}>
+                    {bankData.accountNumber}
+                  </Text>
+                </View>
+              </View>
+
+              {bankData.secondBank && (
+                <View style={[styles.accountBlock, styles.secondAccount]}>
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>Bank:</Text>
+                    <Text style={styles.accountValue}>{bankData.secondBank}</Text>
+                  </View>
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>Account Name:</Text>
+                    <Text style={styles.accountValue}>{bankData.accountName}</Text>
+                  </View>
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>Account Number:</Text>
+                    <Text style={[styles.accountValue, styles.accountNumber]}>
+                      {bankData.secondAccountNumber}
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </>
+          )}
+
+          <View style={styles.infoBox}>
+            <Ionicons name="information-circle-outline" size={16} color="#666" />
+            <Text style={styles.infoText}>
+              Transfer any amount to any of the accounts above. Your wallet will be credited automatically within minutes.
+            </Text>
+          </View>
+        </>
+      ) : (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorContainerText}>Failed to load account details</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={fetchAccountDetails}>
+            <Text style={styles.retryButtonText}>Tap to Retry</Text>
+          </TouchableOpacity>
+        </View>
       )}
+    </View>
+  </View>
+)}
+        {/* Card Payment Section */}
+        {paymentMethod === 'card' && (
+          <>
+            <View style={styles.section}>
+              <Text style={styles.label}>Enter Card Details</Text>
+              <TextInput
+                style={[styles.input, error && error.includes('card') && styles.inputError]}
+                placeholder="1234 5678 9012 3456"
+                placeholderTextColor="#aaa"
+                value={cardInfo.cardNumber}
+                keyboardType="numeric"
+                maxLength={19}
+                onChangeText={(text) => {
+                  const formatted = formatCardNumber(text);
+                  setCardInfo({...cardInfo, cardNumber: formatted});
+                  setError('');
+                }}
+              />
+              
+              <View style={styles.cardRow}>
+                <TextInput
+                  style={[styles.inputHalf, error && error.includes('expiry') && styles.inputError]}
+                  placeholder="MM/YY"
+                  placeholderTextColor="#aaa"
+                  value={cardInfo.expiry}
+                  keyboardType="numeric"
+                  maxLength={5}
+                  onChangeText={(text) => {
+                    const formatted = formatExpiry(text);
+                    setCardInfo({...cardInfo, expiry: formatted});
+                    setError('');
+                  }}
+                />
+                <TextInput
+                  style={[styles.inputHalf, error && error.includes('CVV') && styles.inputError]}
+                  placeholder="CVV"
+                  placeholderTextColor="#aaa"
+                  value={cardInfo.cvv}
+                  keyboardType="numeric"
+                  maxLength={4}
+                  secureTextEntry
+                  onChangeText={(text) => {
+                    const numericText = text.replace(/[^0-9]/g, '');
+                    setCardInfo({...cardInfo, cvv: numericText});
+                    setError('');
+                  }}
+                />
+              </View>
+            </View>
 
-      {/* ✅ IMPROVED: Fund button with better states */}
-      <TouchableOpacity 
-        style={[styles.fundButton, loading && styles.fundButtonLoading]} 
-        onPress={handleFundWallet} 
-        disabled={loading || !amount}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" size="small" />
-        ) : (
-          <Ionicons name="add-circle-outline" size={20} color="#fff" />
+            <View style={styles.section}>
+              <Text style={styles.label}>Enter Amount</Text>
+              <TextInput
+                style={[styles.input, error && error.includes('amount') && styles.inputError]}
+                placeholder="Enter amount (₦1 - ₦1,000,000)"
+                placeholderTextColor="#aaa"
+                keyboardType="numeric"
+                value={amount}
+                onChangeText={(text) => { 
+                  const numericText = text.replace(/[^0-9]/g, '');
+                  setAmount(numericText); 
+                  setError(''); 
+                  setSuccess(''); 
+                }}
+              />
+              {amount !== '' && !validateAmount(amount) && (
+                <Text style={styles.validationError}>Amount must be between ₦1 and ₦1,000,000</Text>
+              )}
+              {amount !== '' && validateAmount(amount) && (
+                <Text style={styles.validationSuccess}>✓ Valid amount</Text>
+              )}
+            </View>
+
+            <TouchableOpacity 
+              style={[styles.proceedBtn, (loading || !amount) && styles.proceedDisabled]} 
+              onPress={handleCardPayment} 
+              disabled={loading || !amount}
+            >
+              {loading ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color="#fff" size="small" />
+                  <Text style={[styles.proceedText, { marginLeft: 8 }]}>Processing...</Text>
+                </View>
+              ) : (
+                <>
+                  <Ionicons name="card-outline" size={20} color="#fff" />
+                  <Text style={styles.proceedText}>
+                    Pay with Card{amount ? ` • ₦${Number(amount).toLocaleString()}` : ''}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
         )}
-        <Text style={styles.fundButtonText}>
-          {loading ? 'Processing...' : `Fund Wallet${amount ? ` (₦${Number(amount).toLocaleString()})` : ''}`}
-        </Text>
-      </TouchableOpacity>
 
-      {/* ✅ NEW: Help text */}
-      <Text style={styles.helpText}>
-        Your wallet will be credited automatically after successful payment verification.
-      </Text>
-    </ScrollView>
+        {/* Help Text */}
+        <View style={styles.helpContainer}>
+          <Text style={styles.helpText}>
+            {paymentMethod === 'monnify' 
+              ? 'These account numbers are permanent and can be used anytime to fund your wallet.'
+              : 'Your wallet will be credited immediately after successful payment.'
+            }
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
   );
-};
-
-export default FundWallet;
+}
 
 const styles = StyleSheet.create({
-  scroll: { 
-    flex: 1, 
-    backgroundColor: '#f2f2f7' 
-  },
   container: { 
-    padding: 20, 
-    paddingBottom: 50 
-  },
-  // ✅ UPDATED: Simplified header without close button
-  header: { 
-    width: '110%', 
-    backgroundColor: '#ff3b30', 
-    paddingVertical: 22, 
-    paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 5,
-    marginBottom: 20,
-    marginLeft : -18.5,
-    marginTop : -18,
-  },
-  headerTitle: { 
-    color: '#fff', 
-    fontSize: 26, 
-    fontWeight: 'bold',
-    textAlign: 'center'
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
   },
 
-  balanceLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 4,
+  scrollContent: { 
+    flex: 1 
   },
- 
-  juicyText: { 
-    marginBottom: 25, 
-    textAlign: 'center', 
-    color: '#ff3b30', 
+  
+  section: { 
+    margin: 16, 
+    marginBottom: 24 
+  },
+  
+  label: { 
     fontSize: 16, 
-    fontWeight: '600' 
-  },
-  quickAmountsContainer: {
-    marginBottom: 20,
-  },
-  quickAmountsLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom:25,
-  },
-  quickAmountsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  quickAmountButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  quickAmountButtonActive: {
-    backgroundColor: '#ffe5e0',
-    borderColor: '#ff3b30',
-  },
-  quickAmountText: {
-    fontSize: 12,
-    color: '#333',
-    fontWeight: '600',
-  },
-  quickAmountTextActive: {
-    color: '#ff3b30',
-  },
-  input: { 
-    marginTop: 10,
-    marginBottom: 10,
-    borderWidth: 1, 
-    borderColor: '#ddd', 
-    borderRadius: 12, 
-    padding: 16, 
-    backgroundColor: '#fff', 
-    fontSize: 16, 
+    fontWeight: '600', 
+    marginBottom: 8, 
     color: '#333' 
   },
-  inputError: {
-    borderColor: '#ff3b30',
-    borderWidth: 2,
-  },
-  inputHalf: {
-    flex: 1,
-    marginTop: 10,
-    marginBottom: 10,
-    marginHorizontal: 4,
-    borderWidth: 1, 
-    borderColor: '#ddd', 
-    borderRadius: 12, 
-    padding: 16, 
-    backgroundColor: '#fff', 
-    fontSize: 16, 
-    color: '#333'
-  },
-  errorText: { 
-    color: '#ff3b30', 
-    marginTop: 5, 
-    fontSize: 13,
-    textAlign: 'center',
-    fontWeight: '500'
-  },
-  successText: { 
-    color: '#34c759', 
-    marginTop: 5, 
-    fontSize: 14, 
-    fontWeight: '600',
-    textAlign: 'center'
-  },
-  methodContainer: {
-    marginTop: 25,
-    marginBottom: 25,
-  },
-  methodLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 12,
-  },
-  methodGrid: {
+
+  methodGrid: { 
     flexDirection: 'row', 
-    flexWrap: 'wrap', 
-    gap: 8,
+    gap: 8 
   },
   methodButton: { 
-    paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingVertical: 14, 
+    paddingHorizontal: 12, 
     borderWidth: 1, 
     borderColor: '#ddd', 
     borderRadius: 12, 
-    backgroundColor: '#fff',
+    backgroundColor: '#fff', 
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: '48%',
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    flex: 1, 
     gap: 8,
   },
   methodButtonActive: { 
-    backgroundColor: '#ffe5e0', 
-    borderColor: '#ff3b30' 
+    backgroundColor: '#fff5f5', 
+    borderColor: '#ff3b30',
+    borderWidth: 2 
   },
   methodText: { 
     fontWeight: '600', 
@@ -636,86 +518,215 @@ const styles = StyleSheet.create({
     color: '#ff3b30', 
     fontWeight: '700' 
   },
-  bankCard: { 
-    marginTop: 20,
-    marginBottom: 20,
-    padding: 20, 
-    borderRadius: 12, 
-    backgroundColor: '#ff3b30' 
+
+  messageContainer: {
+    marginHorizontal: 16,
+    marginBottom: 16,
   },
-  bankCardLoading: {
+  errorText: { 
+    color: '#ff3b30', 
+    fontSize: 14, 
+    textAlign: 'center', 
+    fontWeight: '500',
+    backgroundColor: '#fff5f5',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ffdddd',
+  },
+  successText: { 
+    color: '#28a745', 
+    fontSize: 14, 
+    fontWeight: '600', 
+    textAlign: 'center',
+    backgroundColor: '#f0f9f4',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#c3e6cb',
+  },
+
+  bankCard: {
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 20,
     gap: 10,
   },
-  bankCardLoadingText: {
-    color: '#fff',
+  loadingText: {
+    color: '#666',
     fontSize: 14,
+    fontWeight: '500',
+  },
+  accountBlock: {
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  secondAccount: {
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    paddingTop: 16,
+  },
+  accountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  accountLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  accountValue: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+    textAlign: 'right',
+    flex: 1,
+    marginLeft: 12,
+  },
+  accountNumber: {
+    fontSize: 16,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+  infoBox: {
+    flexDirection: 'row',
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    gap: 8,
+    marginTop: 8,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 12,
+    color: '#666',
+    lineHeight: 18,
+  },
+  errorContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  errorContainerText: {
+    color: '#666',
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  retryButton: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 12,
     fontWeight: '600',
   },
-  bankCardTitle: {
-    color: '#fff',
+
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    padding: 14,
     fontSize: 16,
-    fontWeight: 'bold',
+    backgroundColor: '#fff',
     marginBottom: 12,
-    textAlign: 'center',
   },
-  bankCardText: { 
+  inputError: { 
+    borderColor: '#ff3b30', 
+    borderWidth: 2 
+  },
+  inputHalf: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  cardRow: { 
+    flexDirection: 'row', 
+    gap: 8,
+    marginBottom: 12,
+  },
+  validationError: {
+    color: '#ff3b30',
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  validationSuccess: {
+    color: '#28a745',
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+
+  proceedBtn: {
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#ff3b30',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#ff3b30',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  proceedDisabled: { 
+    backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+  proceedText: { 
     color: '#fff', 
-    fontSize: 14, 
-    marginBottom: 8, 
+    fontSize: 16, 
     fontWeight: '600' 
   },
-  bankCardNote: {
-    color: '#ffe5e0',
-    fontSize: 12,
-    fontStyle: 'italic',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  cardContainer: { 
-    marginTop: 25,
-    marginBottom: 20,
-  },
-  cardLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 10,
-  },
-  cardRow: {
+  loadingRow: {
     flexDirection: 'row',
-    gap: 8,
-  },
-  fundButton: { 
-    flexDirection: 'row', 
-    backgroundColor: '#ff3b30', 
-    padding: 16, 
-    borderRadius: 12, 
-    justifyContent: 'center', 
     alignItems: 'center',
-    marginTop: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
-    gap: 10,
+    justifyContent: 'center',
   },
-  fundButtonLoading: {
-    opacity: 0.7,
+
+  helpContainer: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 24,
   },
-  fundButtonText: { 
-    color: '#fff', 
-    fontWeight: '700', 
-    fontSize: 16 
-  },
-  helpText: {
-    textAlign: 'center',
-    color: '#666',
-    fontSize: 12,
-    marginTop: 20,
+  helpText: { 
+    textAlign: 'center', 
+    color: '#666', 
+    fontSize: 12, 
     fontStyle: 'italic',
+    lineHeight: 18,
   },
+  accountWithBorder: {
+  borderBottomWidth: 1,
+  borderBottomColor: '#f0f0f0',
+  marginBottom: 16,
+  paddingBottom: 16,
+},
 });

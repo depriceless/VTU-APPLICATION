@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -16,9 +16,14 @@ import {
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CableTVSuccessModal from './CableTVSuccessModal';
+import { AuthContext } from '../contexts/AuthContext';
 
-// API Configuration
-const API_BASE_URL = 'http://localhost:5000/api';
+// API Configuration - Updated to match airtime
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
 
 // Interfaces
 interface Contact {
@@ -58,6 +63,9 @@ interface CablePackage {
 }
 
 export default function BuyCableTV() {
+  // Use AuthContext like in airtime component
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedOperator, setSelectedOperator] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<CablePackage | null>(null);
@@ -129,29 +137,27 @@ export default function BuyCableTV() {
     }
   }, [selectedOperator]);
 
-  // Load data on mount
+  // Load data on mount - Updated to use AuthContext
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
-
-    // Debug function to check stored tokens (same as airtime)
-    const debugTokenStorage = async () => {
-      console.log('🐛 DEBUG: Checking token storage...');
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const value = await AsyncStorage.getItem(key);
-        console.log(`🐛 ${key}:`, value ? `"${value}"` : 'null');
-      }
-    };
-
-    debugTokenStorage();
-
-    // Add delay to ensure auth is ready
+    
+    // Initialize balance from AuthContext like in airtime component
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        lastUpdated: Date.now(),
+      });
+    }
+    
+    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
-    }, 2000);
+    }, 1000);
   }, []);
 
   // Refresh balance when stepping to review page
@@ -175,70 +181,42 @@ export default function BuyCableTV() {
     saveFormState();
   }, [phone, selectedOperator, selectedPackage, smartCardNumber]);
 
-  // ========== UNIFIED API FUNCTIONS (same as airtime) ==========
+  // ========== SIMPLIFIED API FUNCTIONS (matching airtime) ==========
   
+  // FIXED: Simple token getter using AuthContext
   const getAuthToken = async () => {
-    try {
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        console.log(`🔍 Checking storage key "${key}":`, token ? `Found (${token.length} chars)` : 'Not found');
-
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
-          const tokenParts = cleanToken.split('.');
-          if (tokenParts.length === 3) {
-            console.log(`✅ Found valid JWT token with key: ${key}`);
-            return cleanToken;
-          } else {
-            console.log(`⚠️ Token from "${key}" is not a valid JWT format (${tokenParts.length} parts)`);
-          }
-        }
-      }
-
-      console.log('❌ No valid JWT token found in any storage key');
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('❌ Error getting auth token:', error);
+    if (!token) {
+      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
+    return token;
   };
 
+  // FIXED: Updated API request function matching airtime
   const makeApiRequest = async (endpoint, options = {}) => {
-    console.log(`🔵 API Request: ${endpoint}`);
+    console.log(`API Request: ${endpoint}`);
     
     try {
-      const token = await getAuthToken();
-      console.log('🔑 Token obtained for API request');
-
+      const authToken = await getAuthToken();
+      
       const requestConfig = {
         method: 'GET',
         ...options,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           ...options.headers,
         },
       };
 
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
-      console.log('🌐 Request URL:', fullUrl);
-      console.log('📤 Method:', requestConfig.method);
-
-      if (requestConfig.body) {
-        console.log('📄 Request has body, length:', requestConfig.body.length);
-      }
-
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
       const response = await fetch(fullUrl, requestConfig);
-      console.log('📊 Response status:', response.status, response.ok ? '✅' : '❌');
 
       let responseText = '';
       try {
         responseText = await response.text();
       } catch (textError) {
-        console.error('❌ Failed to read response text:', textError);
         throw new Error('Unable to read server response');
       }
 
@@ -246,29 +224,18 @@ export default function BuyCableTV() {
       if (responseText.trim()) {
         try {
           data = JSON.parse(responseText);
-          console.log('✅ JSON parsed, success:', data.success);
         } catch (parseError) {
-          console.error('❌ JSON parse error:', parseError);
-          console.log('📄 Raw response preview:', responseText.substring(0, 200));
           throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
         }
-      } else {
-        console.log('⚠️ Empty response received');
       }
 
       // Handle authentication errors
       if (response.status === 401) {
-        console.error('❌ 401 Unauthorized - clearing tokens');
-        const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-        for (const key of tokenKeys) {
-          await AsyncStorage.removeItem(key);
-        }
         throw new Error('Session expired. Please login again.');
       }
 
       if (!response.ok) {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error(`❌ API Error:`, errorMessage);
         
         if (endpoint === '/purchase' && data && typeof data === 'object') {
           const error = new Error(errorMessage);
@@ -280,11 +247,10 @@ export default function BuyCableTV() {
         throw new Error(errorMessage);
       }
 
-      console.log('✅ API request successful');
       return data;
 
     } catch (error) {
-      console.error(`💥 API Error for ${endpoint}:`, error.message);
+      console.error(`API Error for ${endpoint}:`, error.message);
 
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
@@ -300,49 +266,67 @@ export default function BuyCableTV() {
     }
   };
 
-  // ========== BALANCE FUNCTIONS (same as airtime) ==========
+  // ========== BALANCE FUNCTIONS (updated to match airtime) ==========
   
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("🔄 Fetching balance from /balance");
-      const balanceData = await makeApiRequest("/balance");
-
-      if (balanceData.success && balanceData.balance) {
-        const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+      console.log("Refreshing balance from AuthContext");
+      
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
         
         const realBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
-          currency: balanceData.balance.currency || "NGN",
-          lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("✅ Balance fetched and stored:", realBalance);
+        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        throw new Error(balanceData.message || "Balance fetch failed");
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
       }
     } catch (error) {
-      console.error("❌ Balance fetch error:", error);
+      console.error("Balance fetch error:", error);
       
+      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance({
-            ...parsedBalance,
-            lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-          });
-          console.log("✅ Using cached balance:", parsedBalance);
+          setUserBalance(parsedBalance);
         } else {
           setUserBalance(null);
         }
       } catch (cacheError) {
-        console.error("❌ Cache error:", cacheError);
         setUserBalance(null);
       }
     } finally {
@@ -354,23 +338,18 @@ export default function BuyCableTV() {
   
   const checkPinStatus = async () => {
     try {
-      console.log('🔄 Checking PIN status...');
+      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
-      console.log('✅ PIN status response:', JSON.stringify(response, null, 2));
       
       if (response.success) {
         setPinStatus(response);
-      } else {
-        console.log('⚠️ PIN status check failed:', response);
       }
     } catch (error) {
-      console.error('❌ Error checking PIN status:', error);
+      console.error('Error checking PIN status:', error);
     }
   };
 
-
-
-// ========== FORM STATE MANAGEMENT ==========
+  // ========== FORM STATE MANAGEMENT ==========
   
   const loadFormState = async () => {
     try {
@@ -384,10 +363,10 @@ export default function BuyCableTV() {
         if (formData.selectedPackage) setSelectedPackage(formData.selectedPackage);
         if (formData.customerName) setCustomerName(formData.customerName);
         
-        console.log('✅ Form state loaded from storage');
+        console.log('Form state loaded from storage');
       }
     } catch (error) {
-      console.error('❌ Error loading form state:', error);
+      console.error('Error loading form state:', error);
     }
   };
 
@@ -404,7 +383,7 @@ export default function BuyCableTV() {
       
       await AsyncStorage.setItem('cableTvFormState', JSON.stringify(formData));
     } catch (error) {
-      console.error('❌ Error saving form state:', error);
+      console.error('Error saving form state:', error);
     }
   };
 
@@ -429,58 +408,56 @@ export default function BuyCableTV() {
       await AsyncStorage.setItem('recentNumbers', JSON.stringify(recentList));
       setRecentNumbers(recentList);
       
-      console.log('✅ Recent number saved');
+      console.log('Recent number saved');
     } catch (error) {
-      console.error('❌ Error saving recent number:', error);
+      console.error('Error saving recent number:', error);
     }
   };
 
-
   // ========== CABLE TV SPECIFIC FUNCTIONS ==========
   
-
   const fetchCablePackages = async (operator: string) => {
-  setIsLoadingPackages(true);
-  setCablePackages([]);
-  setSelectedPackage(null);
-  
-  try {
-    console.log(`Fetching cable packages for: ${operator}`);
-    const response = await makeApiRequest(`/cable/packages/${operator}`);
-
-    if (response.success && response.data) {
-      const packages = response.data.map(pkg => ({
-        id: pkg.variation_id || pkg.id,
-        name: pkg.name || pkg.package_name,
-        amount: parseFloat(pkg.amount || pkg.price),
-        duration: pkg.duration || '30 days',
-        operator: operator,
-        description: pkg.description || pkg.details
-      }));
-
-      setCablePackages(packages);
-      console.log(`Loaded ${packages.length} packages for ${operator}`);
-    } else {
-      throw new Error(response.message || 'Failed to fetch cable packages');
-    }
-  } catch (error) {
-    console.error('Error fetching cable packages:', error);
+    setIsLoadingPackages(true);
     setCablePackages([]);
+    setSelectedPackage(null);
     
-    if (error.message.includes('login again')) {
-      Alert.alert('Session Expired', 'Please login again to continue.');
-    } else if (error.message.includes('Network')) {
-      Alert.alert('Network Error', 'Please check your connection and try again.');
-    } else {
-      Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages. Please try again.`);
+    try {
+      console.log(`Fetching cable packages for: ${operator}`);
+      const response = await makeApiRequest(`/cable/packages/${operator}`);
+
+      if (response.success && response.data) {
+        const packages = response.data.map(pkg => ({
+          id: pkg.variation_id || pkg.id,
+          name: pkg.name || pkg.package_name,
+          amount: parseFloat(pkg.amount || pkg.price),
+          duration: pkg.duration || '30 days',
+          operator: operator,
+          description: pkg.description || pkg.details
+        }));
+
+        setCablePackages(packages);
+        console.log(`Loaded ${packages.length} packages for ${operator}`);
+      } else {
+        throw new Error(response.message || 'Failed to fetch cable packages');
+      }
+    } catch (error) {
+      console.error('Error fetching cable packages:', error);
+      setCablePackages([]);
+      
+      if (error.message.includes('login again')) {
+        Alert.alert('Session Expired', 'Please login again to continue.');
+      } else if (error.message.includes('Network')) {
+        Alert.alert('Network Error', 'Please check your connection and try again.');
+      } else {
+        Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages. Please try again.`);
+      }
+    } finally {
+      setIsLoadingPackages(false);
     }
-  } finally {
-    setIsLoadingPackages(false);
-  }
-};
+  };
 
   // Smart Card Validation
-   const validateSmartCard = async () => {
+  const validateSmartCard = async () => {
     if (!isSmartCardValid) {
       setCardError('Smart card number must be at least 10 digits');
       return;
@@ -496,7 +473,7 @@ export default function BuyCableTV() {
     setCustomerName('');
 
     try {
-      console.log('🔄 Validating smart card...');
+      console.log('Validating smart card...');
       const response = await makeApiRequest('/cable/validate-smartcard', {
         method: 'POST',
         body: JSON.stringify({ 
@@ -507,13 +484,13 @@ export default function BuyCableTV() {
 
       if (response && response.success) {
         setCustomerName(response.customerName || 'Verified Customer');
-        console.log('✅ Smart card validated successfully');
+        console.log('Smart card validated successfully');
       } else {
         setCardError(response?.message || 'Smart card validation failed');
-        console.log('❌ Smart card validation failed:', response?.message);
+        console.log('Smart card validation failed:', response?.message);
       }
     } catch (error: any) {
-      console.error('❌ Smart card validation error:', error);
+      console.error('Smart card validation error:', error);
 
       if (error.message.includes('login again')) {
         return;
@@ -603,24 +580,24 @@ export default function BuyCableTV() {
     Alert.alert('Info', 'This would use your registered phone number. For demo, please enter a number manually.');
   };
 
-  // ========== UNIFIED PAYMENT PROCESSING ==========
+  // ========== UNIFIED PAYMENT PROCESSING (same as airtime) ==========
   
   const validatePinAndPurchase = async () => {
     console.log('=== CABLE TV PAYMENT START ===');
     
     if (!isPinValid) {
-      console.log('❌ PIN invalid:', pin);
+      console.log('PIN invalid:', pin);
       setPinError('PIN must be exactly 4 digits');
       return;
     }
 
-    console.log('✅ Starting cable TV payment process...');
+    console.log('Starting cable TV payment process...');
     setIsValidatingPin(true);
     setIsProcessingPayment(true);
     setPinError('');
 
     try {
-      console.log('📦 Cable TV payment payload:', {
+      console.log('Cable TV payment payload:', {
         type: 'cable_tv',
         operator: selectedOperator,
         packageId: selectedPackage?.id,
@@ -644,10 +621,10 @@ export default function BuyCableTV() {
         }),
       });
 
-      console.log('📊 Purchase response:', response);
+      console.log('Purchase response:', response);
 
       if (response.success === true) {
-        console.log('🎉 Cable TV payment successful!');
+        console.log('Cable TV payment successful!');
         
         await saveRecentNumber(phone);
         
@@ -668,7 +645,7 @@ export default function BuyCableTV() {
 
           setUserBalance(updatedBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-          console.log('💰 Balance updated:', updatedBalance);
+          console.log('Balance updated:', updatedBalance);
         }
 
         // Clear form
@@ -692,7 +669,7 @@ export default function BuyCableTV() {
         }, 300);
 
       } else {
-        console.log('❌ Cable TV payment failed:', response.message);
+        console.log('Cable TV payment failed:', response.message);
         
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
@@ -702,7 +679,7 @@ export default function BuyCableTV() {
       }
 
     } catch (error) {
-      console.error('💥 Cable TV payment error:', error);
+      console.error('Cable TV payment error:', error);
       
       if (error.message.includes('locked') || error.message.includes('attempts')) {
         setPinError(error.message);
@@ -744,11 +721,7 @@ export default function BuyCableTV() {
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Cable TV</Text>
-      </View>
-
+      
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
@@ -1388,92 +1361,7 @@ export default function BuyCableTV() {
 // Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  authErrorBanner: {
-    backgroundColor: '#fff3cd',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffeaa7',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
-  },
-  authErrorText: {
-    color: '#856404',
-    fontSize: 12,
-    fontWeight: '500',
-    flex: 1,
-  },
-  loginButton: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-  },
-  loginButtonText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  authErrorCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
-    alignItems: 'center',
-  },
-  authErrorCardTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  authErrorCardText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  loginCardButton: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 20,
-  },
-  loginCardButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
   scrollContent: { 
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
     flex: 1 
   },
   section: { margin: 16, marginBottom: 24 },
@@ -1682,30 +1570,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  balanceBreakdown: {
+  lastUpdated: {
+    fontSize: 11,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  transactionPreview: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    paddingTop: 12,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
-  balanceItem: {
-    alignItems: 'center',
-  },
-  balanceLabel: {
-    fontSize: 12,
+  previewLabel: {
+    fontSize: 14,
     color: '#666',
-    marginBottom: 4,
+    fontWeight: '500',
   },
-  balanceAmount: {
+  previewAmount: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
   },
-  balanceBonusAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#ff8c00',
+  sufficientPreview: {
+    color: '#28a745',
+  },
+  insufficientPreview: {
+    color: '#dc3545',
   },
   insufficientBalanceWarning: {
     marginTop: 16,
@@ -1743,6 +1636,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 12,
+  },
+  retryBtn: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   summaryCard: {
     margin: 16,
@@ -2068,30 +1972,5 @@ const styles = StyleSheet.create({
   loadingText: {
     marginLeft: 8,
     color: '#666',
-  },
-  // Additional styles merged into main styles
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
   },
 });

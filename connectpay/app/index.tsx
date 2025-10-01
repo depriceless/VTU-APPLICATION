@@ -63,10 +63,10 @@ export default function GetStartedScreen() {
 
         <View style={styles.contentWrapper}>
           <View style={styles.textContainer}>
-            <Text style={styles.title}>Welcome to Connectpay</Text>
-            <Text style={styles.subtitle}>
-              Your one-stop solution to buy airtime, data, and pay bills effortlessly.
-            </Text>
+            <Text style={styles.title}>Welcome to ConnectPay</Text>
+<Text style={styles.subtitle}>
+  Secure mobile financial services for airtime, data, and bill payments.
+</Text>
           </View>
 
           <TouchableOpacity
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   title: {
-    fontSize: SCREEN_WIDTH < 360 ? 28 : 32,
+    fontSize: SCREEN_WIDTH < 360 ? 28 : 34,
     fontWeight: 'bold',
     color: '#fff',
     textAlign: 'center',
@@ -161,10 +161,10 @@ const styles = StyleSheet.create({
     fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
   },
   subtitle: {
-    fontSize: SCREEN_WIDTH < 360 ? 16 : 18,
+    fontSize: SCREEN_WIDTH < 360 ? 16 : 20,
     color: '#fff',
     textAlign: 'center',
-    lineHeight: SCREEN_WIDTH < 360 ? 24 : 26,
+    lineHeight: SCREEN_WIDTH < 360 ? 24 : 34,
     opacity: 0.95,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
 button: {
   backgroundColor: '#fff',
   paddingVertical: SCREEN_WIDTH < 360 ? 16 : 18,
-  paddingHorizontal: 40,
+  paddingHorizontal:40,
   borderRadius: 14,
   alignItems: 'center',
   shadowColor: '#000',
@@ -183,7 +183,7 @@ button: {
   shadowOpacity: 0.3,
   shadowRadius: 8,
   elevation: 6,
-  width: '100%', // Changed from minWidth to full width
+  width: '113%', // Changed from minWidth to full width
   // Add subtle animation-ready transform
   transform: [{ scale: 1 }],
 },

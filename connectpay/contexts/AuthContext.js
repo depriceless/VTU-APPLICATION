@@ -6,7 +6,9 @@ const AuthContext = createContext();
 
 // API Configuration
 const API_CONFIG = {
-  BASE_URL: 'http://localhost:5000/api',
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
   ENDPOINTS: {
     PROFILE: '/auth/profile',
     BALANCE: '/balance',

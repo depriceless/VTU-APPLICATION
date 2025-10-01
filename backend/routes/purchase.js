@@ -7,7 +7,115 @@ const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const { DATA_PLANS } = require('../config/dataPlans');
+const ServiceConfig = require('../models/ServiceConfig');
 
+
+// Initialize fund_betting service if missing
+// REPLACE your existing service initialization block with this:
+// Initialize services if missing
+(async () => {
+  try {
+    const services = [
+      { type: 'airtime', name: 'Airtime Purchase', active: true },
+      { type: 'data', name: 'Data Purchase', active: true },
+      { type: 'electricity', name: 'Electricity Payment', active: true },
+      { type: 'cable_tv', name: 'Cable TV Subscription', active: true },
+      { type: 'internet', name: 'Internet Subscription', active: true },
+      { type: 'fund_betting', name: 'Fund Betting Account', active: true },
+      { type: 'education', name: 'Education Payment', active: true },
+      { type: 'print_recharge', name: 'Print Recharge', active: false },
+      { type: 'transfer', name: 'Money Transfer', active: true }
+    ];
+
+    for (const serviceInfo of services) {
+      let service = await ServiceConfig.findOne({ serviceType: serviceInfo.type });
+      if (!service) {
+        service = new ServiceConfig({
+          serviceType: serviceInfo.type,
+          displayName: serviceInfo.name,
+          isActive: serviceInfo.active,
+          maintenanceMode: false,
+          pricing: {
+            markupPercentage: 0,
+            flatFee: 0
+          },
+          limits: {
+            min: serviceInfo.type === 'education' ? 500 : 50,
+            max: serviceInfo.type === 'education' ? 1000000 : 500000,
+            dailyLimit: 1000000
+          }
+        });
+        await service.save();
+        console.log(`${serviceInfo.name} service initialized as ${serviceInfo.active ? 'ACTIVE' : 'INACTIVE'}`);
+      } else {
+        // Don't override existing service status
+        console.log(`${serviceInfo.name} service already exists - Status: ${service.isActive ? 'ACTIVE' : 'INACTIVE'}`);
+      }
+    }
+  } catch (error) {
+    console.error('Service initialization error:', error);
+  }
+})();
+// Add this service validation function
+const validateServiceAvailability = async (serviceType) => {
+  try {
+    console.log('Looking for service:', serviceType.toLowerCase());
+    
+    // Normalize the service type for consistent lookup
+    let normalizedServiceType = serviceType.toLowerCase();
+    
+    // Handle special cases for service type mapping
+    const serviceTypeMapping = {
+      'fund_betting': 'fund_betting',
+      'betting': 'fund_betting',
+      'cable_tv': 'cable_tv',
+      'print_recharge': 'print_recharge'
+    };
+    
+    if (serviceTypeMapping[normalizedServiceType]) {
+      normalizedServiceType = serviceTypeMapping[normalizedServiceType];
+    }
+    
+    const service = await ServiceConfig.findOne({ 
+      serviceType: normalizedServiceType 
+    });
+    
+    console.log('Service found:', service);
+    
+    if (!service) {
+      console.log('Service not found in database');
+      return {
+        available: false,
+        reason: `${serviceType} service is currently unavailable`
+      };
+    }
+    
+    if (!service.isActive) {
+      console.log('Service is deactivated');
+      return {
+        available: false,
+        reason: `${service.displayName || serviceType} service is currently unavailable`
+      };
+    }
+    
+    if (service.maintenanceMode) {
+      console.log('Service is in maintenance mode');
+      return {
+        available: false,
+        reason: service.maintenanceMessage || `${service.displayName || serviceType} service is currently under maintenance`
+      };
+    }
+    
+    console.log('Service is available');
+    return { available: true };
+  } catch (error) {
+    console.error('Service validation error:', error);
+    return {
+      available: false,
+      reason: `${serviceType} service is currently unavailable`
+    };
+  }
+};
 // PIN attempt tracking (in-memory storage for simplicity)
 const pinAttempts = new Map();
 
@@ -176,7 +284,8 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const { type, amount, pin, ...serviceData } = req.body;
 
-    console.log('Purchase request received:', { type, amount, serviceData });
+    console.log('🚀 PURCHASE ENDPOINT HIT - Type:', type, 'Amount:', amount);
+console.log('Purchase request received:', { type, amount, serviceData });
 
     // Basic validation
     if (!type || !amount || !pin) {
@@ -185,6 +294,18 @@ router.post('/', authenticate, async (req, res) => {
         message: 'Missing required fields: type, amount, pin'
       });
     }
+
+// Add this AFTER the existing validation but BEFORE the PIN check
+// Validate service availability - ADD THIS BLOCK
+console.log(`Checking service availability for: ${type}`);
+const serviceValidation = await validateServiceAvailability(type);
+if (!serviceValidation.available) {
+  return res.status(400).json({
+    success: false,
+    message: serviceValidation.reason
+  });
+}
+console.log(`✅ Service ${type} is available`);
 
     if (!/^\d{4}$/.test(pin)) {
       return res.status(400).json({
@@ -195,23 +316,27 @@ router.post('/', authenticate, async (req, res) => {
 
     // Different amount limits for different services
     const amountLimits = {
-      airtime: { min: 50, max: 500000 },
-      data: { min: 50, max: 500000 },
-      electricity: { min: 100, max: 100000 },
-      education: { min: 500, max: 1000000 },
-      print_recharge: { min: 100, max: 50000 },
-      transfer: { min: 100, max: 1000000 },
-      internet: { min: 500, max: 200000 },
-      fund_betting: { min: 100, max: 500000 }
-    };
+  airtime: { min: 50, max: 500000 },
+  data: { min: 50, max: 500000 },
+  electricity: { min: 100, max: 100000 },
+  education: { min: 500, max: 1000000 },
+  print_recharge: { min: 100, max: 50000 },
+  transfer: { min: 100, max: 1000000 },
+  internet: { min: 500, max: 200000 },
+  fund_betting: { min: 100, max: 500000 },
+  cable_tv: { min: 500, max: 50000 }
+};
 
-   const validTypes = ['airtime', 'data', 'electricity', 'education', 'print_recharge', 'transfer', 'internet', 'fund_betting'];
-    if (!validTypes.includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid service type. Must be one of: ${validTypes.join(', ')}`
-      });
-    }
+  // Get active services from database instead of hard-coded array
+const activeServices = await ServiceConfig.find({ isActive: true }).select('serviceType');
+const validTypes = activeServices.map(service => service.serviceType);
+
+if (!validTypes.includes(type)) {
+  return res.status(400).json({
+    success: false,
+    message: `Service type '${type}' is currently unavailable. Available services: ${validTypes.join(', ')}`
+  });
+}
 
     const limits = amountLimits[type];
     if (amount < limits.min || amount > limits.max) {
@@ -292,71 +417,86 @@ router.post('/', authenticate, async (req, res) => {
     resetPinAttempts(req.user.userId);
 
     // Process purchase based on type
-    let purchaseResult;
-    switch (type) {
-      case 'airtime':
-        purchaseResult = await processAirtimePurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'data':
-        // FIXED: Enhanced data purchase processing
-        purchaseResult = await processDataPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'electricity':
-        purchaseResult = await processElectricityPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'education':
-        purchaseResult = await processEducationPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'print_recharge':
-        purchaseResult = await processPrintRechargePurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'transfer':
-        purchaseResult = await processTransferPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'internet':
-        purchaseResult = await processInternetPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      case 'fund_betting':
-        purchaseResult = await processFundBettingPurchase({
-          ...serviceData,
-          amount,
-          userId: req.user.userId
-        });
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          message: 'Unsupported service type'
-        });
-    }
+    // In your POST /api/purchase route, find this section:
+
+// Process purchase based on type
+let purchaseResult;
+switch (type) {
+  case 'airtime':
+    purchaseResult = await processAirtimePurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'data':
+    // FIXED: Enhanced data purchase processing
+    purchaseResult = await processDataPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'electricity':
+    purchaseResult = await processElectricityPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'education':
+    purchaseResult = await processEducationPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'print_recharge':
+    purchaseResult = await processPrintRechargePurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'transfer':
+    purchaseResult = await processTransferPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'internet':
+    purchaseResult = await processInternetPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'fund_betting':
+    purchaseResult = await processFundBettingPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  case 'cable_tv':
+    purchaseResult = await processCableTVPurchase({
+      ...serviceData,
+      amount,
+      userId: req.user.userId
+    });
+    break;
+  default:
+    return res.status(400).json({
+      success: false,
+      message: 'Unsupported service type'
+    });
+}
+
+// REPLACE THE ENTIRE SWITCH BLOCK ABOVE WITH THIS FIXED VERSION:
+
+// Process purchase based on type
+
 
     if (purchaseResult.success) {
       // Debit wallet using the model method
@@ -571,8 +711,7 @@ async function processElectricityPurchase({ provider, meterNumber, meterType, am
   if (!provider || !meterNumber || !meterType) {
     throw new Error('Missing required fields: provider, meterNumber, meterType');
   }
-
-  const validProviders = ['eko', 'ikeja', 'abuja', 'kano', 'portharcourt'];
+const validProviders = ['eko', 'ikeja', 'abuja', 'ibadan', 'kano', 'portharcourt', 'enugu'];
   if (!validProviders.includes(provider)) {
     throw new Error('Invalid electricity provider');
   }
@@ -738,6 +877,53 @@ async function processPrintRechargePurchase({ provider, printerId, printerType, 
         printerId,
         printerType,
         serviceType: 'print_recharge'
+      }
+    };
+  }
+}
+// Cable TV purchase
+async function processCableTVPurchase({ operator, smartCardNumber, packageId, amount, userId }) {
+  if (!operator || !smartCardNumber || !packageId) {
+    throw new Error('Missing required fields: operator, smartCardNumber, packageId');
+  }
+
+  const validOperators = ['dstv', 'gotv', 'startimes', 'showmax'];
+  if (!validOperators.includes(operator)) {
+    throw new Error('Invalid cable TV operator');
+  }
+
+  if (!/^\d{10,12}$/.test(smartCardNumber)) {
+    throw new Error('Invalid smart card number format');
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  const reference = `CABLE_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const isSuccessful = Math.random() > 0.15;
+
+  if (isSuccessful) {
+    return {
+      success: true,
+      reference,
+      description: `Cable TV - ${operator.toUpperCase()} ${packageId} - ${smartCardNumber}`,
+      successMessage: 'Cable TV subscription successful',
+      transactionData: {
+        operator: operator.toUpperCase(),
+        smartCardNumber,
+        packageId,
+        serviceType: 'cable_tv'
+      }
+    };
+  } else {
+    return {
+      success: false,
+      reference,
+      errorMessage: 'Cable TV service temporarily unavailable. Please try again.',
+      transactionData: {
+        operator: operator.toUpperCase(),
+        smartCardNumber,
+        packageId,
+        serviceType: 'cable_tv'
       }
     };
   }
@@ -921,6 +1107,7 @@ async function processFundBettingPurchase({ provider, customerId, customerName, 
 
 
 // POST /api/purchase/generate - Generate recharge PINs (Updated to save transactions)
+// POST /api/purchase/generate - Generate recharge PINs (Updated to save transactions)
 router.post('/generate', authenticate, async (req, res) => {
   try {
     const { network, type, denomination, quantity, pin } = req.body;
@@ -935,6 +1122,18 @@ router.post('/generate', authenticate, async (req, res) => {
         message: 'Missing required fields: network, type, denomination, quantity, pin'
       });
     }
+
+    // ADD SERVICE VALIDATION - THIS IS THE FIX
+    console.log('Checking print_recharge service availability...');
+    const serviceValidation = await validateServiceAvailability('print_recharge');
+    if (!serviceValidation.available) {
+      console.log('❌ Print recharge service unavailable:', serviceValidation.reason);
+      return res.status(400).json({
+        success: false,
+        message: serviceValidation.reason
+      });
+    }
+    console.log('✅ Print recharge service is available');
 
     if (!/^\d{4}$/.test(pin)) {
       console.log('❌ Validation failed: Invalid PIN format');
@@ -1192,12 +1391,12 @@ router.get('/history', authenticate, async (req, res) => {
         console.log('Found PIN in description, extracting...');
         
         // Extract PINs and serials from description - FIXED regex
-const pinMatches = tx.description.match(/PIN: (\d+) \(Serial: (\d+)\)/g);
-        console.log('PIN matches found:', pinMatches);
-        if (pinMatches) {
+const pinMatches = tx.description.match(/PIN:\s*(\d+)\s*\(Serial:\s*(\d+)\)/g);
+console.log('PIN matches found:', pinMatches);
+if (pinMatches) {
   pins = pinMatches.map(match => {
-    // Use non-global regex for individual matching
-    const pinMatch = match.match(/^PIN: (\d+) \(Serial: (\d+)\)$/);
+    // Remove the anchors ^ and $ to match within the string
+    const pinMatch = match.match(/PIN:\s*(\d+)\s*\(Serial:\s*(\d+)\)/);
     if (pinMatch) {
       return {
         pin: pinMatch[1],
@@ -1205,7 +1404,7 @@ const pinMatches = tx.description.match(/PIN: (\d+) \(Serial: (\d+)\)/g);
       };
     }
     return null;
-  }).filter(Boolean); // Remove any null entries
+  }).filter(Boolean);
 }
         // Extract network and service type
         const networkMatch = tx.description.match(/^(\w+) (\w+) Recharge/);
@@ -1294,5 +1493,81 @@ function extractTypeFromDescription(description) {
 }
 
 
+// POST /api/purchase/force-activate-fund-betting
+router.post('/force-activate-fund-betting', authenticate, async (req, res) => {
+  try {
+    console.log('Force activating fund_betting service...');
+    
+    const updatedService = await ServiceConfig.findOneAndUpdate(
+      { serviceType: 'fund_betting' },
+      { 
+        isActive: true,
+        maintenanceMode: false,
+        lastModified: new Date()
+      },
+      { new: true }
+    );
+    
+    console.log('Service updated:', updatedService);
+    
+    res.json({
+      success: true,
+      message: 'Fund betting service force activated',
+      service: updatedService
+    });
+    
+  } catch (error) {
+    console.error('Force activation error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
+router.post('/force-deactivate-print-recharge', authenticate, async (req, res) => {
+  try {
+    const updatedService = await ServiceConfig.findOneAndUpdate(
+      { serviceType: 'print_recharge' },
+      { 
+        isActive: false,
+        maintenanceMode: true,
+        maintenanceMessage: 'Print recharge service is temporarily unavailable',
+        lastModified: new Date()
+      },
+      { new: true, upsert: true }
+    );
+    
+    res.json({
+      success: true,
+      message: 'Print recharge service deactivated',
+      service: updatedService
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+// Add this to your routes/purchase.js file
+router.get('/debug-services', authenticate, async (req, res) => {
+  try {
+    const services = await ServiceConfig.find({});
+    const printService = await ServiceConfig.findOne({ serviceType: 'print_recharge' });
+    
+    res.json({
+      success: true,
+      allServices: services,
+      printRechargeService: printService,
+      printRechargeExists: !!printService,
+      printRechargeActive: printService ? printService.isActive : null
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;

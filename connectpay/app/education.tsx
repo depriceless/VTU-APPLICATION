@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EducationSuccessModal from './EducationSuccessModal';
+import { AuthContext } from '../contexts/AuthContext';
 
 // Your Replit API base URL
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
 
 interface ExamCard {
   id: string;
@@ -54,6 +59,8 @@ interface PinStatus {
 }
 
 export default function BuyEducation() {
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedExam, setSelectedExam] = useState<ExamCard | null>(null);
   const [quantity, setQuantity] = useState('1');
@@ -151,8 +158,23 @@ export default function BuyEducation() {
   useEffect(() => {
     loadRecentPurchases();
     loadFormState();
-    fetchUserBalance();
-    checkPinStatus();
+    
+    // Initialize balance from AuthContext
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        lastUpdated: Date.now(),
+      });
+    }
+    
+    // Fetch updated data
+    setTimeout(() => {
+      fetchUserBalance();
+      checkPinStatus();
+    }, 1000);
   }, []);
 
   // Refresh balance when stepping to review page
@@ -178,66 +200,92 @@ export default function BuyEducation() {
 
   // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
-    try {
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
-          const tokenParts = cleanToken.split('.');
-          if (tokenParts.length === 3) {
-            return cleanToken;
-          }
-        }
-      }
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('Error getting auth token:', error);
+    if (!token) {
+      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
+    return token;
   };
 
   const makeApiRequest = async (endpoint: string, options: any = {}) => {
+    console.log(`API Request: ${endpoint}`);
+    
     try {
-      const token = await getAuthToken();
+      const authToken = await getAuthToken();
+      
       const requestConfig = {
         method: 'GET',
         ...options,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           ...options.headers,
         },
       };
 
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
       const response = await fetch(fullUrl, requestConfig);
 
-      if (response.status === 401) {
-        const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-        for (const key of tokenKeys) {
-          await AsyncStorage.removeItem(key);
+      let responseText = '';
+      try {
+        responseText = await response.text();
+      } catch (textError) {
+        throw new Error('Unable to read server response');
+      }
+
+      let data = {};
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
         }
+      }
+
+      // Handle authentication errors
+      if (response.status === 401) {
         throw new Error('Session expired. Please login again.');
       }
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
+        
+        if (endpoint === '/purchase' && data && typeof data === 'object') {
+          const error = new Error(errorMessage);
+          (error as any).responseData = data;
+          (error as any).httpStatus = response.status;
+          throw error;
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      const responseText = await response.text();
-      return responseText ? JSON.parse(responseText) : {};
+      return data;
+
     } catch (error) {
       console.error(`API Error for ${endpoint}:`, error.message);
-      throw error;
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        throw new Error('Network connection failed. Please check your internet connection.');
+      }
+
+      if (error.message.includes('Authentication') || 
+          error.message.includes('Session expired') ||
+          error.responseData) {
+        throw error;
+      }
+
+      throw new Error(error.message || 'Request failed');
     }
   };
 
   // ---------- PIN Functions ----------
   const checkPinStatus = async () => {
     try {
+      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
+      
       if (response.success) {
         setPinStatus(response);
       }
@@ -249,29 +297,63 @@ export default function BuyEducation() {
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      const balanceData = await makeApiRequest("/balance");
-      if (balanceData.success && balanceData.balance) {
-        const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+      console.log("Refreshing balance from AuthContext");
+      
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
+        
         const realBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
-          currency: balanceData.balance.currency || "NGN",
-          lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
         };
+
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        console.log("Balance updated from AuthContext:", realBalance);
+      } else {
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
       }
     } catch (error) {
       console.error("Balance fetch error:", error);
+      
+      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          setUserBalance(JSON.parse(cachedBalance));
+          const parsedBalance = JSON.parse(cachedBalance);
+          setUserBalance(parsedBalance);
+        } else {
+          setUserBalance(null);
         }
       } catch (cacheError) {
-        console.error("Cache error:", cacheError);
+        setUserBalance(null);
       }
     } finally {
       setIsLoadingBalance(false);
@@ -336,95 +418,96 @@ export default function BuyEducation() {
       console.log('Error loading recent purchases:', error);
     }
   };
-const validatePinAndPurchase = async () => {
-  if (!isPinValid) {
-    setPinError('PIN must be exactly 4 digits');
-    return;
-  }
 
-  console.log('🔄 Starting payment process...');
-  setIsValidatingPin(true);
-  setIsProcessingPayment(true);
-  setPinError('');
+  const validatePinAndPurchase = async () => {
+    console.log('=== PAYMENT START ===');
+    
+    if (!isPinValid) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
+    }
 
-  try {
-    console.log('📦 Payment payload:', {
-      type: 'education',
-      examCode: selectedExam?.code,
-      examName: selectedExam?.name,
-      quantity: quantityNum,
-      amount: totalAmount,
-    });
+    setIsValidatingPin(true);
+    setIsProcessingPayment(true);
+    setPinError('');
 
-    const response = await makeApiRequest('/purchase', {  // Changed from '/purchase/education' to '/purchase'
-  method: 'POST',
-  body: JSON.stringify({
-    type: 'education',  // This tells backend it's an education purchase
-    provider: selectedExam?.examBody.toLowerCase(), // e.g., 'waec', 'jamb', 'neco'
-    examType: selectedExam?.code,                   // e.g., 'WAEC', 'JAMB', 'NECO'  
-    studentId: 'NOT_PROVIDED',                     // Placeholder value
-    candidateName: 'Customer',                     // Placeholder value
-    amount: totalAmount,
-    pin: pin,
-  }),
-});
-
-    console.log('📊 Purchase response:', response);
-
-    if (response.success === true) {
-      console.log('✅ Payment successful!');
-      await saveRecentPurchase(selectedExam?.name || '', quantityNum, totalAmount);
-      
-      if (response.newBalance) {
-        const balanceAmount = response.newBalance.amount || response.newBalance.totalBalance || 0;
-        const updatedBalance = {
-          main: balanceAmount,
-          bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          currency: response.newBalance.currency || "NGN",
-          lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-        };
-        setUserBalance(updatedBalance);
-        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-      }
-
-      await AsyncStorage.removeItem('educationFormState');
-
-      setSuccessData({
-        transaction: response.transaction || {},
-        examName: selectedExam?.name,
-        quantity: quantityNum,
-        amount: totalAmount,
-        newBalance: response.newBalance
+    try {
+      const response = await makeApiRequest('/purchase', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'education',
+          provider: selectedExam?.examBody.toLowerCase(), // e.g., 'waec', 'jamb', 'neco'
+          examType: selectedExam?.code,                   // e.g., 'WAEC', 'JAMB', 'NECO'  
+          studentId: 'NOT_PROVIDED',                     // Placeholder value
+          candidateName: 'Customer',                     // Placeholder value
+          amount: totalAmount,
+          pin: pin,
+        }),
       });
 
-      setTimeout(() => {
-        setShowSuccessModal(true);
-      }, 300);
+      console.log('Purchase response:', response);
 
-    } else {
-      console.log('❌ Payment failed:', response.message);
-      if (response.message && response.message.toLowerCase().includes('pin')) {
-        setPinError(response.message);
+      if (response.success === true) {
+        console.log('Payment successful!');
+        await saveRecentPurchase(selectedExam?.name || '', quantityNum, totalAmount);
+        
+        // Update balance
+        if (response.newBalance) {
+          const balanceAmount = response.newBalance.amount || 
+                               response.newBalance.totalBalance || 
+                               response.newBalance.mainBalance || 0;
+          
+          const updatedBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: response.newBalance.currency || "NGN",
+            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(updatedBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+        }
+
+        await AsyncStorage.removeItem('educationFormState');
+
+        setSuccessData({
+          transaction: response.transaction || {},
+          examName: selectedExam?.name,
+          quantity: quantityNum,
+          amount: totalAmount,
+          newBalance: response.newBalance
+        });
+
+        setTimeout(() => {
+          setShowSuccessModal(true);
+        }, 300);
+
+      } else {
+        console.log('Payment failed:', response.message);
+        if (response.message && response.message.toLowerCase().includes('pin')) {
+          setPinError(response.message);
+        }
+        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
-      Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
-    }
 
-  } catch (error) {
-    console.error('💥 Payment error:', error);
-    if (error.message.includes('locked') || error.message.includes('attempts')) {
-      setPinError(error.message);
-    } else if (error.message.includes('PIN')) {
-      setPinError(error.message);
-    } else {
-      Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+    } catch (error) {
+      console.error('Payment error:', error);
+      if (error.message.includes('locked') || error.message.includes('attempts')) {
+        setPinError(error.message);
+      } else if (error.message.includes('PIN')) {
+        setPinError(error.message);
+      } else {
+        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+      }
+    } finally {
+      setIsValidatingPin(false);
+      setIsProcessingPayment(false);
+      console.log('=== PAYMENT END ===');
     }
-  } finally {
-    setIsValidatingPin(false);
-    setIsProcessingPayment(false);
-  }
-};
+  };
+
   const handleCloseSuccessModal = () => {
     setShowSuccessModal(false);
     setSuccessData(null);
@@ -640,6 +723,14 @@ const validatePinAndPurchase = async () => {
                 <Text style={styles.noBalanceText}>
                   {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
                 </Text>
+                {!isLoadingBalance && (
+                  <TouchableOpacity 
+                    style={styles.retryBtn}
+                    onPress={fetchUserBalance}
+                  >
+                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
           </View>
@@ -857,19 +948,19 @@ const validatePinAndPurchase = async () => {
       )}
 
       {/* Success Modal */}
-     {showSuccessModal && successData && (
-  <EducationSuccessModal
-    visible={showSuccessModal}
-    onClose={handleCloseSuccessModal}
-    onBuyMore={handleBuyMore}
-    transaction={successData.transaction || {}}
-    examName={successData.examName}
-    quantity={successData.quantity}
-    amount={successData.amount}
-    newBalance={successData.newBalance}
-    message={`${successData.quantity} ${successData.examName} card(s) purchased successfully!`}
-  />
-)}
+      {showSuccessModal && successData && (
+        <EducationSuccessModal
+          visible={showSuccessModal}
+          onClose={handleCloseSuccessModal}
+          onBuyMore={handleBuyMore}
+          transaction={successData.transaction || {}}
+          examName={successData.examName}
+          quantity={successData.quantity}
+          amount={successData.amount}
+          newBalance={successData.newBalance}
+          message={`${successData.quantity} ${successData.examName} card(s) purchased successfully!`}
+        />
+      )}
     </View>
   );
 }
@@ -1189,10 +1280,21 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 14,
     textAlign: 'center',
+    marginBottom: 12,
+  },
+  retryBtn: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+  },
+  retryBtnText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   summaryCard: {
     margin: 16,
-        margin: 16,
     padding: 20,
     borderRadius: 16,
     backgroundColor: '#fff',
@@ -1400,7 +1502,7 @@ const styles = StyleSheet.create({
     padding: 20,
     borderRadius: 16,
     backgroundColor: '#fff',
-    shadowColor: '##000',
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,

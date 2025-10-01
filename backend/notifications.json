@@ -1,0 +1,23 @@
+[
+  {
+    "_id": "notif_1759006251781_1",
+    "title": "New Support Ticket: Complain ",
+    "message": "New support ticket submitted by mutiuridwan0@gmail.com. Category: Data. Priority: medium",
+    "type": "support",
+    "priority": "medium",
+    "read": true,
+    "readAt": "2025-09-27T20:51:10.884Z",
+    "actionRequired": true,
+    "actionLabel": "View Ticket",
+    "actionUrl": "/admin/support/tickets/TKT-1759006251767-0008-GILR0",
+    "metadata": {
+      "ticketId": "TKT-1759006251767-0008-GILR0",
+      "userEmail": "mutiuridwan0@gmail.com",
+      "category": "Data",
+      "source": "support_system"
+    },
+    "createdAt": "2025-09-27T20:50:51.781Z",
+    "updatedAt": "2025-09-27T20:51:10.884Z",
+    "expiresAt": null
+  }
+]

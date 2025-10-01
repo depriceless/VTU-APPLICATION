@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'; // Add this import
 import { useAuth } from '../contexts/AuthContext';
 import Loader from './ui/Loader';
 
-const API_BASE_URL = 'http://localhost:5000/api/admin/auth';
+const API_BASE_URL = 'http://192.168.126.7:5000/api/admin/auth';
 
 interface LoginCredentials {
   username: string;

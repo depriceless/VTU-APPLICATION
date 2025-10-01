@@ -534,7 +534,7 @@ const TransactionDetailsModal: React.FC<{
 };
 
 // API configuration
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = 'http://192.168.126.7:5000';
 
 // Main TransactionManagement Component
 const TransactionManagement: React.FC = () => {

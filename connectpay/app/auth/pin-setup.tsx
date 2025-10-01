@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,30 +9,41 @@ import {
   ActivityIndicator,
   Platform,
   ScrollView,
+  SafeAreaView,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
 
-// Your API base URL
-const API_BASE_URL = 'http://localhost:5000/api';
-
+const API_BASE_URL = Platform.OS === 'web' 
+  ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+  : `${process.env.EXPO_PUBLIC_API_URL}/api`;
 
 export default function PinSetupScreen() {
   const router = useRouter();
   const { userToken, userName } = useLocalSearchParams();
+  const inputRef = useRef(null);
 
-  const [currentStep, setCurrentStep] = useState<1 | 2>(1); // 1: Create PIN, 2: Confirm PIN
+  const [currentStep, setCurrentStep] = useState(1);
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [showPin, setShowPin] = useState(false);
 
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
   const isConfirmPinValid = confirmPin.length === 4 && /^\d{4}$/.test(confirmPin);
   const pinsMatch = pin === confirmPin && pin.length === 4;
 
-  // API request helper
-  const makeApiRequest = async (endpoint: string, options: any = {}) => {
+  useEffect(() => {
+    // Auto-focus input when step changes
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 100);
+  }, [currentStep]);
+
+  const makeApiRequest = async (endpoint, options = {}) => {
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
@@ -56,20 +67,19 @@ export default function PinSetupScreen() {
     }
   };
 
+  const isWeakPin = (pinValue) => {
+    const weakPins = ['0000', '1234', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999'];
+    return weakPins.includes(pinValue);
+  };
+
   const handleCreatePin = () => {
     if (!isPinValid) {
       setError('PIN must be exactly 4 digits');
       return;
     }
 
-    // Check for weak PINs
-    const weakPins = ['0000', '1234', '1111', '2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999'];
-    if (weakPins.includes(pin)) {
-      Alert.alert(
-        'Weak PIN Detected',
-        'Please choose a stronger PIN. Avoid sequential numbers or repeated digits.',
-        [{ text: 'OK' }]
-      );
+    if (isWeakPin(pin)) {
+      setError('Please choose a stronger PIN. Avoid sequential numbers or repeated digits.');
       return;
     }
 
@@ -79,7 +89,7 @@ export default function PinSetupScreen() {
 
   const handleConfirmPin = async () => {
     if (!isConfirmPinValid) {
-      setError('Confirmation PIN must be exactly 4 digits');
+      setError('Please enter all 4 digits');
       return;
     }
 
@@ -101,22 +111,17 @@ export default function PinSetupScreen() {
         }),
       });
 
-      // Check response and proceed
-      console.log('PIN setup response:', response);
-
       if (response.success) {
-        // Store PIN setup status and token locally
         await AsyncStorage.setItem('isPinSetup', 'true');
-        await AsyncStorage.setItem('userToken', userToken as string);
+        await AsyncStorage.setItem('userToken', userToken);
 
-        // Navigate immediately without alert
         router.replace('/dashboard');
 
-        // Show success message after navigation
         setTimeout(() => {
           Alert.alert(
-            'PIN Setup Complete!',
-            'Your transaction PIN has been set successfully.'
+            'Success!',
+            'Your transaction PIN has been set up successfully.',
+            [{ text: 'OK' }]
           );
         }, 500);
       }
@@ -128,7 +133,7 @@ export default function PinSetupScreen() {
       } else if (error.message.includes('Invalid')) {
         setError('Invalid PIN format. Please try again.');
       } else {
-        setError('Failed to set up PIN. Please try again.');
+        setError('Failed to set up PIN. Please check your connection and try again.');
       }
     } finally {
       setIsSubmitting(false);
@@ -141,7 +146,23 @@ export default function PinSetupScreen() {
     setError('');
   };
 
-  const renderPinDots = (currentPin: string) => {
+  const handlePinChange = (text) => {
+    const numericText = text.replace(/\D/g, '').substring(0, 4);
+    
+    if (currentStep === 1) {
+      setPin(numericText);
+    } else {
+      setConfirmPin(numericText);
+    }
+    
+    setError('');
+  };
+
+  const getCurrentPin = () => currentStep === 1 ? pin : confirmPin;
+
+  const renderPinDots = () => {
+    const currentPin = getCurrentPin();
+    
     return (
       <View style={styles.pinDotsContainer}>
         {[0, 1, 2, 3].map((index) => (
@@ -158,151 +179,181 @@ export default function PinSetupScreen() {
     );
   };
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Setup Transaction PIN</Text>
-        <Text style={styles.headerSubtext}>
-          {currentStep === 1 ? 'Step 1 of 2' : 'Step 2 of 2'}
-        </Text>
-      </View>
+  const getStatusMessage = () => {
+    if (error) return { text: error, type: 'error' };
+    
+    if (currentStep === 1) {
+      if (pin.length === 0) return { text: 'Enter a 4-digit PIN to secure your transactions', type: 'info' };
+      if (pin.length < 4) return { text: `${4 - pin.length} more digits needed`, type: 'info' };
+      if (isWeakPin(pin)) return { text: 'Consider a stronger PIN for better security', type: 'warning' };
+      return { text: 'PIN looks good! Tap Continue to proceed', type: 'success' };
+    } else {
+      if (confirmPin.length === 0) return { text: 'Re-enter the same 4-digit PIN', type: 'info' };
+      if (confirmPin.length < 4) return { text: `${4 - confirmPin.length} more digits needed`, type: 'info' };
+      if (pinsMatch) return { text: 'Perfect! PINs match', type: 'success' };
+      if (confirmPin.length === 4) return { text: 'PINs do not match. Please try again', type: 'error' };
+      return { text: 'Keep typing...', type: 'info' };
+    }
+  };
 
-      <ScrollView 
-        style={styles.content}
-        contentContainerStyle={{ paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
+  const statusMessage = getStatusMessage();
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardAvoidingView}
       >
-        {/* Welcome Message */}
-        <View style={styles.welcomeCard}>
-          <Text style={styles.welcomeTitle}>🔒 Secure Your Account</Text>
-          <Text style={styles.welcomeText}>
-            {userName ? `Welcome ${userName}! ` : ''}Set up a 4-digit PIN to secure your transactions. This PIN will be required for all purchases and wallet operations.
-          </Text>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>Setup Transaction PIN</Text>
+            <Text style={styles.headerSubtitle}>
+              Step {currentStep} of 2
+            </Text>
+          </View>
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View style={[styles.progressFill, { width: `${(currentStep / 2) * 100}%` }]} />
+            </View>
+          </View>
         </View>
 
-        {currentStep === 1 && (
-          <>
-            {/* Create PIN Step */}
-            <View style={styles.pinCard}>
-              <Text style={styles.pinTitle}>Create Your 4-Digit PIN</Text>
-              <Text style={styles.pinSubtitle}>
-                Choose a secure PIN that you'll remember
-              </Text>
+        <ScrollView 
+          style={styles.content}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Welcome Card */}
+          <View style={styles.welcomeCard}>
+            <View style={styles.iconContainer}>
+              <Ionicons name="shield-checkmark" size={32} color="#ff2b2b" />
+            </View>
+            <Text style={styles.welcomeTitle}>Secure Your Account</Text>
+            <Text style={styles.welcomeText}>
+              {userName ? `Welcome ${userName}! ` : ''}Create a 4-digit PIN to protect your transactions and wallet operations.
+            </Text>
+          </View>
 
-              <View style={styles.pinInputContainer}>
+          {/* PIN Input Card */}
+          <View style={styles.pinCard}>
+            <Text style={styles.pinTitle}>
+              {currentStep === 1 ? 'Create Your PIN' : 'Confirm Your PIN'}
+            </Text>
+            
+            <View style={styles.pinInputContainer}>
+              <View style={styles.inputWrapper}>
                 <TextInput
-                  style={[styles.pinInput, error && styles.pinInputError]}
-                  value={pin}
-                  onChangeText={(text) => {
-                    setPin(text.replace(/\D/g, '').substring(0, 4));
-                    setError('');
-                  }}
+                  ref={inputRef}
+                  style={styles.pinInput}
+                  value={getCurrentPin()}
+                  onChangeText={handlePinChange}
                   keyboardType="numeric"
-                  secureTextEntry={true}
-                  placeholder="****"
+                  secureTextEntry={!showPin}
+                  placeholder="Enter PIN"
                   maxLength={4}
                   autoFocus={true}
+                  accessibilityLabel={`${currentStep === 1 ? 'Create' : 'Confirm'} PIN input`}
                 />
+                <TouchableOpacity
+                  style={styles.visibilityButton}
+                  onPress={() => setShowPin(!showPin)}
+                  accessibilityLabel={showPin ? 'Hide PIN' : 'Show PIN'}
+                >
+                  <Ionicons
+                    name={showPin ? 'eye-off-outline' : 'eye-outline'}
+                    size={20}
+                    color="#666"
+                  />
+                </TouchableOpacity>
               </View>
-
-              {renderPinDots(pin)}
-
-              {error ? (
-                <Text style={styles.errorText}>{error}</Text>
-              ) : (
-                <Text style={styles.helpText}>
-                 
-                </Text>
-              )}
             </View>
+
+            {renderPinDots()}
+
+            {/* Status Message */}
+            <View style={styles.statusContainer}>
+              <Text style={[
+                styles.statusText,
+                statusMessage.type === 'error' && styles.statusError,
+                statusMessage.type === 'success' && styles.statusSuccess,
+                statusMessage.type === 'warning' && styles.statusWarning,
+                statusMessage.type === 'info' && styles.statusInfo,
+              ]}>
+                {statusMessage.text}
+              </Text>
+            </View>
+          </View>
+
+          {/* Security Tips */}
+          {currentStep === 1 && (
+            <View style={styles.tipsCard}>
+              <Text style={styles.tipsTitle}>Security Tips</Text>
+              <View style={styles.tipItem}>
+                <Ionicons name="checkmark-circle" size={16} color="#28a745" />
+                <Text style={styles.tipText}>Use a unique PIN you can remember</Text>
+              </View>
+              <View style={styles.tipItem}>
+                <Ionicons name="checkmark-circle" size={16} color="#28a745" />
+                <Text style={styles.tipText}>Avoid sequential numbers (1234)</Text>
+              </View>
+              <View style={styles.tipItem}>
+                <Ionicons name="checkmark-circle" size={16} color="#28a745" />
+                <Text style={styles.tipText}>Don't use repeated digits (1111)</Text>
+              </View>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Action Buttons */}
+        <View style={styles.actionSection}>
+          {currentStep === 1 ? (
             <TouchableOpacity
-              style={[styles.proceedBtn, !isPinValid && styles.proceedDisabled]}
+              style={[styles.primaryButton, !isPinValid && styles.primaryButtonDisabled]}
               disabled={!isPinValid}
               onPress={handleCreatePin}
+              accessibilityLabel="Continue to confirm PIN"
             >
-              <Text style={styles.proceedText}>Continue</Text>
+              <Text style={styles.primaryButtonText}>Continue</Text>
             </TouchableOpacity>
-          </>
-        )}
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton, 
+                  (!pinsMatch || isSubmitting) && styles.primaryButtonDisabled
+                ]}
+                disabled={!pinsMatch || isSubmitting}
+                onPress={handleConfirmPin}
+                accessibilityLabel="Complete PIN setup"
+              >
+                {isSubmitting ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={[styles.primaryButtonText, styles.loadingText]}>
+                      Setting up PIN...
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.primaryButtonText}>Complete Setup</Text>
+                )}
+              </TouchableOpacity>
 
-        {currentStep === 2 && (
-          <>
-            {/* Confirm PIN Step */}
-            <View style={styles.pinCard}>
-              <Text style={styles.pinTitle}>Confirm Your PIN</Text>
-              <Text style={styles.pinSubtitle}>
-                Re-enter your PIN to confirm
-              </Text>
-
-              <View style={styles.pinInputContainer}>
-                <TextInput
-                  style={[styles.pinInput, error && styles.pinInputError]}
-                  value={confirmPin}
-                  onChangeText={(text) => {
-                    setConfirmPin(text.replace(/\D/g, '').substring(0, 4));
-                    setError('');
-                  }}
-                  keyboardType="numeric"
-                  secureTextEntry={true}
-                  placeholder="****"
-                  maxLength={4}
-                  autoFocus={true}
-                />
-              </View>
-
-              {renderPinDots(confirmPin)}
-
-              {error ? (
-                <Text style={styles.errorText}>{error}</Text>
-              ) : (
-                <Text style={styles.helpText}>
-                  {confirmPin.length === 0 
-                    ? 'Re-enter the same 4-digit PIN you created'
-                    : pinsMatch 
-                    ? '✓ PINs match!'
-                    : confirmPin.length === 4
-                    ? '✗ PINs do not match'
-                    : 'Keep typing...'
-                  }
-                </Text>
-              )}
-            </View>
-
-            {/* Action Buttons */}
-            <TouchableOpacity
-              style={[
-                styles.proceedBtn, 
-                (!pinsMatch || isSubmitting) && styles.proceedDisabled
-              ]}
-              disabled={!pinsMatch || isSubmitting}
-              onPress={handleConfirmPin}
-            >
-              {isSubmitting ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                    Setting up PIN...
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.proceedText}>Complete Setup</Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.proceedBtn, styles.backBtn]}
-              onPress={handleBackToCreatePin}
-              disabled={isSubmitting}
-            >
-              <Text style={[styles.proceedText, styles.backBtnText]}>
-                ← Back to Create PIN
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </ScrollView>
-    </View>
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={handleBackToCreatePin}
+                disabled={isSubmitting}
+                accessibilityLabel="Go back to create PIN"
+              >
+                <Ionicons name="arrow-back" size={16} color="#666" />
+                <Text style={styles.secondaryButtonText}>Back to Create PIN</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -311,111 +362,147 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8f9fa',
   },
-
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 20,
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+  keyboardAvoidingView: {
+    flex: 1,
   },
-  headerText: {
-    color: '#fff',
+
+  // Header
+  header: {
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'ios' ? 0 : 20,
+    paddingBottom: 16,
+    paddingHorizontal: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  headerContent: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
+    color: '#1f2937',
     marginBottom: 4,
   },
-  headerSubtext: {
-    color: '#fff',
+  headerSubtitle: {
     fontSize: 14,
-    opacity: 0.9,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  progressContainer: {
+    width: '100%',
+  },
+  progressBar: {
+    height: 4,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#ff2b2b',
+    borderRadius: 2,
   },
 
+  // Content
   content: {
     flex: 1,
-    paddingTop: 20,
+  },
+  scrollContent: {
+    paddingVertical: 24,
+    paddingHorizontal: 24,
   },
 
+  // Welcome Card
   welcomeCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 24,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#28a745',
+  },
+  iconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#fff5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   welcomeTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#333',
+    color: '#1f2937',
     marginBottom: 8,
     textAlign: 'center',
   },
   welcomeText: {
     fontSize: 14,
-    color: '#666',
+    color: '#6b7280',
     lineHeight: 20,
     textAlign: 'center',
   },
 
+  // PIN Card
   pinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 24,
+    alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    alignItems: 'center',
   },
   pinTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  pinSubtitle: {
-    fontSize: 14,
-    color: '#666',
+    color: '#1f2937',
     marginBottom: 24,
     textAlign: 'center',
   },
 
+  // PIN Input
   pinInputContainer: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24,
+  },
+  inputWrapper: {
+    position: 'relative',
+    width: 200,
   },
   pinInput: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '700',
     textAlign: 'center',
-    letterSpacing: 8,
+    letterSpacing: 12,
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: '#e5e7eb',
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 20,
-    backgroundColor: '#f8f9fa',
-    width: 150,
+    backgroundColor: '#fff',
+    color: '#1f2937',
+    width: '100%',
   },
-  pinInputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
+  visibilityButton: {
+    position: 'absolute',
+    right: 16,
+    top: 18,
+    padding: 4,
   },
 
+  // PIN Dots
   pinDotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -423,98 +510,120 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#e0e0e0',
-    borderWidth: 2,
-    borderColor: '#ddd',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#e5e7eb',
   },
   pinDotFilled: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
+    backgroundColor: '#ff2b2b',
   },
   pinDotError: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff3b30',
+    backgroundColor: '#dc2626',
   },
 
-  errorText: {
-    color: '#ff3b30',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
+  // Status Messages
+  statusContainer: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
   },
-  helpText: {
-    color: '#666',
+  statusText: {
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 16,
+    fontWeight: '500',
     lineHeight: 20,
   },
+  statusError: {
+    color: '#dc2626',
+  },
+  statusSuccess: {
+    color: '#16a34a',
+  },
+  statusWarning: {
+    color: '#d97706',
+  },
+  statusInfo: {
+    color: '#6b7280',
+  },
 
+  // Tips Card
   tipsCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#17a2b8',
   },
   tipsTitle: {
     fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
+    fontWeight: '600',
+    color: '#1f2937',
     marginBottom: 12,
   },
   tipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  tipText: {
     fontSize: 14,
-    color: '#666',
-    lineHeight: 22,
-    marginBottom: 4,
+    color: '#6b7280',
+    marginLeft: 8,
+    flex: 1,
   },
 
-  proceedBtn: {
-    margin: 16,
-    padding: 16,
+  // Action Section
+  actionSection: {
+    padding: 24,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+  },
+  primaryButton: {
+    backgroundColor: '#ff2b2b',
+    paddingVertical: 16,
     borderRadius: 12,
-    backgroundColor: '#ff3b30',
     alignItems: 'center',
-    shadowColor: '#ff3b30',
+    marginBottom: 12,
+    shadowColor: '#ff2b2b',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 4,
   },
-  proceedDisabled: {
-    backgroundColor: '#ccc',
+  primaryButtonDisabled: {
+    backgroundColor: '#d1d5db',
     shadowOpacity: 0,
     elevation: 0,
   },
-  proceedText: {
+  primaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  backBtnText: {
-    color: '#fff',
-  },
-
-  loadingRow: {
+  secondaryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  secondaryButtonText: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginLeft: 8,
   },
 });

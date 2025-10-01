@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import BetFundingSuccessModal from './BetFundingSuccessModal';
 
 import {
@@ -17,9 +17,15 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthContext } from '../contexts/AuthContext';
 
-// Your Replit API base URL
-const API_BASE_URL = 'http://localhost:5000/api';
+// API configuration - unified approach
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+  FALLBACK_URL: 'http://192.168.126.7:5000/api', // fallback for development
+};
 
 interface Contact {
   id: string;
@@ -38,7 +44,9 @@ interface UserBalance {
   main: number;
   bonus: number;
   total: number;
-  lastUpdated: number;
+  amount: number;
+  currency: string;
+  lastUpdated: string;
 }
 
 interface PinStatus {
@@ -49,7 +57,19 @@ interface PinStatus {
   attemptsRemaining: number;
 }
 
+interface BettingProvider {
+  id: string;
+  label: string;
+  logo: any;
+  minAmount?: number;
+  maxAmount?: number;
+}
+
 export default function FundBetting() {
+  // Use AuthContext when available, fallback to local storage
+  const authContext = useContext(AuthContext);
+  const { token, user, balance, refreshBalance } = authContext || {};
+
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState('');
@@ -67,49 +87,75 @@ export default function FundBetting() {
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
-
-  // Add these state variables with your other useState declarations
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successData, setSuccessData] = useState(null);
+  const [successData, setSuccessData] = useState<any>(null);
 
-  // Quick amount presets
-  const quickAmounts = [100, 200, 500, 1000, 2000, 5000, 10000, 20000];
+  // Quick amount presets - similar to airtime
+  const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
 
-  // ---------- Validation ----------
+  // Betting providers with metadata
+  const providers: BettingProvider[] = [
+    { 
+      id: 'bet9ja', 
+      label: 'BET9JA', 
+      logo: require('../assets/images/bet9ja.jpg'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+    { 
+      id: 'sportybet', 
+      label: 'SPORTYBET', 
+      logo: require('../assets/images/sportybet.png'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+    { 
+      id: 'nairabet', 
+      label: 'NAIRABET', 
+      logo: require('../assets/images/nairabet.png'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+    { 
+      id: 'betway', 
+      label: 'BETWAY', 
+      logo: require('../assets/images/betway.png'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+    { 
+      id: '1xbet', 
+      label: '1XBET', 
+      logo: require('../assets/images/1xbet.png'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+    { 
+      id: 'betking', 
+      label: 'BETKING', 
+      logo: require('../assets/images/betking.jpg'),
+      minAmount: 100,
+      maxAmount: 500000
+    },
+  ];
+
+  // Validation logic
+  const selectedProviderData = providers.find(p => p.id === selectedProvider);
   const isCustomerIdValid = customerId.trim().length >= 3;
   const amountNum = parseInt(amount) || 0;
-  const isAmountValid = amountNum >= 100 && amountNum <= 500000;
+  const isAmountValid = selectedProviderData 
+    ? amountNum >= (selectedProviderData.minAmount || 100) && amountNum <= (selectedProviderData.maxAmount || 500000)
+    : amountNum >= 100 && amountNum <= 500000;
   const hasEnoughBalance = userBalance ? amountNum <= userBalance.total : true;
   const canProceed = isCustomerIdValid && isAmountValid && selectedProvider && hasEnoughBalance;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Load data on mount
+  // Initialize data on mount
   useEffect(() => {
-    loadRecentBetting();
-    loadFormState();
-
-    // Debug function to check stored tokens
-    const debugTokenStorage = async () => {
-      console.log('DEBUG: Checking token storage...');
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const value = await AsyncStorage.getItem(key);
-        console.log(`${key}:`, value ? `"${value}"` : 'null');
-      }
-    };
-
-    // Call debug function
-    debugTokenStorage();
-
-    // Add delay to ensure auth is ready
-    setTimeout(() => {
-      fetchUserBalance();
-      checkPinStatus();
-    }, 2000);
+    initializeComponent();
   }, []);
 
-  // Refresh balance when stepping to review page
+  // Refresh balance when stepping to review
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
@@ -125,151 +171,261 @@ export default function FundBetting() {
     }
   }, [currentStep]);
 
-  // Save form state whenever it changes
+  // Save form state on changes
   useEffect(() => {
     saveFormState();
   }, [customerId, customerName, amount, selectedProvider]);
 
-  // ---------- API Helper Functions ----------
-  const getAuthToken = async () => {
+  const initializeComponent = async () => {
     try {
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
+      await Promise.all([
+        loadRecentBetting(),
+        loadFormState(),
+        initializeBalance()
+      ]);
 
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        console.log(`Checking storage key "${key}":`, token ? `Found (${token.length} chars)` : 'Not found');
+      // Add small delay for better UX
+      setTimeout(() => {
+        fetchUserBalance();
+        checkPinStatus();
+      }, 1000);
+    } catch (error) {
+      console.error('Initialization error:', error);
+    }
+  };
 
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
+  const initializeBalance = async () => {
+    // Try to use AuthContext balance first
+    if (balance?.amount) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        amount: balanceAmount,
+        currency: balance.currency || "NGN",
+        lastUpdated: balance.lastUpdated || new Date().toISOString(),
+      });
+    } else {
+      // Fallback to cached balance
+      try {
+        const cachedBalance = await AsyncStorage.getItem("userBalance");
+        if (cachedBalance) {
+          const parsedBalance = JSON.parse(cachedBalance);
+          setUserBalance(parsedBalance);
+        }
+      } catch (error) {
+        console.log('No cached balance found');
+      }
+    }
+  };
+
+  // Enhanced token management
+  const getAuthToken = async (): Promise<string> => {
+    // Try AuthContext first
+    if (token && token.trim() !== '' && token !== 'undefined') {
+      console.log('Using AuthContext token');
+      return token;
+    }
+
+    // Fallback to AsyncStorage with multiple key attempts
+    const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
+    
+    for (const key of tokenKeys) {
+      try {
+        const storedToken = await AsyncStorage.getItem(key);
+        if (storedToken && storedToken.trim() !== '' && storedToken !== 'undefined' && storedToken !== 'null') {
+          const cleanToken = storedToken.trim();
+          // Validate JWT structure
           const tokenParts = cleanToken.split('.');
           if (tokenParts.length === 3) {
-            console.log(`Found valid JWT token with key: ${key}`);
+            console.log(`Found valid token with key: ${key}`);
             return cleanToken;
           }
         }
+      } catch (error) {
+        console.log(`Error checking token key ${key}:`, error);
       }
-
-      console.log('No valid JWT token found in any storage key');
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('Error getting auth token:', error);
-      throw new Error('Authentication required');
     }
+
+    throw new Error('No valid authentication token found');
   };
 
-  const makeApiRequest = async (endpoint, options = {}) => {
-    console.log(`API Request: ${endpoint}`);
+  // Enhanced API request handler
+// Enhanced API request handler - REPLACE your existing makeApiRequest function
+const makeApiRequest = async (endpoint: string, options: any = {}) => {
+  console.log(`API Request: ${endpoint}`);
+  
+  try {
+    const authToken = await getAuthToken();
     
-    try {
-      const token = await getAuthToken();
-      console.log('Token obtained for API request');
+    const requestConfig = {
+      method: 'GET',
+      ...options,
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...options.headers,
+      },
+    };
 
-      const requestConfig = {
-        method: 'GET',
-        ...options,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...options.headers,
-        },
-      };
+    // Try primary URL first, then fallback
+    const urls = [API_CONFIG.BASE_URL, API_CONFIG.FALLBACK_URL];
+    let lastError: Error | null = null;
 
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
-      console.log('Request URL:', fullUrl);
-
-      const response = await fetch(fullUrl, requestConfig);
-      console.log('Response status:', response.status, response.ok ? 'OK' : 'ERROR');
-
-      let responseText = '';
+    for (const baseUrl of urls) {
       try {
-        responseText = await response.text();
-      } catch (textError) {
-        console.error('Failed to read response text:', textError);
-        throw new Error('Unable to read server response');
-      }
-
-      let data = {};
-      if (responseText.trim()) {
-        try {
-          data = JSON.parse(responseText);
-          console.log('JSON parsed, success:', data.success);
-        } catch (parseError) {
-          console.error('JSON parse error:', parseError);
-          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
-        }
-      }
-
-      if (response.status === 401) {
-        console.error('401 Unauthorized - clearing tokens');
-        const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-        for (const key of tokenKeys) {
-          await AsyncStorage.removeItem(key);
-        }
-        throw new Error('Session expired. Please login again.');
-      }
-
-      if (!response.ok) {
-        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error(`API Error:`, errorMessage);
+        const fullUrl = `${baseUrl}${endpoint}`;
+        console.log(`Trying URL: ${fullUrl}`);
         
-        if (endpoint === '/purchase' && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
+        const response = await fetch(fullUrl, requestConfig);
+        
+        let responseText = '';
+        try {
+          responseText = await response.text();
+        } catch (textError) {
+          throw new Error('Unable to read server response');
+        }
+
+        let data = {};
+        if (responseText.trim()) {
+          try {
+            data = JSON.parse(responseText);
+          } catch (parseError) {
+            throw new Error(`Invalid JSON response. Status: ${response.status}`);
+          }
+        }
+
+        // Handle authentication errors
+        if (response.status === 401) {
+          await clearAuthTokens();
+          throw new Error('Session expired. Please login again.');
+        }
+
+        if (!response.ok) {
+          const errorMessage = (data as any)?.message || (data as any)?.error || `HTTP ${response.status}`;
+          
+          // IMPORTANT: For service unavailability, preserve the exact error message
+          if (endpoint === '/purchase' && data && typeof data === 'object') {
+            const error = new Error(errorMessage) as any;
+            error.responseData = data;
+            error.httpStatus = response.status;
+            error.isServiceError = errorMessage.toLowerCase().includes('unavailable') || 
+                                  errorMessage.toLowerCase().includes('service') ||
+                                  errorMessage.toLowerCase().includes('maintenance');
+            throw error;
+          }
+          
+          throw new Error(errorMessage);
+        }
+
+        console.log(`API request successful via ${baseUrl}`);
+        return data;
+        
+      } catch (error) {
+        console.log(`Failed with ${baseUrl}:`, error.message);
+        lastError = error as Error;
+        
+        // Don't retry for auth errors or service errors
+        if (error.message.includes('Session expired') || 
+            error.message.includes('401') ||
+            (error as any).isServiceError) {
           throw error;
         }
-        
-        throw new Error(errorMessage);
       }
+    }
 
-      console.log('API request successful');
-      return data;
+    // All URLs failed
+    throw lastError || new Error('All API endpoints failed');
 
-    } catch (error) {
-      console.error(`API Error for ${endpoint}:`, error.message);
+  } catch (error) {
+    console.error(`API Error for ${endpoint}:`, error.message);
 
-      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-        throw new Error('Network connection failed. Please check your internet connection.');
+    // IMPORTANT: Don't mask service unavailability errors as network errors
+    if ((error as any).isServiceError) {
+      throw error; // Preserve service error messages
+    }
+
+    if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+      throw new Error('Network connection failed. Please check your internet connection.');
+    }
+
+    throw error;
+  }
+};
+
+  const clearAuthTokens = async () => {
+    const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
+    for (const key of tokenKeys) {
+      try {
+        await AsyncStorage.removeItem(key);
+      } catch (error) {
+        console.log(`Error clearing ${key}:`, error);
       }
-
-      if (error.message.includes('Authentication') || 
-          error.message.includes('Session expired') ||
-          error.responseData) {
-        throw error;
-      }
-
-      throw new Error(error.message || 'Request failed');
     }
   };
 
-  // ---------- PIN Functions ----------
   const checkPinStatus = async () => {
     try {
       console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
-      console.log('PIN status response:', JSON.stringify(response, null, 2));
       
       if (response.success) {
         setPinStatus(response);
-      } else {
-        console.log('PIN status check failed:', response);
+        console.log('PIN status updated:', response);
       }
     } catch (error) {
       console.error('Error checking PIN status:', error);
+      // Set default PIN status to allow form to continue
+      setPinStatus({
+        isPinSet: true,
+        hasPinSet: true,
+        isLocked: false,
+        lockTimeRemaining: 0,
+        attemptsRemaining: 3,
+      });
     }
   };
 
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Fetching balance from /balance");
-      const balanceData = await makeApiRequest("/balance");
+      console.log("Fetching balance...");
+      
+      // Try AuthContext refresh first
+      if (refreshBalance) {
+        try {
+          await refreshBalance();
+          
+          if (balance?.amount) {
+            const balanceAmount = parseFloat(balance.amount) || 0;
+            const updatedBalance: UserBalance = {
+              main: balanceAmount,
+              bonus: 0,
+              total: balanceAmount,
+              amount: balanceAmount,
+              currency: balance.currency || "NGN",
+              lastUpdated: balance.lastUpdated || new Date().toISOString(),
+            };
 
+            setUserBalance(updatedBalance);
+            await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+            console.log("Balance updated from AuthContext:", updatedBalance);
+            return;
+          }
+        } catch (contextError) {
+          console.log("AuthContext balance refresh failed, trying API:", contextError);
+        }
+      }
+
+      // Fallback to direct API call
+      const balanceData = await makeApiRequest("/balance");
+      
       if (balanceData.success && balanceData.balance) {
         const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
         
-        const realBalance = {
+        const updatedBalance: UserBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
@@ -278,29 +434,25 @@ export default function FundBetting() {
           lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
         };
 
-        setUserBalance(realBalance);
-        await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("Balance fetched and stored:", realBalance);
+        setUserBalance(updatedBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+        console.log("Balance fetched from API:", updatedBalance);
       } else {
         throw new Error(balanceData.message || "Balance fetch failed");
       }
     } catch (error) {
       console.error("Balance fetch error:", error);
       
+      // Use cached balance as ultimate fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance({
-            ...parsedBalance,
-            lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-          });
+          setUserBalance(parsedBalance);
           console.log("Using cached balance:", parsedBalance);
-        } else {
-          setUserBalance(null);
         }
       } catch (cacheError) {
-        console.error("Cache error:", cacheError);
+        console.error("Cache read error:", cacheError);
         setUserBalance(null);
       }
     } finally {
@@ -321,7 +473,13 @@ export default function FundBetting() {
     try {
       const savedState = await AsyncStorage.getItem('bettingFormState');
       if (savedState) {
-        const { customerId: savedId, customerName: savedName, amount: savedAmount, selectedProvider: savedProvider } = JSON.parse(savedState);
+        const { 
+          customerId: savedId, 
+          customerName: savedName, 
+          amount: savedAmount, 
+          selectedProvider: savedProvider 
+        } = JSON.parse(savedState);
+        
         setCustomerId(savedId || '');
         setCustomerName(savedName || '');
         setAmount(savedAmount || '');
@@ -337,13 +495,20 @@ export default function FundBetting() {
       const recent = await AsyncStorage.getItem('recentBetting');
       let recentList: RecentBetting[] = recent ? JSON.parse(recent) : [];
 
-      recentList = recentList.filter(item => item.customerId !== customerId || item.provider !== provider);
+      // Remove existing entry for same customer/provider
+      recentList = recentList.filter(item => 
+        item.customerId !== customerId || item.provider !== provider
+      );
+      
+      // Add new entry at beginning
       recentList.unshift({
         customerId,
         provider,
         customerName,
         timestamp: Date.now()
       });
+      
+      // Keep only last 10 entries
       recentList = recentList.slice(0, 10);
 
       await AsyncStorage.setItem('recentBetting', JSON.stringify(recentList));
@@ -364,17 +529,7 @@ export default function FundBetting() {
     }
   };
 
-  // ---------- Betting Provider logos ----------
-  const providers = [
-    { id: 'bet9ja', label: 'BET9JA', logo: require('../assets/images/bet9ja.jpg') },
-    { id: 'sportybet', label: 'SPORTYBET', logo: require('../assets/images/sportybet.png') },
-    { id: 'nairabet', label: 'NAIRABET', logo: require('../assets/images/nairabet.png') },
-    { id: 'betway', label: 'BETWAY', logo: require('../assets/images/betway.png') },
-    { id: '1xbet', label: '1XBET', logo: require('../assets/images/1xbet.png') },
-    { id: 'betking', label: 'BETKING', logo: require('../assets/images/betking.jpg') },
-  ];
-
-  // ---------- Contact Selection ----------
+  // Contact selection functions
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -385,9 +540,11 @@ export default function FundBetting() {
           pageSize: 100,
           sort: Contacts.SortTypes.FirstName,
         });
+        
         const validContacts = data.filter(
           c => c.phoneNumbers && c.phoneNumbers.length > 0
         );
+        
         if (validContacts.length > 0) {
           setContactsList(validContacts);
           setShowContactsModal(true);
@@ -398,6 +555,7 @@ export default function FundBetting() {
         Alert.alert('Permission denied', 'Cannot access contacts without permission.');
       }
     } catch (error) {
+      console.error('Contact selection error:', error);
       Alert.alert('Error', 'Failed to load contacts. Please try again.');
     } finally {
       setIsLoadingContacts(false);
@@ -413,10 +571,8 @@ export default function FundBetting() {
   };
 
   const handleContactSelect = (number: string, name?: string) => {
-    // For betting, we might use the contact name as customer name
     setCustomerName(name || '');
     setShowContactsModal(false);
-    setShowRecentsModal(false);
   };
 
   const handleRecentSelect = (item: RecentBetting) => {
@@ -430,138 +586,161 @@ export default function FundBetting() {
     setAmount(quickAmount.toString());
   };
 
-  const validatePinAndPurchase = async () => {
-    console.log('=== BETTING PAYMENT START ===');
-    
-    if (!isPinValid) {
-      console.log('PIN invalid:', pin);
-      setPinError('PIN must be exactly 4 digits');
-      return;
-    }
+  // Main payment processing function
+  // REPLACE your existing validatePinAndPurchase function with this:
+const validatePinAndPurchase = async () => {
+  console.log('=== BETTING PAYMENT START ===');
+  
+  if (!isPinValid) {
+    console.log('PIN invalid:', pin);
+    setPinError('PIN must be exactly 4 digits');
+    return;
+  }
 
-    console.log('Starting betting fund process...');
-    setIsValidatingPin(true);
-    setIsProcessingPayment(true);
-    setPinError('');
+  console.log('Starting betting fund process...');
+  setIsValidatingPin(true);
+  setIsProcessingPayment(true);
+  setPinError('');
 
-    try {
-      console.log('Betting fund payload:', {
-        type: 'fund_betting',
-        provider: selectedProvider,
-        customerId: customerId,
-        customerName: customerName,
-        amount: amountNum,
-        pinProvided: !!pin
-      });
+  try {
+    const payload = {
+      type: 'fund_betting',
+      provider: selectedProvider,
+      customerId: customerId.trim(),
+      customerName: customerName.trim(),
+      amount: amountNum,
+      pin: pin,
+    };
 
-      const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'fund_betting',
-          provider: selectedProvider,
-          customerId: customerId,
-          customerName: customerName,
-          amount: amountNum,
-          pin: pin,
-        }),
-      });
+    console.log('Betting fund payload:', payload);
 
-      console.log('Betting fund response:', response);
+    const response = await makeApiRequest('/purchase', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      if (response.success === true) {
-        console.log('Betting fund successful!');
+    console.log('Betting fund response:', response);
+
+    if (response.success === true) {
+      console.log('Betting fund successful!');
+      
+      // Save to recent betting
+      await saveRecentBetting(customerId, selectedProvider!, customerName);
+      
+      // Update balance
+      if (response.newBalance) {
+        const balanceAmount = response.newBalance.amount || 
+                             response.newBalance.totalBalance || 
+                             response.newBalance.mainBalance || 0;
         
-        // Save recent betting
-        await saveRecentBetting(customerId, selectedProvider, customerName);
-        
-        // Update balance
-        if (response.newBalance) {
-          const balanceAmount = response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 
-                               response.newBalance.amount || 0;
-          
-          const updatedBalance = {
-            main: balanceAmount,
-            bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-          };
+        const updatedBalance: UserBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          currency: response.newBalance.currency || "NGN",
+          lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+        };
 
-          setUserBalance(updatedBalance);
-          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-          console.log('Balance updated:', updatedBalance);
+        setUserBalance(updatedBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+        console.log('Balance updated after transaction:', updatedBalance);
+
+        // Update AuthContext if available
+        if (refreshBalance) {
+          try {
+            await refreshBalance();
+          } catch (error) {
+            console.log('AuthContext refresh failed:', error);
+          }
         }
+      }
 
-        // Clear form
-        await AsyncStorage.removeItem('bettingFormState');
+      // Clear form state
+      await AsyncStorage.removeItem('bettingFormState');
 
-        // Prepare success data
-        const providerName = providers.find(p => p.id === selectedProvider)?.label || selectedProvider?.toUpperCase();
-        setSuccessData({
-          transaction: response.transaction || {},
-          providerName,
-          customerId,
-          customerName,
-          amount: response.transaction?.amount || amountNum,
-          newBalance: response.newBalance
-        });
+      // Prepare success data
+      const providerName = providers.find(p => p.id === selectedProvider)?.label || selectedProvider?.toUpperCase();
+      setSuccessData({
+        transaction: response.transaction || {},
+        providerName,
+        customerId,
+        customerName,
+        amount: response.transaction?.amount || amountNum,
+        newBalance: response.newBalance
+      });
 
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 300);
+      // Show success modal after brief delay
+      setTimeout(() => {
+        setShowSuccessModal(true);
+      }, 300);
 
+    } else {
+      console.log('Betting fund failed:', response.message);
+      
+      if (response.message && response.message.toLowerCase().includes('pin')) {
+        setPinError(response.message);
       } else {
-        console.log('Betting fund failed:', response.message);
-        
-        if (response.message && response.message.toLowerCase().includes('pin')) {
-          setPinError(response.message);
-        }
-        
         Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
-
-    } catch (error) {
-      console.error('Betting fund error:', error);
-      
-      if (error.message.includes('locked') || error.message.includes('attempts')) {
-        setPinError(error.message);
-      } else if (error.message.includes('PIN')) {
-        setPinError(error.message);
-      } else {
-        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
-      }
-
-    } finally {
-      setIsValidatingPin(false);
-      setIsProcessingPayment(false);
-      console.log('=== BETTING PAYMENT END ===');
     }
-  };
 
-  // Add these handler functions
+  } catch (error: any) {
+    console.error('Betting fund error:', error);
+    
+    // IMPROVED ERROR HANDLING - Check for service errors first
+    if (error.message && (
+        error.message.includes('Fund Betting Account service is currently unavailable') ||
+        error.message.includes('service is currently unavailable') ||
+        error.message.includes('maintenance') ||
+        error.message.includes('unavailable')
+    )) {
+      Alert.alert('Service Unavailable', error.message);
+      return;
+    }
+    
+    if (error.message.includes('locked') || error.message.includes('attempts')) {
+      setPinError(error.message);
+    } else if (error.message.includes('PIN') || error.message.includes('pin')) {
+      setPinError(error.message);
+    } else if (error.message.includes('Session expired')) {
+      Alert.alert('Session Expired', 'Please login again to continue.');
+    } else {
+      Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+    }
 
+  } finally {
+    setIsValidatingPin(false);
+    setIsProcessingPayment(false);
+    console.log('=== BETTING PAYMENT END ===');
+  }
+};
+
+  // Success modal handlers
   const handlePlaceBet = () => {
     console.log('User selected: Place a Bet');
     setShowSuccessModal(false);
     setSuccessData(null);
-    // Navigate to betting/place bet screen here
-    // navigation.navigate('PlaceBet');
+    // Navigate to betting screen if needed
   };
 
   const handleCloseBettingModal = () => {
     console.log('User closed betting success modal');
     setShowSuccessModal(false);
     setSuccessData(null);
+    // Reset to step 1 for new transaction
+    setCurrentStep(1);
+    resetForm();
   };
 
   const handleFundMore = () => {
     console.log('User selected: Fund More');
     setShowSuccessModal(false);
     setSuccessData(null);
+    resetForm();
+  };
 
-    // Reset form for new transaction
+  const resetForm = () => {
     setCurrentStep(1);
     setCustomerId('');
     setCustomerName('');
@@ -573,19 +752,14 @@ export default function FundBetting() {
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Fund Betting</Text>
-      </View>
-
-      {/* STEP 1: FORM */}
+      {/* STEP 1: FORM INPUT */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Beneficiary Section */}
+          {/* Quick Options */}
           <View style={styles.section}>
             <Text style={styles.label}>Quick Options</Text>
             <View style={styles.buttonRow}>
@@ -610,9 +784,9 @@ export default function FundBetting() {
             </View>
           </View>
 
-          {/* Betting Provider Selection */}
+          {/* Provider Selection */}
           <View style={styles.section}>
-            <Text style={styles.label}>Select Betting Provider</Text>
+            <Text style={styles.label}>Select Betting Platform</Text>
             <View style={styles.providersContainer}>
               {providers.map((provider) => (
                 <TouchableOpacity
@@ -625,43 +799,46 @@ export default function FundBetting() {
                 >
                   <Image source={provider.logo} style={styles.providerLogo} />
                   <Text style={styles.providerLabel}>{provider.label}</Text>
+                  {selectedProvider === provider.id && (
+                    <View style={styles.selectedIndicator}>
+                      <Text style={styles.selectedIndicatorText}>✓</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          {/* Customer ID */}
+          {/* Customer Details */}
           <View style={styles.section}>
-            <Text style={styles.label}>Customer ID / Username</Text>
+            <Text style={styles.label}>Account Details</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter your betting account ID/username"
+              placeholder="Enter betting account ID/username"
               value={customerId}
               onChangeText={setCustomerId}
               autoCapitalize="none"
+              placeholderTextColor="#999"
             />
             {customerId !== '' && !isCustomerIdValid && (
-              <Text style={styles.error}>Customer ID must be at least 3 characters</Text>
+              <Text style={styles.error}>Account ID must be at least 3 characters</Text>
             )}
             {customerId !== '' && isCustomerIdValid && (
-              <Text style={styles.success}>Valid customer ID</Text>
+              <Text style={styles.success}>✓ Valid account ID</Text>
             )}
-          </View>
-
-          {/* Customer Name (Optional) */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Customer Name (Optional)</Text>
+            
             <TextInput
-              style={styles.input}
-              placeholder="Enter customer name (optional)"
+              style={[styles.input, { marginTop: 12 }]}
+              placeholder="Account holder name (optional)"
               value={customerName}
               onChangeText={setCustomerName}
+              placeholderTextColor="#999"
             />
           </View>
 
-          {/* Quick Amount Buttons */}
+          {/* Quick Amount Selection */}
           <View style={styles.section}>
-            <Text style={styles.label}>Quick Amount</Text>
+            <Text style={styles.label}>Quick Amount Selection</Text>
             <View style={styles.quickAmountGrid}>
               {quickAmounts.map((quickAmount) => (
                 <TouchableOpacity
@@ -685,19 +862,22 @@ export default function FundBetting() {
 
           {/* Custom Amount */}
           <View style={styles.section}>
-            <Text style={styles.label}>Or Enter Custom Amount (₦)</Text>
+            <Text style={styles.label}>Custom Amount</Text>
             <TextInput
               style={styles.input}
               keyboardType="numeric"
-              placeholder="Enter amount (₦100 - ₦500,000)"
+              placeholder={`Enter amount (₦${selectedProviderData?.minAmount || 100} - ₦${selectedProviderData?.maxAmount?.toLocaleString() || '500,000'})`}
               value={amount}
               onChangeText={setAmount}
+              placeholderTextColor="#999"
             />
             {amount !== '' && !isAmountValid && (
-              <Text style={styles.error}>Amount must be between ₦100 and ₦500,000</Text>
+              <Text style={styles.error}>
+                Amount must be between ₦{selectedProviderData?.minAmount || 100} and ₦{selectedProviderData?.maxAmount?.toLocaleString() || '500,000'}
+              </Text>
             )}
             {amount !== '' && isAmountValid && hasEnoughBalance && (
-              <Text style={styles.success}>Valid amount</Text>
+              <Text style={styles.success}>✓ Valid amount</Text>
             )}
             {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
               <Text style={styles.error}>
@@ -706,26 +886,29 @@ export default function FundBetting() {
             )}
           </View>
 
-          {/* Proceed Button */}
+          {/* Continue Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
           >
             <Text style={styles.proceedText}>
-              Review Transaction {canProceed && `• ₦${amountNum.toLocaleString()}`}
+              {canProceed 
+                ? `Continue • ₦${amountNum.toLocaleString()}` 
+                : 'review purchase'
+              }
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW/SUMMARY */}
+      {/* STEP 2: REVIEW & CONFIRMATION */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* Balance Card */}
+          {/* Balance Display */}
           <View style={styles.balanceCard}>
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceTitle}>Wallet Balance</Text>
@@ -781,7 +964,7 @@ export default function FundBetting() {
             ) : (
               <View style={styles.loadingBalance}>
                 <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
                 {!isLoadingBalance && (
                   <TouchableOpacity 
@@ -795,11 +978,10 @@ export default function FundBetting() {
             )}
           </View>
     
-          {/* Summary Card */}
+          {/* Transaction Summary */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Transaction Summary</Text>
 
-            {/* Provider */}
             {selectedProvider && (
               <View style={styles.summaryRow}>
                 <View style={styles.summaryLeft}>
@@ -814,21 +996,18 @@ export default function FundBetting() {
               </View>
             )}
 
-            {/* Customer ID */}
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Customer ID:</Text>
+              <Text style={styles.summaryLabel}>Account ID:</Text>
               <Text style={styles.summaryValue}>{customerId}</Text>
             </View>
 
-            {/* Customer Name */}
             {customerName && (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Customer Name:</Text>
+                <Text style={styles.summaryLabel}>Account Name:</Text>
                 <Text style={styles.summaryValue}>{customerName}</Text>
               </View>
             )}
 
-            {/* Amount */}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Amount:</Text>
               <Text style={[styles.summaryValue, styles.summaryAmount]}>
@@ -839,7 +1018,7 @@ export default function FundBetting() {
             <View style={styles.summaryDivider} />
 
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total:</Text>
+              <Text style={styles.summaryLabel}>Total Charge:</Text>
               <Text style={[styles.summaryValue, styles.summaryTotal]}>
                 ₦{amountNum.toLocaleString()}
               </Text>
@@ -847,7 +1026,7 @@ export default function FundBetting() {
 
             {userBalance && (
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Balance After:</Text>
+                <Text style={styles.summaryLabel}>Remaining Balance:</Text>
                 <Text style={[
                   styles.summaryValue, 
                   styles.summaryBalance,
@@ -859,7 +1038,7 @@ export default function FundBetting() {
             )}
           </View>
 
-          {/* Proceed to PIN Button */}
+          {/* Action Buttons */}
           <TouchableOpacity
             style={[
               styles.proceedBtn, 
@@ -869,11 +1048,10 @@ export default function FundBetting() {
             onPress={() => setCurrentStep(3)}
           >
             <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Fund'}
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Confirm with PIN'}
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(1)}
@@ -883,18 +1061,18 @@ export default function FundBetting() {
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
+      {/* STEP 3: PIN VERIFICATION */}
       {currentStep === 3 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* PIN Status Check */}
+          {/* PIN Status Checks */}
           {pinStatus?.isLocked && (
             <View style={styles.lockedCard}>
               <Text style={styles.lockedTitle}>Account Locked</Text>
               <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
+                Too many failed PIN attempts. Please wait {pinStatus.lockTimeRemaining} minutes before trying again.
               </Text>
               <TouchableOpacity 
                 style={styles.refreshBtn}
@@ -905,7 +1083,7 @@ export default function FundBetting() {
             </View>
           )}
 
-          {!pinStatus?.isPinSet && (
+          {!pinStatus?.isPinSet && !pinStatus?.isLocked && (
             <View style={styles.noPinCard}>
               <Text style={styles.noPinTitle}>PIN Required</Text>
               <Text style={styles.noPinText}>
@@ -916,19 +1094,19 @@ export default function FundBetting() {
 
           {pinStatus?.isPinSet && !pinStatus?.isLocked && (
             <>
-              {/* Transaction Summary */}
+              {/* Final Transaction Summary */}
               <View style={styles.pinSummaryCard}>
                 <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
 
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Provider:</Text>
+                  <Text style={styles.summaryLabel}>Platform:</Text>
                   <Text style={styles.summaryValue}>
                     {providers.find((p) => p.id === selectedProvider)?.label}
                   </Text>
                 </View>
 
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Customer ID:</Text>
+                  <Text style={styles.summaryLabel}>Account:</Text>
                   <Text style={styles.summaryValue}>{customerId}</Text>
                 </View>
 
@@ -940,13 +1118,13 @@ export default function FundBetting() {
                 </View>
               </View>
 
-              {/* PIN Entry */}
+              {/* PIN Input */}
               <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
+                <Text style={styles.pinTitle}>Enter Your Transaction PIN</Text>
 
                 {pinStatus?.attemptsRemaining < 3 && (
                   <Text style={styles.attemptsWarning}>
-                    {pinStatus.attemptsRemaining} attempts remaining
+                    Warning: {pinStatus.attemptsRemaining} attempts remaining
                   </Text>
                 )}
 
@@ -960,9 +1138,10 @@ export default function FundBetting() {
                     }}
                     keyboardType="numeric"
                     secureTextEntry={true}
-                    placeholder="****"
+                    placeholder="••••"
                     maxLength={4}
                     autoFocus={true}
+                    placeholderTextColor="#999"
                   />
                 </View>
 
@@ -970,11 +1149,11 @@ export default function FundBetting() {
                   <Text style={styles.pinError}>{pinError}</Text>
                 ) : (
                   <Text style={styles.pinHelp}>
-                    Enter your 4-digit transaction PIN to complete this funding
+                    Enter your 4-digit PIN to authorize this betting fund transaction
                   </Text>
                 )}
 
-                {/* PIN Dots Display */}
+                {/* PIN Dots Indicator */}
                 <View style={styles.pinDotsContainer}>
                   {[0, 1, 2, 3].map((index) => (
                     <View
@@ -989,7 +1168,7 @@ export default function FundBetting() {
                 </View>
               </View>
 
-              {/* Confirm Payment Button */}
+              {/* Confirm Transaction Button */}
               <TouchableOpacity
                 style={[
                   styles.proceedBtn,
@@ -1002,30 +1181,30 @@ export default function FundBetting() {
                   <View style={styles.loadingRow}>
                     <ActivityIndicator size="small" color="#fff" />
                     <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
+                      {isProcessingPayment ? 'Processing Transaction...' : 'Validating PIN...'}
                     </Text>
                   </View>
                 ) : (
                   <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{amountNum.toLocaleString()}
+                    Fund Account • ₦{amountNum.toLocaleString()}
                   </Text>
                 )}
               </TouchableOpacity>
             </>
           )}
 
-          {/* Back Button */}
+          {/* Back to Review Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(2)}
             disabled={isValidatingPin || isProcessingPayment}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
+            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Review</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* Contacts Modal */}
+      {/* Contacts Selection Modal */}
       <Modal visible={showContactsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -1034,7 +1213,7 @@ export default function FundBetting() {
               style={styles.modalCloseBtn}
               onPress={() => setShowContactsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseBtnText}>×</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1051,25 +1230,28 @@ export default function FundBetting() {
                 </View>
               </TouchableOpacity>
             )}
+            ListEmptyComponent={
+              <Text style={styles.emptyText}>No contacts with phone numbers found</Text>
+            }
           />
         </View>
       </Modal>
 
-      {/* Recent Betting Modal */}
+      {/* Recent Transactions Modal */}
       <Modal visible={showRecentsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Recent Betting</Text>
+            <Text style={styles.modalTitle}>Recent Betting Funds</Text>
             <TouchableOpacity
               style={styles.modalCloseBtn}
               onPress={() => setShowRecentsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseBtnText}>×</Text>
             </TouchableOpacity>
           </View>
           <FlatList
             data={recentBetting}
-            keyExtractor={(item) => item.customerId + item.provider + item.timestamp}
+            keyExtractor={(item) => `${item.customerId}-${item.provider}-${item.timestamp}`}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.contactItem}
@@ -1077,7 +1259,7 @@ export default function FundBetting() {
               >
                 <View style={styles.contactInfo}>
                   <Text style={styles.contactName}>
-                    {item.customerName || 'Customer'}
+                    {item.customerName || 'Account Holder'}
                   </Text>
                   <Text style={styles.contactNumber}>
                     {item.customerId} • {providers.find(p => p.id === item.provider)?.label || item.provider.toUpperCase()}
@@ -1113,146 +1295,209 @@ export default function FundBetting() {
   );
 }
 
-// ---------- Styles ----------
+// Styles
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
   },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
 
   scrollContent: { 
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
-    flex: 1 
+    flex: 1,
+    paddingTop: 8,
   },
 
-  section: { margin: 16, marginBottom: 24 },
+  section: { 
+    margin: 16, 
+    marginBottom: 24 
+  },
+  
   label: { 
     fontSize: 16, 
     fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#333' 
+    marginBottom: 12, 
+    color: '#1a1a1a' 
   },
 
-  buttonRow: { flexDirection: 'row' },
+  buttonRow: { 
+    flexDirection: 'row',
+    gap: 12,
+  },
+  
   actionBtn: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 14,
+    borderColor: '#e1e5e9',
+    padding: 16,
     borderRadius: 12,
     alignItems: 'center',
     backgroundColor: '#fff',
+    flex: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
+  
+  actionBtnText: { 
+    color: '#495057', 
+    fontSize: 14, 
+    fontWeight: '600' 
+  },
 
   providersContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 12,
   },
+  
   providerCard: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#e1e5e9',
+    padding: 16,
+    borderRadius: 16,
     alignItems: 'center',
     backgroundColor: '#fff',
-    minHeight: 80,
-    minWidth: '30%',
-    maxWidth: '32%',
+    minHeight: 100,
+    width: '30%',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
+  
   providerSelected: { 
     borderColor: '#ff3b30', 
     backgroundColor: '#fff5f5',
-    borderWidth: 2 
+    borderWidth: 2,
+    transform: [{ scale: 1.02 }],
   },
-  providerLogo: { width: 40, height: 40, resizeMode: 'contain', marginBottom: 4 },
-  providerLabel: { fontSize: 10, fontWeight: '600', color: '#666', textAlign: 'center' },
+  
+  providerLogo: { 
+    width: 48, 
+    height: 48, 
+    resizeMode: 'contain', 
+    marginBottom: 8 
+  },
+  
+  providerLabel: { 
+    fontSize: 11, 
+    fontWeight: '700', 
+    color: '#495057', 
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+
+  selectedIndicator: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#ff3b30',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  selectedIndicatorText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
 
   quickAmountGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 10,
   },
+  
   quickAmountBtn: {
     borderWidth: 1,
-    borderColor: '#ddd',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    borderColor: '#e1e5e9',
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 24,
     backgroundColor: '#fff',
-    minWidth: 80,
+    minWidth: '22%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
+  
   quickAmountSelected: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
+    transform: [{ scale: 1.05 }],
   },
+  
   quickAmountText: {
     textAlign: 'center',
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#495057',
   },
+  
   quickAmountSelectedText: {
     color: '#fff',
   },
 
   input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
+    borderWidth: 1.5,
+    borderColor: '#e1e5e9',
     borderRadius: 12,
-    padding: 14,
+    padding: 16,
     fontSize: 16,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
+  
   error: { 
-    color: '#ff3b30', 
-    fontSize: 12, 
-    marginTop: 6,
-    fontWeight: '500' 
+    color: '#dc3545', 
+    fontSize: 13, 
+    marginTop: 8,
+    fontWeight: '500',
+    lineHeight: 18,
   },
+  
   success: {
     color: '#28a745',
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '500'
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '600',
   },
 
   proceedBtn: {
     margin: 16,
-    padding: 16,
-    borderRadius: 12,
+    padding: 18,
+    borderRadius: 14,
     backgroundColor: '#ff3b30',
     alignItems: 'center',
     shadowColor: '#ff3b30',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 6,
   },
+  
   proceedDisabled: { 
-    backgroundColor: '#ccc',
+    backgroundColor: '#adb5bd',
     shadowOpacity: 0,
     elevation: 0,
   },
+  
   proceedText: { 
     color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
+    fontSize: 17, 
+    fontWeight: '700' 
   },
 
   backBtn: {
@@ -1260,6 +1505,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     shadowColor: '#6c757d',
   },
+  
   backBtnText: {
     color: '#fff',
   },
@@ -1272,161 +1518,227 @@ const styles = StyleSheet.create({
 
   summaryCard: {
     margin: 16,
-    padding: 20,
+    padding: 24,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
   },
+  
   summaryTitle: { 
-    fontSize: 18, 
+    fontSize: 20, 
     fontWeight: '700', 
-    marginBottom: 16, 
+    marginBottom: 20, 
     textAlign: 'center',
-    color: '#333' 
+    color: '#1a1a1a' 
   },
+  
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
   },
+  
   summaryLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
+  
   summaryLogo: { 
-    width: 30, 
-    height: 30, 
+    width: 32, 
+    height: 32, 
     resizeMode: 'contain', 
-    marginRight: 8 
+    marginRight: 12 
   },
+  
   summaryLabel: { 
     fontWeight: '600', 
-    fontSize: 14, 
-    color: '#666',
+    fontSize: 15, 
+    color: '#6c757d',
     flex: 1,
   },
-  summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
+  
+  summaryText: { 
+    fontSize: 15, 
+    color: '#1a1a1a', 
+    fontWeight: '600' 
+  },
+  
   summaryValue: { 
-    fontSize: 14, 
-    color: '#333', 
-    fontWeight: '600',
+    fontSize: 15, 
+    color: '#1a1a1a', 
+    fontWeight: '700',
     textAlign: 'right',
+    maxWidth: '50%',
   },
-  summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 12,
-  },
-  summaryTotal: {
-    fontSize: 18,
+  
+  summaryAmount: { 
+    fontSize: 17, 
     color: '#ff3b30',
     fontWeight: '700',
   },
+  
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e9ecef',
+    marginVertical: 16,
+  },
+  
+  summaryTotal: {
+    fontSize: 20,
+    color: '#ff3b30',
+    fontWeight: '800',
+  },
 
-  // Balance Card Styles
   balanceCard: {
     margin: 16,
-    padding: 20,
+    padding: 24,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
+    elevation: 4,
+    borderLeftWidth: 5,
     borderLeftColor: '#ff3b30',
   },
+  
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
-  },
-  balanceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  refreshBtn: {
-    padding: 4,
-  },
-  refreshText: {
-    fontSize: 16,
-  },
-  totalBalance: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#28a745',
-    textAlign: 'center',
     marginBottom: 16,
   },
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
+  
+  balanceTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1a1a1a',
   },
-  insufficientBalanceWarning: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#fff3cd',
+  
+  refreshBtn: {
+    padding: 8,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
+    backgroundColor: '#f8f9fa',
   },
-  warningText: {
-    color: '#856404',
-    fontSize: 14,
-    fontWeight: '500',
+  
+  refreshText: {
+    fontSize: 16,
+    color: '#ff3b30',
+  },
+  
+  totalBalance: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#28a745',
     textAlign: 'center',
     marginBottom: 8,
   },
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  topUpBtnText: {
-    color: '#fff',
+  
+  lastUpdated: {
     fontSize: 12,
+    color: '#6c757d',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  
+  transactionPreview: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef',
+  },
+  
+  previewLabel: {
+    fontSize: 15,
+    color: '#6c757d',
     fontWeight: '600',
   },
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
+  
+  previewAmount: {
+    fontSize: 17,
+    fontWeight: '700',
   },
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
+  
+  sufficientPreview: {
+    color: '#28a745',
+  },
+  
+  insufficientPreview: {
+    color: '#dc3545',
+  },
+
+  insufficientBalanceWarning: {
+    marginTop: 20,
+    padding: 16,
+    backgroundColor: '#fff3cd',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#ffeaa7',
+  },
+  
+  warningText: {
+    color: '#856404',
+    fontSize: 15,
+    fontWeight: '600',
     textAlign: 'center',
     marginBottom: 12,
   },
+  
+  topUpBtn: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    alignSelf: 'center',
+  },
+  
+  topUpBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  
+  loadingBalance: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  
+  noBalanceText: {
+    color: '#6c757d',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  
   retryBtn: {
     backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 24,
   },
+  
   retryBtnText: {
     color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '700',
   },
+  
   summaryBalance: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
     color: '#28a745',
   },
+  
   negativeBalance: {
     color: '#dc3545',
   },
@@ -1434,169 +1746,187 @@ const styles = StyleSheet.create({
   // PIN Entry Styles
   pinCard: {
     margin: 16,
-    padding: 24,
+    padding: 28,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
     alignItems: 'center',
   },
+  
   pinTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
+    color: '#1a1a1a',
+    marginBottom: 20,
     textAlign: 'center',
   },
+  
   pinInputContainer: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
+  
   pinInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
     textAlign: 'center',
-    letterSpacing: 8,
+    letterSpacing: 12,
     borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderColor: '#e1e5e9',
+    borderRadius: 14,
+    paddingVertical: 20,
+    paddingHorizontal: 24,
     backgroundColor: '#f8f9fa',
-    width: 150,
+    width: 180,
   },
+  
   pinInputError: {
-    borderColor: '#ff3b30',
+    borderColor: '#dc3545',
     backgroundColor: '#fff5f5',
   },
+  
   pinError: {
-    color: '#ff3b30',
-    fontSize: 14,
+    color: '#dc3545',
+    fontSize: 15,
     textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
+    marginBottom: 20,
+    fontWeight: '600',
+    lineHeight: 20,
   },
+  
   pinHelp: {
-    color: '#666',
+    color: '#6c757d',
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
+    lineHeight: 20,
   },
+  
   pinDotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 12,
-    marginBottom: 20,
+    gap: 16,
+    marginBottom: 24,
   },
+  
   pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#e0e0e0',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#e9ecef',
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: '#dee2e6',
   },
+  
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
+  
   pinDotError: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff3b30',
+    backgroundColor: '#dc3545',
+    borderColor: '#dc3545',
   },
 
   pinSummaryCard: {
     margin: 16,
-    padding: 20,
+    padding: 24,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 4,
     borderTopWidth: 4,
     borderTopColor: '#ff3b30',
   },
+  
   pinSummaryTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
+    color: '#1a1a1a',
+    marginBottom: 20,
     textAlign: 'center',
   },
 
   attemptsWarning: {
-    color: '#ff8c00',
-    fontSize: 14,
-    fontWeight: '500',
+    color: '#fd7e14',
+    fontSize: 15,
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
     backgroundColor: '#fff3cd',
-    padding: 8,
-    borderRadius: 8,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ffeaa7',
   },
 
-  // Account Locked Styles
+  // Account Status Cards
   lockedCard: {
     margin: 16,
-    padding: 20,
+    padding: 24,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
+    elevation: 4,
+    borderLeftWidth: 5,
     borderLeftColor: '#dc3545',
   },
+  
   lockedTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: '#dc3545',
     textAlign: 'center',
-    marginBottom: 12,
-  },
-  lockedText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
     marginBottom: 16,
-    lineHeight: 20,
+  },
+  
+  lockedText: {
+    color: '#6c757d',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
   },
 
-  // No PIN Set Styles
   noPinCard: {
     margin: 16,
-    padding: 20,
+    padding: 24,
     borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
+    elevation: 4,
+    borderLeftWidth: 5,
+    borderLeftColor: '#fd7e14',
   },
+  
   noPinTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  noPinText: {
-    color: '#666',
-    fontSize: 14,
+    color: '#fd7e14',
     textAlign: 'center',
     marginBottom: 16,
-    lineHeight: 20,
+  },
+  
+  noPinText: {
+    color: '#6c757d',
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 22,
   },
 
   // Modal Styles
@@ -1605,83 +1935,79 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
+  
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#e9ecef',
+    backgroundColor: '#f8f9fa',
   },
+  
   modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: '#333' 
+    fontSize: 20, 
+    fontWeight: '700', 
+    color: '#1a1a1a' 
   },
+  
   modalCloseBtn: {
     padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
   },
+  
   modalCloseBtnText: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: 'bold',
+    fontSize: 20,
+    color: '#6c757d',
+    fontWeight: '700',
   },
 
   contactItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomColor: '#f1f3f4',
+    backgroundColor: '#fff',
   },
+  
   contactInfo: {
     flex: 1,
   },
+  
   contactName: { 
-    fontSize: 16, 
-    fontWeight: '500', 
-    color: '#333',
-    marginBottom: 2,
+    fontSize: 17, 
+    fontWeight: '600', 
+    color: '#1a1a1a',
+    marginBottom: 4,
   },
+  
   contactNumber: { 
-    color: '#666', 
-    fontSize: 14 
-  },
-  recentTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
+    color: '#6c757d', 
+    fontSize: 15,
     fontWeight: '500',
   },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
+  
+  recentTime: {
+    fontSize: 13,
+    color: '#adb5bd',
+    fontWeight: '500',
   },
 
   emptyText: {
     textAlign: 'center',
-    color: '#999',
+    color: '#adb5bd',
     fontSize: 16,
-    marginTop: 40,
+    marginTop: 60,
+    fontWeight: '500',
+    lineHeight: 24,
   },
 });

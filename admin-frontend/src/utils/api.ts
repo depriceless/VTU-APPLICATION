@@ -46,7 +46,7 @@ const AdminLogin: React.FC = () => {
   const [isInitialized, setIsInitialized] = useState(false);
 
   // API configuration
-  const API_BASE_URL = 'http://localhost:5000/api';
+  const API_BASE_URL = 'http://192.168.126.7:5000/api';
 
   // Initialize component on mount
   useEffect(() => {

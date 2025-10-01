@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import InternetSuccessModal from './internetsucessmodal';
 
 import {
@@ -17,9 +17,14 @@ import {
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthContext } from '../contexts/AuthContext';
 
-// Your Replit API base URL
-const API_BASE_URL = 'http://localhost:5000/api';
+// API configuration
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
 
 interface Contact {
   id: string;
@@ -66,6 +71,8 @@ interface InternetProvider {
 }
 
 export default function BuyInternet() {
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
@@ -90,34 +97,32 @@ export default function BuyInternet() {
   const [successData, setSuccessData] = useState(null);
 
   // Internet Service Providers with their plans
- const internetProviders: InternetProvider[] = [
-  {
-    id: 'spectranet',
-    label: 'SPECTRANET',
-    logo: require('../assets/images/spectranet-logo.jpeg'),
-    plans: [
-      { id: 'spec_1gb_month', name: '1GB Monthly', dataSize: '1GB', speed: '10Mbps', validity: '30 days', amount: 2500 },
-      { id: 'spec_5gb_month', name: '5GB Monthly', dataSize: '5GB', speed: '10Mbps', validity: '30 days', amount: 8000 },
-      { id: 'spec_10gb_month', name: '10GB Monthly', dataSize: '10GB', speed: '20Mbps', validity: '30 days', amount: 15000 },
-      { id: 'spec_20gb_month', name: '20GB Monthly', dataSize: '20GB', speed: '20Mbps', validity: '30 days', amount: 25000 },
-      { id: 'spec_unlimited', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '5Mbps', validity: '7 days', amount: 5000 },
-    ]
-  },
-  {
-    id: 'smile',
-    label: 'SMILE',
-    logo: require('../assets/images/smile-logo.jpeg'),
-    plans: [
-      { id: 'smile_2gb_month', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 3000 },
-      { id: 'smile_6gb_month', name: '6GB Monthly', dataSize: '6GB', speed: '10Mbps', validity: '30 days', amount: 8500 },
-      { id: 'smile_12gb_month', name: '12GB Monthly', dataSize: '12GB', speed: '15Mbps', validity: '30 days', amount: 15500 },
-      { id: 'smile_25gb_month', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 28000 },
-      { id: 'smile_unlimited_week', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '8Mbps', validity: '7 days', amount: 4500 },
-    ]
-  },
-];
-
-    
+  const internetProviders: InternetProvider[] = [
+    {
+      id: 'spectranet',
+      label: 'SPECTRANET',
+      logo: require('../assets/images/spectranet-logo.jpeg'),
+      plans: [
+        { id: 'spec_1gb_month', name: '1GB Monthly', dataSize: '1GB', speed: '10Mbps', validity: '30 days', amount: 2500 },
+        { id: 'spec_5gb_month', name: '5GB Monthly', dataSize: '5GB', speed: '10Mbps', validity: '30 days', amount: 8000 },
+        { id: 'spec_10gb_month', name: '10GB Monthly', dataSize: '10GB', speed: '20Mbps', validity: '30 days', amount: 15000 },
+        { id: 'spec_20gb_month', name: '20GB Monthly', dataSize: '20GB', speed: '20Mbps', validity: '30 days', amount: 25000 },
+        { id: 'spec_unlimited', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '5Mbps', validity: '7 days', amount: 5000 },
+      ]
+    },
+    {
+      id: 'smile',
+      label: 'SMILE',
+      logo: require('../assets/images/smile-logo.jpeg'),
+      plans: [
+        { id: 'smile_2gb_month', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 3000 },
+        { id: 'smile_6gb_month', name: '6GB Monthly', dataSize: '6GB', speed: '10Mbps', validity: '30 days', amount: 8500 },
+        { id: 'smile_12gb_month', name: '12GB Monthly', dataSize: '12GB', speed: '15Mbps', validity: '30 days', amount: 15500 },
+        { id: 'smile_25gb_month', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 28000 },
+        { id: 'smile_unlimited_week', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '8Mbps', validity: '7 days', amount: 4500 },
+      ]
+    },
+  ];
 
   // ---------- Validation ----------
   const isCustomerNumberValid = customerNumber.length >= 6 && /^[A-Za-z0-9]+$/.test(customerNumber);
@@ -131,22 +136,21 @@ export default function BuyInternet() {
     loadRecentNumbers();
     loadFormState();
 
-    const debugTokenStorage = async () => {
-      console.log('🐛 DEBUG: Checking token storage...');
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const value = await AsyncStorage.getItem(key);
-        console.log(`🐛 ${key}:`, value ? `"${value}"` : 'null');
-      }
-    };
-
-    debugTokenStorage();
+    // Initialize balance from AuthContext
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        lastUpdated: Date.now(),
+      });
+    }
 
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
-    }, 2000);
+    }, 1000);
   }, []);
 
   // Refresh balance when stepping to review page
@@ -172,69 +176,37 @@ export default function BuyInternet() {
 
   // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
-    try {
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        console.log(`🔍 Checking storage key "${key}":`, token ? `Found (${token.length} chars)` : 'Not found');
-
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
-
-          const tokenParts = cleanToken.split('.');
-          if (tokenParts.length === 3) {
-            console.log(`✅ Found valid JWT token with key: ${key}`);
-            console.log(`🔑 Token preview: ${cleanToken.substring(0, 30)}...`);
-            return cleanToken;
-          } else {
-            console.log(`⚠️ Token from "${key}" is not a valid JWT format (${tokenParts.length} parts)`);
-          }
-        }
-      }
-
-      console.log('❌ No valid JWT token found in any storage key');
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('❌ Error getting auth token:', error);
+    if (!token) {
+      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
+    return token;
   };
 
   const makeApiRequest = async (endpoint, options = {}) => {
-    console.log(`🔵 API Request: ${endpoint}`);
+    console.log(`API Request: ${endpoint}`);
     
     try {
-      const token = await getAuthToken();
-      console.log('🔑 Token obtained for API request');
+      const authToken = await getAuthToken();
 
       const requestConfig = {
         method: 'GET',
         ...options,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
           'Accept': 'application/json',
           ...options.headers,
         },
       };
 
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
-      console.log('🌐 Request URL:', fullUrl);
-      console.log('📤 Method:', requestConfig.method);
-
-      if (requestConfig.body) {
-        console.log('📄 Request has body, length:', requestConfig.body.length);
-      }
-
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
       const response = await fetch(fullUrl, requestConfig);
-      console.log('📊 Response status:', response.status, response.ok ? '✅' : '❌');
 
       let responseText = '';
       try {
         responseText = await response.text();
       } catch (textError) {
-        console.error('❌ Failed to read response text:', textError);
         throw new Error('Unable to read server response');
       }
 
@@ -242,28 +214,17 @@ export default function BuyInternet() {
       if (responseText.trim()) {
         try {
           data = JSON.parse(responseText);
-          console.log('✅ JSON parsed, success:', data.success);
         } catch (parseError) {
-          console.error('❌ JSON parse error:', parseError);
-          console.log('📄 Raw response preview:', responseText.substring(0, 200));
           throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
         }
-      } else {
-        console.log('⚠️ Empty response received');
       }
 
       if (response.status === 401) {
-        console.error('❌ 401 Unauthorized - clearing tokens');
-        const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-        for (const key of tokenKeys) {
-          await AsyncStorage.removeItem(key);
-        }
         throw new Error('Session expired. Please login again.');
       }
 
       if (!response.ok) {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error(`❌ API Error:`, errorMessage);
         
         if (endpoint === '/purchase' && data && typeof data === 'object') {
           const error = new Error(errorMessage);
@@ -275,11 +236,10 @@ export default function BuyInternet() {
         throw new Error(errorMessage);
       }
 
-      console.log('✅ API request successful');
       return data;
 
     } catch (error) {
-      console.error(`💥 API Error for ${endpoint}:`, error.message);
+      console.error(`API Error for ${endpoint}:`, error.message);
 
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
@@ -298,64 +258,75 @@ export default function BuyInternet() {
   // ---------- PIN Functions ----------
   const checkPinStatus = async () => {
     try {
-      console.log('🔄 Checking PIN status...');
-      const token = await getAuthToken();
-      console.log('🔑 Using token for PIN status:', token.substring(0, 30) + '...');
-      
+      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
-      console.log('✅ PIN status response:', JSON.stringify(response, null, 2));
       
       if (response.success) {
         setPinStatus(response);
-      } else {
-        console.log('⚠️ PIN status check failed:', response);
       }
     } catch (error) {
-      console.error('❌ Error checking PIN status:', error);
+      console.error('Error checking PIN status:', error);
     }
   };
 
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("🔄 Fetching balance from /balance");
-      const balanceData = await makeApiRequest("/balance");
-
-      if (balanceData.success && balanceData.balance) {
-        const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+      console.log("Refreshing balance from AuthContext");
+      
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
         
         const realBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
-          currency: balanceData.balance.currency || "NGN",
-          lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("✅ Balance fetched and stored:", realBalance);
+        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        throw new Error(balanceData.message || "Balance fetch failed");
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
+
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
       }
     } catch (error) {
-      console.error("❌ Balance fetch error:", error);
+      console.error("Balance fetch error:", error);
       
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance({
-            ...parsedBalance,
-            lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-          });
-          console.log("✅ Using cached balance:", parsedBalance);
+          setUserBalance(parsedBalance);
         } else {
           setUserBalance(null);
         }
       } catch (cacheError) {
-        console.error("❌ Cache error:", cacheError);
         setUserBalance(null);
       }
     } finally {
@@ -513,22 +484,22 @@ export default function BuyInternet() {
     console.log('=== INTERNET PAYMENT START ===');
     
     if (!isPinValid) {
-      console.log('❌ PIN invalid:', pin);
+      console.log('PIN invalid:', pin);
       setPinError('PIN must be exactly 4 digits');
       return;
     }
 
-    console.log('✅ Starting internet payment process...');
+    console.log('Starting internet payment process...');
     setIsValidatingPin(true);
     setIsProcessingPayment(true);
     setPinError('');
 
     try {
-      console.log('📦 Internet payment payload:', {
+      console.log('Internet payment payload:', {
         type: 'internet',
         provider: selectedProvider,
         plan: selectedPlan?.name,
-        planType: 'monthly', // Default to monthly
+        planType: 'monthly',
         customerNumber: customerNumber,
         amount: amount,
         pinProvided: !!pin
@@ -547,10 +518,10 @@ export default function BuyInternet() {
         }),
       });
 
-      console.log('📊 Internet purchase response:', response);
+      console.log('Internet purchase response:', response);
 
       if (response.success === true) {
-        console.log('🎉 Internet payment successful!');
+        console.log('Internet payment successful!');
         
         await saveRecentNumber(customerNumber, customerName);
         
@@ -570,7 +541,7 @@ export default function BuyInternet() {
 
           setUserBalance(updatedBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-          console.log('💰 Balance updated:', updatedBalance);
+          console.log('Balance updated:', updatedBalance);
         }
 
         await AsyncStorage.removeItem('internetFormState');
@@ -590,7 +561,7 @@ export default function BuyInternet() {
         }, 300);
 
       } else {
-        console.log('❌ Internet payment failed:', response.message);
+        console.log('Internet payment failed:', response.message);
         
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
@@ -600,7 +571,7 @@ export default function BuyInternet() {
       }
 
     } catch (error) {
-      console.error('💥 Internet payment error:', error);
+      console.error('Internet payment error:', error);
       
       if (error.message.includes('locked') || error.message.includes('attempts')) {
         setPinError(error.message);
@@ -640,11 +611,6 @@ export default function BuyInternet() {
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Internet Subscription</Text>
-      </View>
-
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
@@ -664,7 +630,7 @@ export default function BuyInternet() {
                 {isLoadingContacts ? (
                   <ActivityIndicator size="small" color="#555" />
                 ) : (
-                  <Text style={styles.actionBtnText}>📞 Contacts</Text>
+                  <Text style={styles.actionBtnText}>Contacts</Text>
                 )}
               </TouchableOpacity>
 
@@ -672,7 +638,7 @@ export default function BuyInternet() {
                 style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
                 onPress={showRecentNumbers}
               >
-                <Text style={styles.actionBtnText}>🕐 Recent ({recentNumbers.length})</Text>
+                <Text style={styles.actionBtnText}>Recent ({recentNumbers.length})</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -747,7 +713,7 @@ export default function BuyInternet() {
               <Text style={styles.error}>Enter valid customer ID or phone number (minimum 6 characters)</Text>
             )}
             {customerNumber !== '' && isCustomerNumberValid && (
-              <Text style={styles.success}>✓ Valid customer identifier</Text>
+              <Text style={styles.success}>Valid customer identifier</Text>
             )}
           </View>
 
@@ -824,7 +790,7 @@ export default function BuyInternet() {
                 {selectedPlan && selectedPlan.amount > (userBalance.total || userBalance.amount || 0) && (
                   <View style={styles.insufficientBalanceWarning}>
                     <Text style={styles.warningText}>
-                      ⚠️ Insufficient balance for this transaction
+                      Insufficient balance for this transaction
                     </Text>
                     <TouchableOpacity 
                       style={styles.topUpBtn}
@@ -965,7 +931,7 @@ export default function BuyInternet() {
           {/* PIN Status Check */}
           {pinStatus?.isLocked && (
             <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
+              <Text style={styles.lockedTitle}>Account Locked</Text>
               <Text style={styles.lockedText}>
                 Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
               </Text>
@@ -973,14 +939,14 @@ export default function BuyInternet() {
                 style={styles.refreshBtn}
                 onPress={checkPinStatus}
               >
-                <Text style={styles.refreshText}>🔄 Check Status</Text>
+                <Text style={styles.refreshText}>Check Status</Text>
               </TouchableOpacity>
             </View>
           )}
 
           {!pinStatus?.isPinSet && (
             <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>📱 PIN Required</Text>
+              <Text style={styles.noPinTitle}>PIN Required</Text>
               <Text style={styles.noPinText}>
                 You need to set up a 4-digit transaction PIN in your account settings before making purchases.
               </Text>
@@ -1024,7 +990,7 @@ export default function BuyInternet() {
 
                 {pinStatus?.attemptsRemaining < 3 && (
                   <Text style={styles.attemptsWarning}>
-                    ⚠️ {pinStatus.attemptsRemaining} attempts remaining
+                    {pinStatus.attemptsRemaining} attempts remaining
                   </Text>
                 )}
 
@@ -1218,20 +1184,19 @@ export default function BuyInternet() {
       </Modal>
 
       {/* Success Modal */}
-      {/* Success Modal */}
-{showSuccessModal && successData && (
-  <InternetSuccessModal
-    visible={showSuccessModal}
-    onClose={handleCloseSuccessModal}
-    onBuyMore={handleBuyMoreInternet}
-    transaction={successData.transaction}
-    providerName={successData.providerName}
-    customerNumber={successData.customerNumber}
-    amount={successData.amount}
-    newBalance={successData.newBalance}
-    planDetails={successData.plan}
-  />
-)}
+      {showSuccessModal && successData && (
+        <InternetSuccessModal
+          visible={showSuccessModal}
+          onClose={handleCloseSuccessModal}
+          onBuyMore={handleBuyMoreInternet}
+          transaction={successData.transaction}
+          providerName={successData.providerName}
+          customerNumber={successData.customerNumber}
+          amount={successData.amount}
+          newBalance={successData.newBalance}
+          planDetails={successData.plan}
+        />
+      )}
     </View>
   );
 }
@@ -1240,26 +1205,7 @@ export default function BuyInternet() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
 
-  header: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-
   scrollContent: { 
-    marginTop: Platform.OS === 'ios' ? 90 : 60,
     flex: 1 
   },
 
@@ -1491,7 +1437,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // Balance Card Styles (same as airtime)
+  // Balance Card Styles
   balanceCard: {
     margin: 16,
     padding: 20,
@@ -1616,7 +1562,7 @@ const styles = StyleSheet.create({
     color: '#dc3545',
   },
 
-  // PIN Entry Styles (same as airtime)
+  // PIN Entry Styles
   pinCard: {
     margin: 16,
     padding: 24,

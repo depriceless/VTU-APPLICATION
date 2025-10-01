@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
+import { AuthContext } from '../contexts/AuthContext';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+// API Configuration - Updated to match airtime/cable TV
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+};
 
 interface UserBalance {
   total: number;
@@ -49,174 +55,10 @@ interface PinStatus {
   attemptsRemaining: number;
 }
 
-// Enhanced API service with better error handling
-class ApiService {
-  private static instance: ApiService;
-  private authToken: string | null = null;
-
-  static getInstance(): ApiService {
-    if (!ApiService.instance) {
-      ApiService.instance = new ApiService();
-    }
-    return ApiService.instance;
-  }
-
-  private async getAuthToken(): Promise<string> {
-    if (this.authToken) return this.authToken;
-
-    try {
-      const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-
-      for (const key of tokenKeys) {
-        const token = await AsyncStorage.getItem(key);
-        console.log(`Checking storage key "${key}":`, token ? `Found (${token.length} chars)` : 'Not found');
-
-        if (token && token.trim() !== '' && token !== 'undefined' && token !== 'null') {
-          const cleanToken = token.trim();
-          const tokenParts = cleanToken.split('.');
-          if (tokenParts.length === 3) {
-            console.log(`Found valid JWT token with key: ${key}`);
-            this.authToken = cleanToken;
-            return cleanToken;
-          }
-        }
-      }
-
-      console.log('No valid JWT token found in any storage key');
-      throw new Error('No authentication token found');
-    } catch (error) {
-      console.error('Error getting auth token:', error);
-      throw new Error('Authentication required');
-    }
-  }
-
-  private async makeRequest(endpoint: string, options: RequestInit = {}, retryCount = 0): Promise<any> {
-    console.log(`API Request: ${endpoint}`);
-    
-    try {
-      const token = await this.getAuthToken();
-      console.log('Token obtained for API request');
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-      const requestConfig = {
-        method: 'GET',
-        ...options,
-        signal: controller.signal,
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          ...options.headers,
-        },
-      };
-
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
-      console.log('Request URL:', fullUrl);
-      console.log('Request config:', { ...requestConfig, headers: { ...requestConfig.headers, Authorization: 'Bearer [TOKEN]' } });
-
-      const response = await fetch(fullUrl, requestConfig);
-      clearTimeout(timeoutId);
-
-      console.log('Response status:', response.status, response.ok ? 'Success' : 'Error');
-
-      let responseText = '';
-      try {
-        responseText = await response.text();
-        console.log('Response text length:', responseText.length);
-      } catch (textError) {
-        console.error('Failed to read response text:', textError);
-        throw new Error('Unable to read server response');
-      }
-
-      let data = {};
-      if (responseText.trim()) {
-        try {
-          data = JSON.parse(responseText);
-          console.log('JSON parsed successfully, response data:', data);
-        } catch (parseError) {
-          console.error('JSON parse error:', parseError);
-          console.log('Raw response preview:', responseText.substring(0, 200));
-          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
-        }
-      }
-
-      if (response.status === 401) {
-        console.error('401 Unauthorized - clearing tokens');
-        const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
-        for (const key of tokenKeys) {
-          await AsyncStorage.removeItem(key);
-        }
-        this.authToken = null;
-        throw new Error('Session expired. Please login again.');
-      }
-
-      if (!response.ok) {
-        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        console.error('API Error:', errorMessage);
-        
-        if (endpoint.includes('/recharge/generate') && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
-          throw error;
-        }
-        
-        throw new Error(errorMessage);
-      }
-
-      console.log('API request successful');
-      return data;
-
-    } catch (error: any) {
-      console.error(`API Error for ${endpoint}:`, error.message);
-
-      if (retryCount < 2 && (error.name === 'AbortError' || error.message.includes('network'))) {
-        console.log(`Retrying request (attempt ${retryCount + 1})`);
-        await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)));
-        return this.makeRequest(endpoint, options, retryCount + 1);
-      }
-
-      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-        throw new Error('Network connection failed. Please check your internet connection.');
-      }
-
-      if (error.message.includes('Authentication') || 
-          error.message.includes('Session expired') ||
-          error.responseData) {
-        throw error;
-      }
-
-      throw error;
-    }
-  }
-
-  async generatePins(data: any): Promise<any> {
-    return this.makeRequest('/recharge/generate', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async getHistory(): Promise<any> {
-    return this.makeRequest('/recharge/history');
-  }
-
-  async getBalance(): Promise<any> {
-    return this.makeRequest('/balance');
-  }
-
-  async checkPinStatus(): Promise<any> {
-    return this.makeRequest('/purchase/pin-status');
-  }
-
-  clearAuth(): void {
-    this.authToken = null;
-  }
-}
-
 export default function PrintRecharge() {
+  // Use AuthContext like in airtime/cable TV components
+  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  
   const [activeTab, setActiveTab] = useState<'generate' | 'history'>('generate');
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
@@ -231,7 +73,6 @@ export default function PrintRecharge() {
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [generatedPins, setGeneratedPins] = useState<Array<{ pin: string; serial: string }>>([]);
@@ -285,8 +126,8 @@ export default function PrintRecharge() {
 
   const canProceed = useMemo(() => {
     const qty = parseInt(quantity) || 0;
-    return selectedNetwork && cardType && denomination && qty > 0 && qty <= 100 && hasEnoughBalance && !authError;
-  }, [selectedNetwork, cardType, denomination, quantity, hasEnoughBalance, authError]);
+    return selectedNetwork && cardType && denomination && qty > 0 && qty <= 100 && hasEnoughBalance;
+  }, [selectedNetwork, cardType, denomination, quantity, hasEnoughBalance]);
 
   const isPinValid = useMemo(() => 
     pin.length === 4 && /^\d{4}$/.test(pin),
@@ -299,16 +140,111 @@ export default function PrintRecharge() {
     return balance.total || balance.amount || balance.mainBalance || balance.main || 0;
   }, []);
 
-  // Load data on mount
-  useEffect(() => {
-    const initializeData = async () => {
-      setTimeout(() => {
-        fetchUserBalance();
-        checkPinStatusAPI();
-      }, 1000);
-    };
+  // SIMPLIFIED API FUNCTIONS (matching airtime/cable TV) 
+  
+  const getAuthToken = async () => {
+    if (!token) {
+      console.log('No token available from AuthContext');
+      throw new Error('Authentication required');
+    }
+    return token;
+  };
 
-    initializeData();
+  const makeApiRequest = async (endpoint: string, options = {}) => {
+    console.log(`API Request: ${endpoint}`);
+    
+    try {
+      const authToken = await getAuthToken();
+      
+      const requestConfig = {
+        method: 'GET',
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...options.headers,
+        },
+      };
+
+      const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+      const response = await fetch(fullUrl, requestConfig);
+
+      let responseText = '';
+      try {
+        responseText = await response.text();
+      } catch (textError) {
+        throw new Error('Unable to read server response');
+      }
+
+      let data = {};
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          throw new Error(`Invalid JSON response from server. Status: ${response.status}`);
+        }
+      }
+
+      // Handle authentication errors
+      if (response.status === 401) {
+        throw new Error('Session expired. Please login again.');
+      }
+
+      if (!response.ok) {
+        const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
+        
+        if (endpoint.includes('/recharge/generate') && data && typeof data === 'object') {
+          const error = new Error(errorMessage);
+          (error as any).responseData = data;
+          (error as any).httpStatus = response.status;
+          throw error;
+        }
+        
+        throw new Error(errorMessage);
+      }
+
+      return data;
+
+    } catch (error) {
+      console.error(`API Error for ${endpoint}:`, error.message);
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        throw new Error('Network connection failed. Please check your internet connection.');
+      }
+
+      if (error.message.includes('Authentication') || 
+          error.message.includes('Session expired') ||
+          error.responseData) {
+        throw error;
+      }
+
+      throw new Error(error.message || 'Request failed');
+    }
+  };
+
+  // Load data on mount - Updated to use AuthContext
+  useEffect(() => {
+    // Initialize balance from AuthContext like in airtime component
+    if (balance) {
+      const balanceAmount = parseFloat(balance.amount) || 0;
+      setUserBalance({
+        main: balanceAmount,
+        bonus: 0,
+        total: balanceAmount,
+        amount: balanceAmount,
+        mainBalance: balanceAmount,
+        bonusBalance: 0,
+        currency: balance.currency || "NGN",
+        lastUpdated: balance.lastUpdated || new Date().toISOString(),
+      });
+    }
+    
+    // Fetch updated data
+    setTimeout(() => {
+      fetchUserBalance();
+      checkPinStatusAPI();
+    }, 1000);
   }, []);
 
   useFocusEffect(
@@ -338,12 +274,16 @@ export default function PrintRecharge() {
   const fetchUserBalance = useCallback(async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Fetching balance from /balance");
-      setAuthError(null);
-      const balanceData = await ApiService.getInstance().getBalance();
-
-      if (balanceData.success && balanceData.balance) {
-        const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+      console.log("Refreshing balance from AuthContext");
+      
+      // Use AuthContext's refresh function
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      // Update local balance state from AuthContext
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
         
         const realBalance: UserBalance = {
           main: balanceAmount,
@@ -352,48 +292,59 @@ export default function PrintRecharge() {
           amount: balanceAmount,
           mainBalance: balanceAmount,
           bonusBalance: 0,
-          currency: balanceData.balance.currency || "NGN",
-          lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          currency: balance.currency || "NGN",
+          lastUpdated: balance.lastUpdated || new Date().toISOString(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("Balance fetched and stored:", realBalance);
+        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        throw new Error(balanceData.message || "Balance fetch failed");
-      }
-    } catch (error: any) {
-      console.error('Balance fetch error:', error);
-      if (error.message.includes('Authentication') || error.message.includes('token')) {
-        setAuthError('Session expired. Please login again.');
-        ApiService.getInstance().clearAuth();
-      }
+        // Fallback: try direct API call
+        const balanceData = await makeApiRequest("/balance");
+        
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          
+          const realBalance: UserBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            mainBalance: balanceAmount,
+            bonusBalance: 0,
+            currency: balanceData.balance.currency || "NGN",
+            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+          };
 
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
+      }
+    } catch (error) {
+      console.error("Balance fetch error:", error);
+      
+      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance({
-            ...parsedBalance,
-            lastUpdated: parsedBalance.lastUpdated || new Date().toISOString(),
-          });
-          console.log("Using cached balance:", parsedBalance);
+          setUserBalance(parsedBalance);
         } else {
           setUserBalance(null);
         }
       } catch (cacheError) {
-        console.error("Cache error:", cacheError);
         setUserBalance(null);
       }
     } finally {
       setIsLoadingBalance(false);
     }
-  }, []);
+  }, [refreshBalance, balance]);
 
   const checkPinStatusAPI = useCallback(async () => {
     try {
       console.log('Checking PIN status...');
-      const response = await ApiService.getInstance().checkPinStatus();
+      const response = await makeApiRequest('/purchase/pin-status');
       console.log('PIN status response:', response);
       
       if (response.success) {
@@ -401,34 +352,121 @@ export default function PrintRecharge() {
       } else {
         console.log('PIN status check failed:', response);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error checking PIN status:', error);
-      if (error.message.includes('Authentication') || error.message.includes('token')) {
-        setAuthError('Session expired. Please login again.');
-        ApiService.getInstance().clearAuth();
-      }
     }
   }, []);
 
-  const loadTransactionHistory = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      setAuthError(null);
-      const response = await ApiService.getInstance().getHistory();
-      if (response.success) {
-        setTransactions(response.data?.transactions || []);
-      }
-    } catch (error: any) {
-      console.error('History load error:', error);
-      if (error.message.includes('Authentication') || error.message.includes('token')) {
-        setAuthError('Session expired. Please login again.');
-        ApiService.getInstance().clearAuth();
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+const loadTransactionHistory = useCallback(async () => {
+  setIsLoading(true);
+  try {
+    // Use the existing recharge history endpoint
+    const response = await makeApiRequest('/purchase/history');
+    
+    if (response.success && response.data?.transactions) {
+      const rawTransactions = response.data.transactions;
+      console.log('Raw transactions from API:', rawTransactions);
+      
+      // Process each transaction to extract PIN data
+      const processedTransactions = rawTransactions.map((tx, index) => {
+        // Check if this transaction already has processed PIN data
+        if (tx.pins && Array.isArray(tx.pins) && tx.pins.length > 0) {
+          // Transaction already has PIN data, use it directly
+          return {
+            _id: tx._id,
+            network: tx.network || 'UNKNOWN',
+            type: tx.type || 'unknown', 
+            amount: tx.amount,
+            quantity: tx.quantity || 1,
+            denomination: tx.denomination || tx.amount,
+            pins: tx.pins,
+            status: tx.status || 'completed',
+            createdAt: tx.createdAt,
+            balanceAfter: tx.balanceAfter || 0,
+            reference: tx.reference
+          };
+        }
 
+        // If no PIN data, try to extract from description
+        let pins = [];
+        let network = 'UNKNOWN';
+        let serviceType = 'unknown';
+        let quantity = 1;
+        let denomination = tx.amount;
+
+        console.log(`Processing transaction ${index + 1}:`, tx.description);
+
+        if (tx.description && tx.description.includes('PIN:')) {
+          // Extract PINs with flexible regex
+          const pinMatches = tx.description.match(/PIN:\s*(\d+)\s*\(Serial:\s*(\d+)\)/g);
+          
+          if (pinMatches && pinMatches.length > 0) {
+            pins = pinMatches.map(match => {
+              const individualMatch = match.match(/PIN:\s*(\d+)\s*\(Serial:\s*(\d+)\)/);
+              return individualMatch ? {
+                pin: individualMatch[1],
+                serial: individualMatch[2]
+              } : null;
+            }).filter(Boolean);
+          }
+
+          // Extract network and type
+          const networkMatch = tx.description.match(/^([A-Z]+)\s+([A-Z]+)\s+Recharge/i);
+          if (networkMatch) {
+            network = networkMatch[1].toUpperCase();
+            serviceType = networkMatch[2].toLowerCase();
+          }
+
+          // Extract quantity and denomination
+          const qtyMatch = tx.description.match(/(\d+)\s*card\(s\)\s*x\s*₦(\d+)/i);
+          if (qtyMatch) {
+            quantity = parseInt(qtyMatch[1]);
+            denomination = parseInt(qtyMatch[2]);
+          }
+        } else if (tx.description) {
+          // Fallback extraction
+          network = extractNetworkFromDescription(tx.description);
+          serviceType = extractTypeFromDescription(tx.description);
+          
+          // Try to find any long numbers that could be PINs
+          const numberMatches = tx.description.match(/\d{10,20}/g);
+          if (numberMatches) {
+            pins = numberMatches.map((num, idx) => ({
+              pin: num,
+              serial: tx.reference || `Serial_${idx + 1}`
+            }));
+          } else {
+            pins = [{ pin: 'Not Available', serial: tx.reference || 'Not Available' }];
+          }
+        }
+
+        return {
+          _id: tx._id,
+          network: network,
+          type: serviceType,
+          amount: tx.amount,
+          quantity: quantity,
+          denomination: denomination,
+          pins: pins,
+          status: tx.status || 'completed',
+          createdAt: tx.createdAt,
+          balanceAfter: tx.newBalance || 0,
+          reference: tx.reference
+        };
+      });
+
+      console.log('Processed transactions:', processedTransactions);
+      setTransactions(processedTransactions);
+    } else {
+      setTransactions([]);
+    }
+  } catch (error) {
+    console.error('History load error:', error);
+    setTransactions([]);
+  } finally {
+    setIsLoading(false);
+  }
+}, []);
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     if (activeTab === 'history') {
@@ -455,31 +493,31 @@ export default function PrintRecharge() {
     
     // Validate inputs
     if (!isPinValid) {
-      console.log('❌ PIN invalid:', pin);
+      console.log('PIN invalid:', pin);
       setPinError('PIN must be exactly 4 digits');
       return;
     }
 
     const qty = parseInt(quantity);
     if (isNaN(qty) || qty < 1 || qty > 100) {
-      console.log('❌ Quantity invalid:', quantity);
+      console.log('Quantity invalid:', quantity);
       setPinError('Quantity must be between 1 and 100');
       return;
     }
 
     if (!selectedNetwork || !denomination) {
-      console.log('❌ Missing fields:', { selectedNetwork, denomination });
+      console.log('Missing fields:', { selectedNetwork, denomination });
       setPinError('Please complete all fields');
       return;
     }
 
     if (!hasEnoughBalance) {
-      console.log('❌ Insufficient balance');
+      console.log('Insufficient balance');
       setPinError('Insufficient balance for this transaction');
       return;
     }
 
-    console.log('✅ Validation passed, starting PIN generation...');
+    console.log('Validation passed, starting PIN generation...');
     setIsProcessing(true);
     setIsValidatingPin(true);
     setPinError('');
@@ -493,27 +531,25 @@ export default function PrintRecharge() {
         pin,
       };
 
-      console.log('📦 Sending request with payload:', {
+      console.log('Sending request with payload:', {
         ...requestData,
         pin: '****' // Hide PIN in logs
       });
 
-      // Add timeout wrapper
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000)
-      );
-
-      const apiPromise = ApiService.getInstance().generatePins(requestData);
-      
-      const response = await Promise.race([apiPromise, timeoutPromise]) as any;
-      
-      console.log('📊 Raw response received:', response);
-      console.log('📊 Response type:', typeof response);
-      console.log('📊 Response keys:', response ? Object.keys(response) : 'no keys');
+      const response = await makeApiRequest('/purchase/generate', {
+  method: 'POST',
+  body: JSON.stringify({
+    network: selectedNetwork,
+    type: cardType,
+    denomination,
+    quantity: qty,
+    pin,
+  }),
+});
 
       // Handle different response formats
       if (response && response.success === true) {
-        console.log('🎉 PIN generation marked as successful!');
+        console.log('PIN generation marked as successful!');
         
         // Extract and store generated PINs - check multiple possible response structures
         let pins = [];
@@ -530,9 +566,6 @@ export default function PrintRecharge() {
         } else if (response.recharge?.pins && Array.isArray(response.recharge.pins)) {
           pins = response.recharge.pins;
         } else {
-          // Log the full response structure to help debug
-          console.log('🔍 Full response structure for PIN extraction:', JSON.stringify(response, null, 2));
-          
           // Try to find pins anywhere in the response object
           const findPins = (obj) => {
             if (Array.isArray(obj)) {
@@ -561,8 +594,8 @@ export default function PrintRecharge() {
           }
         }
 
-        console.log('🎉 Extracted PINs:', pins);
-        console.log('🎉 PINs count:', pins.length);
+        console.log('Extracted PINs:', pins);
+        console.log('PINs count:', pins.length);
         
         // Validate PIN structure and ensure we have the PINs even if backend fails later
         if (pins.length > 0) {
@@ -573,9 +606,9 @@ export default function PrintRecharge() {
           // Store PINs immediately in case of later errors
           setGeneratedPins(pins);
           
-          // Update balance if provided
+          // Update balance if provided - same logic as airtime
           if (response.newBalance) {
-            console.log('💰 Updating balance from response:', response.newBalance);
+            console.log('Updating balance from response:', response.newBalance);
             const balanceAmount = response.newBalance.amount || 
                                  response.newBalance.totalBalance || 
                                  response.newBalance.mainBalance || 0;
@@ -593,23 +626,23 @@ export default function PrintRecharge() {
 
             setUserBalance(updatedBalance);
             await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-            console.log('✅ Balance updated successfully:', updatedBalance);
+            console.log('Balance updated successfully:', updatedBalance);
           }
           
           setCurrentStep(4); // Move to success step
-          console.log('🎉 Moving to PIN display step with', pins.length, 'PINs');
+          console.log('Moving to PIN display step with', pins.length, 'PINs');
         } else {
-          console.warn('⚠️ No PINs found in response');
+          console.warn('No PINs found in response');
           // Still show success but with warning
           setGeneratedPins([]);
           setCurrentStep(4);
         }
       } else if (response && response.success === false) {
-        console.log('❌ Server returned failure:', response.message || response.error);
+        console.log('Server returned failure:', response.message || response.error);
         const errorMsg = response.message || response.error || 'Failed to generate PINs';
         setPinError(errorMsg);
       } else {
-        console.log('⚠️ Unexpected response format:', response);
+        console.log('Unexpected response format:', response);
         
         // Try to extract PINs even from unexpected response format
         let pins = [];
@@ -635,7 +668,7 @@ export default function PrintRecharge() {
         
         const foundPins = findPins(response);
         if (foundPins && foundPins.length > 0) {
-          console.log('🎉 Found PINs in unexpected response format:', foundPins);
+          console.log('Found PINs in unexpected response format:', foundPins);
           setGeneratedPins(foundPins);
           setCurrentStep(4);
         } else {
@@ -643,14 +676,11 @@ export default function PrintRecharge() {
         }
       }
     } catch (error: any) {
-      console.error('💥 PIN generation error caught:', error);
-      console.error('💥 Error name:', error.name);
-      console.error('💥 Error message:', error.message);
-      console.error('💥 Error stack:', error.stack);
+      console.error('PIN generation error caught:', error);
       
       // Check if this might be a partial success (PINs generated but transaction failed)
       if (error.responseData) {
-        console.log('🔍 Checking error response data for PINs:', error.responseData);
+        console.log('Checking error response data for PINs:', error.responseData);
         
         // Try to extract PINs from error response
         let pins = [];
@@ -676,7 +706,7 @@ export default function PrintRecharge() {
         
         const foundPins = findPins(error.responseData);
         if (foundPins && foundPins.length > 0) {
-          console.log('🎉 Found PINs in error response! Partial success scenario:', foundPins);
+          console.log('Found PINs in error response! Partial success scenario:', foundPins);
           setGeneratedPins(foundPins);
           setCurrentStep(4);
           
@@ -694,13 +724,11 @@ export default function PrintRecharge() {
       
       if (error.message) {
         errorMessage = error.message;
-        console.log('📝 Using error message:', errorMessage);
+        console.log('Using error message:', errorMessage);
       }
       
       // Categorize errors
-      if (errorMessage.includes('timeout')) {
-        setPinError('Request timed out. Please check your connection and try again.');
-      } else if (errorMessage.includes('locked') || errorMessage.includes('attempts')) {
+      if (errorMessage.includes('locked') || errorMessage.includes('attempts')) {
         setPinError(errorMessage);
       } else if (errorMessage.includes('PIN')) {
         setPinError(errorMessage);
@@ -709,8 +737,6 @@ export default function PrintRecharge() {
       } else if (errorMessage.includes('network') || errorMessage.includes('server') || errorMessage.includes('fetch')) {
         setPinError('Network error. Please check your connection and try again');
       } else if (errorMessage.includes('Authentication') || errorMessage.includes('token')) {
-        setAuthError('Session expired. Please login again.');
-        ApiService.getInstance().clearAuth();
         setPinError('Session expired. Please login again.');
       } else if (errorMessage.includes('description') || errorMessage.includes('exceed') || errorMessage.includes('500 characters')) {
         // Handle the specific error you're encountering - PINs were likely generated
@@ -727,9 +753,9 @@ export default function PrintRecharge() {
         setPinError(errorMessage);
       }
 
-      console.log('📝 Final error message set:', errorMessage);
+      console.log('Final error message set:', errorMessage);
     } finally {
-      console.log('🔄 Cleaning up - setting loading states to false');
+      console.log('Cleaning up - setting loading states to false');
       setIsProcessing(false);
       setIsValidatingPin(false);
       console.log('=== RECHARGE PIN GENERATION END ===');
@@ -885,8 +911,7 @@ export default function PrintRecharge() {
         onPress={() => setCurrentStep(2)}
       >
         <Text style={styles.proceedText}>
-          {authError ? 'Please Login' : 
-           !hasEnoughBalance ? 'Insufficient Balance' :
+          {!hasEnoughBalance ? 'Insufficient Balance' :
            canProceed ? `Proceed to Summary • ₦${totalAmount.toLocaleString()}` :
            'Complete all fields'}
         </Text>
@@ -1008,12 +1033,12 @@ export default function PrintRecharge() {
       </View>
 
       <TouchableOpacity
-        style={[styles.proceedBtn, (!hasEnoughBalance || authError) && styles.proceedDisabled]}
-        disabled={!hasEnoughBalance || !!authError}
+        style={[styles.proceedBtn, !hasEnoughBalance && styles.proceedDisabled]}
+        disabled={!hasEnoughBalance}
         onPress={() => setCurrentStep(3)}
       >
         <Text style={styles.proceedText}>
-          {authError ? 'Please Login' : !hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+          {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
         </Text>
       </TouchableOpacity>
 
@@ -1045,7 +1070,7 @@ export default function PrintRecharge() {
 
       {!pinStatus?.isPinSet && (
         <View style={styles.noPinCard}>
-          <Text style={styles.noPinTitle}>PIN Required</Text>
+          <Text style={styles.noPinTitle}>📱 PIN Required</Text>
           <Text style={styles.noPinText}>
             You need to set up a 4-digit transaction PIN in your account settings before making purchases.
           </Text>
@@ -1087,7 +1112,7 @@ export default function PrintRecharge() {
 
             {pinStatus?.attemptsRemaining < 3 && (
               <Text style={styles.attemptsWarning}>
-                Warning: {pinStatus.attemptsRemaining} attempts remaining
+                ⚠️ {pinStatus.attemptsRemaining} attempts remaining
               </Text>
             )}
 
@@ -1288,21 +1313,13 @@ export default function PrintRecharge() {
       ) : (
         <Text style={styles.noHistory}>No recharge PINs generated yet</Text>
       )}
-
-      {authError && (
-        <View style={styles.section}>
-          <Text style={styles.pinError}>{authError}</Text>
-        </View>
-      )}
     </ScrollView>
   );
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Recharge Card</Text>
-      </View>
-
+      {/* Removed header section */}
+      
       <View style={styles.tabContainer}>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'generate' && styles.tabActive]}
@@ -1339,18 +1356,14 @@ export default function PrintRecharge() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
-  header: {
-    backgroundColor: '#ff3b30',
-    padding: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 16,
-    alignItems: 'center',
-  },
-  headerText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  // Removed header styles
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+    // Added top padding since header is removed
+    paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
   tab: {
     flex: 1,
@@ -1832,7 +1845,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // New success step styles
+  // Success step styles
   successCard: {
     padding: 24,
     borderRadius: 16,
@@ -1925,7 +1938,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 12,
-    fontWeight: '500',
+    fontWeight:500,
   },
 
   loader: {
