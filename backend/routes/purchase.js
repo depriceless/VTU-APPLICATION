@@ -160,6 +160,14 @@ router.get('/pin-status', authenticate, async (req, res) => {
 
 // POST /api/purchase - Main purchase endpoint
 router.post('/', authenticate, async (req, res) => {
+  console.log('🎯 PURCHASE ENDPOINT HIT!');
+  console.log('Request body:', req.body);
+  console.log('ClubKonnect Config:', {
+    userId: CK_CONFIG.userId ? 'SET' : 'NOT SET',
+    apiKey: CK_CONFIG.apiKey ? 'SET' : 'NOT SET',
+    baseUrl: CK_CONFIG.baseUrl
+  });
+  
   try {
     const { type, amount, pin, ...serviceData } = req.body;
 
