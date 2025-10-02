@@ -584,4 +584,20 @@ router.get('/test', (req, res) => {
     }
   });
 });
+
+// Test balance endpoint - NO AUTHENTICATION (for debugging only)
+router.get('/test-balance', async (req, res) => {
+  try {
+    const data = await makeRequest('/APIWalletBalanceV1.asp', {});
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.toString()
+    });
+  }
+});
+
+
 module.exports = router;
