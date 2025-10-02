@@ -73,7 +73,7 @@ const FinancialManagement = () => {
   });
 
   // API Base URL
-  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'http://192.168.126.7:5000';
+  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://vtu-application.onrender.com';
 
   // Utility functions
   const showNotification = useCallback((message, type = 'success') => {

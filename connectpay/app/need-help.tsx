@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Configuration - REPLACE THIS WITH YOUR ACTUAL IP ADDRESS
 const API_BASE_URL = __DEV__ 
-  ? 'http://192.168.126.7:5000'  // ← REPLACE WITH YOUR COMPUTER'S IP
+  ? 'https://vtu-application.onrender.com'  // ← REPLACE WITH YOUR COMPUTER'S IP
   : 'https://your-production-api.com';
 
 export default function HelpCenter() {

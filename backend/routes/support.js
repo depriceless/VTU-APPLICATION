@@ -365,7 +365,7 @@ router.put('/tickets/:id/status', async (req, res) => {
 
     // Create notification about status change
     try {
-      await fetch('http://192.168.126.7:5000/api/notifications', {
+      await fetch('https://vtu-application.onrender.com/api/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -461,7 +461,7 @@ router.post('/tickets/:id/responses', async (req, res) => {
 
     // Create notification about admin response
     try {
-      await fetch('http://192.168.126.7:5000/api/notifications', {
+      await fetch('https://vtu-application.onrender.com/api/notifications', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -545,7 +545,7 @@ router.patch('/tickets/:ticketId', async (req, res) => {
 
       // Create notification about admin response
       try {
-        await fetch('http://192.168.126.7:5000/api/notifications', {
+        await fetch('https://vtu-application.onrender.com/api/notifications', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

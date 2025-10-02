@@ -28,7 +28,7 @@ export default function ChangePassword() {
 
     setLoading(true);
     try {
-      const response = await fetch("http://192.168.126.7:5000/api/user/change-password", {
+      const response = await fetch("https://vtu-application.onrender.com/api/user/change-password", {
         method: "PUT",
         headers: {
           Authorization: "Bearer " + token,

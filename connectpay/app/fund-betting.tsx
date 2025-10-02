@@ -24,7 +24,7 @@ const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
     : `${process.env.EXPO_PUBLIC_API_URL}/api`,
-  FALLBACK_URL: 'http://192.168.126.7:5000/api', // fallback for development
+  FALLBACK_URL: 'https://vtu-application.onrender.com/api', // fallback for development
 };
 
 interface Contact {

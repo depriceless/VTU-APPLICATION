@@ -52,7 +52,7 @@ const ServiceManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'http://192.168.126.7:5000';
+  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://vtu-application.onrender.com';
 
   // Service type icons and colors
   const SERVICE_CONFIG = {

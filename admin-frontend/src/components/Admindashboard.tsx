@@ -95,7 +95,7 @@ useEffect(() => {
   // API functions to fetch real data from your backend
   const fetchDashboardStats = async () => {
     try {
-      const response = await fetch('http://192.168.126.7:5000/api/dashboard/stats');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/stats');
       if (!response.ok) throw new Error('Failed to fetch dashboard stats');
       
       const data = await response.json();
@@ -136,7 +136,7 @@ useEffect(() => {
   const fetchRecentActivities = async () => {
     try {
       setActivitiesLoading(true);
-      const response = await fetch('http://192.168.126.7:5000/api/dashboard/recent-activities');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/recent-activities');
       if (!response.ok) throw new Error('Failed to fetch activities');
       
       const data = await response.json();
@@ -153,7 +153,7 @@ useEffect(() => {
 
   const fetchMenuStats = async () => {
   try {
-    const response = await fetch('http://192.168.126.7:5000/api/services/stats');
+    const response = await fetch('https://vtu-application.onrender.com/api/services/stats');
     if (!response.ok) throw new Error('Failed to fetch menu stats');
     
     const data = await response.json();
@@ -178,7 +178,7 @@ useEffect(() => {
       return;
     }
     
-    const response = await fetch('http://192.168.126.7:5000/api/admin/profile', {
+    const response = await fetch('https://vtu-application.onrender.com/api/admin/profile', {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`

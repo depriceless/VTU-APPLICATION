@@ -9,6 +9,9 @@ export default {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      runtimeVersion: {
+        policy: "appVersion", // EAS Update runtime version
+      },
     },
     android: {
       adaptiveIcon: {
@@ -16,7 +19,8 @@ export default {
       },
       edgeToEdgeEnabled: true,
       package: "com.anonymous.connectpay",
-      usesCleartextTraffic: true, // ADDED: Allow HTTP connections
+      usesCleartextTraffic: true,
+      runtimeVersion: "1.0.0", // EAS Update runtime version
     },
     web: {
       bundler: "metro",
@@ -39,10 +43,14 @@ export default {
     experiments: {
       typedRoutes: true,
     },
+    updates: {
+      url: "https://u.expo.dev/f853cd0a-cdb5-4197-855e-4a1207a7f5c9", // Your EAS URL
+    },
     extra: {
-      // ADDED: Your API URLs
-      EXPO_PUBLIC_API_URL: process.env.EXPO_PUBLIC_API_URL || "http://10.157.13.7:5000",
-      EXPO_PUBLIC_API_URL_WEB: process.env.EXPO_PUBLIC_API_URL_WEB || "http://10.157.13.7:5000",
+      EXPO_PUBLIC_API_URL:
+        process.env.EXPO_PUBLIC_API_URL || "http://10.157.13.7:5000",
+      EXPO_PUBLIC_API_URL_WEB:
+        process.env.EXPO_PUBLIC_API_URL_WEB || "http://10.157.13.7:5000",
       router: {},
       eas: {
         projectId: "f853cd0a-cdb5-4197-855e-4a1207a7f5c9",

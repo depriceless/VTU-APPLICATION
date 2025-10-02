@@ -551,7 +551,7 @@ const AdminManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'http://192.168.126.7:5000';
+  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://vtu-application.onrender.com';
 
   // Role and permission configurations
   const ROLE_CONFIG = {

@@ -63,7 +63,7 @@ export interface ApiResponse<T = any> {
 }
 
 // services/systemApi.ts
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://192.168.126.7:5000/api/admin/system';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://vtu-application.onrender.com/api/admin/system';
 
 class SystemAPI {
   private async request<T = any>(

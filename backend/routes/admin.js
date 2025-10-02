@@ -6,6 +6,11 @@ const Admin = require('../models/Admin');
 const ServiceConfig = require('../models/ServiceConfig');
 const ServiceProvider = require('../models/ServiceProvider');
 const Transaction = require('../models/Transaction');
+const os = require('os');
+const ApiProvider = require('../models/ApiProvider');
+const SystemHealth = require('../models/SystemHealth');
+const SystemLog = require('../models/SystemLog');
+const MaintenanceMode = require('../models/MaintenanceMode');
 const router = express.Router();
 
 // ==================== EXISTING USER MANAGEMENT ====================
@@ -2036,4 +2041,1008 @@ router.get('/management/current-admin', adminAuth, async (req, res) => {
   }
 });
 
+// ===========================================
+// 1. API PROVIDERS MANAGEMENT
+// ===========================================
+
+// Get all API providers
+router.get('/providers', adminAuth, async (req, res) => {
+  try {
+    const providers = await ApiProvider.find()
+      .select('-apiKey') // Don't expose API keys
+      .sort({ priority: 1 });
+    
+    res.json({
+      success: true,
+      data: providers
+    });
+  } catch (error) {
+    console.error('Error fetching providers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch API providers'
+    });
+  }
+});
+
+// Get single provider with balance (ClubKonnect)
+router.get('/providers/:id', adminAuth, async (req, res) => {
+  try {
+    const provider = await ApiProvider.findById(req.params.id);
+    
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    let balance = null;
+    
+    // Fetch ClubKonnect balance
+    if (provider.code === 'CLUBKONNECT') {
+      try {
+        const balanceResponse = await axios.post(
+          `${provider.endpoint}/APIWalletBalanceV1.asp`,
+          null,
+          {
+            params: {
+              UserID: provider.metadata.userId,
+              APIKey: provider.apiKey
+            },
+            timeout: 10000
+          }
+        );
+
+        if (balanceResponse.data) {
+          balance = parseFloat(balanceResponse.data) || 0;
+        }
+      } catch (balanceError) {
+        console.error('ClubKonnect balance fetch error:', balanceError.message);
+        
+        await SystemLog.create({
+          level: 'error',
+          service: 'ClubKonnect',
+          message: 'Failed to fetch balance',
+          details: {
+            error: balanceError.message,
+            provider: provider.code
+          }
+        });
+      }
+    }
+
+    // Don't expose API key in response
+    const providerData = provider.toObject();
+    delete providerData.apiKey;
+
+    res.json({
+      success: true,
+      data: {
+        ...providerData,
+        currentBalance: balance
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch provider details'
+    });
+  }
+});
+
+// Update provider configuration
+router.put('/providers/:id', adminAuth, async (req, res) => {
+  try {
+    const { name, endpoint, timeout, retries, status, isActive, priority, weight } = req.body;
+
+    const provider = await ApiProvider.findByIdAndUpdate(
+      req.params.id,
+      {
+        name,
+        endpoint,
+        timeout,
+        retries,
+        status,
+        isActive,
+        priority,
+        weight,
+        updatedAt: new Date()
+      },
+      { new: true, runValidators: true }
+    ).select('-apiKey');
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    // Log configuration change
+    await SystemLog.create({
+      level: 'info',
+      service: 'API Provider',
+      message: `Provider ${provider.name} configuration updated`,
+      details: {
+        providerId: provider._id,
+        changes: { name, endpoint, timeout, retries, status, isActive, priority, weight }
+      },
+      metadata: {
+        adminId: req.admin.id,
+        adminUsername: req.admin.username
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Provider updated successfully',
+      data: provider
+    });
+  } catch (error) {
+    console.error('Error updating provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update provider'
+    });
+  }
+});
+
+// Test provider connection
+router.post('/providers/test/:id', adminAuth, async (req, res) => {
+  try {
+    const provider = await ApiProvider.findById(req.params.id);
+    
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    const startTime = Date.now();
+    let testResult = {
+      success: false,
+      message: '',
+      responseTime: 0,
+      details: {}
+    };
+
+    try {
+      if (provider.code === 'CLUBKONNECT') {
+        const response = await axios.post(
+          `${provider.endpoint}/APIWalletBalanceV1.asp`,
+          null,
+          {
+            params: {
+              UserID: provider.metadata.userId,
+              APIKey: provider.apiKey
+            },
+            timeout: provider.timeout
+          }
+        );
+
+        const responseTime = Date.now() - startTime;
+        
+        if (response.data) {
+          testResult = {
+            success: true,
+            message: 'Connection successful',
+            responseTime,
+            details: {
+              balance: parseFloat(response.data) || 0,
+              status: response.status
+            }
+          };
+
+          // Update provider metrics
+          await ApiProvider.findByIdAndUpdate(provider._id, {
+            'metrics.lastResponseTime': responseTime,
+            'metrics.successRate': Math.min((provider.metrics?.successRate || 0) + 5, 100),
+            'healthCheck.status': 'healthy',
+            'healthCheck.lastCheck': new Date()
+          });
+        }
+      } else if (provider.code === 'VTPASS') {
+        // VTPass test (adjust endpoint as needed)
+        const response = await axios.get(
+          `${provider.endpoint}/balance`,
+          {
+            headers: {
+              'Authorization': `Bearer ${provider.apiKey}`
+            },
+            timeout: provider.timeout
+          }
+        );
+
+        const responseTime = Date.now() - startTime;
+        
+        testResult = {
+          success: response.status === 200,
+          message: 'Connection successful',
+          responseTime,
+          details: {
+            status: response.status,
+            data: response.data
+          }
+        };
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      testResult = {
+        success: false,
+        message: error.response?.data?.message || error.message,
+        responseTime,
+        details: {
+          error: error.message,
+          code: error.code
+        }
+      };
+
+      // Update provider metrics
+      await ApiProvider.findByIdAndUpdate(provider._id, {
+        'metrics.failureCount': (provider.metrics?.failureCount || 0) + 1,
+        'healthCheck.status': 'unhealthy',
+        'healthCheck.lastCheck': new Date()
+      });
+
+      // Log error
+      await SystemLog.create({
+        level: 'error',
+        service: 'API Provider',
+        message: `Connection test failed for ${provider.name}`,
+        details: {
+          providerId: provider._id,
+          error: error.message,
+          responseTime
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: testResult
+    });
+  } catch (error) {
+    console.error('Error testing provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to test provider connection'
+    });
+  }
+});
+
+// ===========================================
+// 2. SYSTEM HEALTH MONITORING
+// ===========================================
+
+// Get current system health
+router.get('/health', adminAuth, async (req, res) => {
+  try {
+    const uptime = process.uptime();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
+    
+    const cpus = os.cpus();
+    let totalIdle = 0, totalTick = 0;
+    cpus.forEach(cpu => {
+      for (let type in cpu.times) {
+        totalTick += cpu.times[type];
+      }
+      totalIdle += cpu.times.idle;
+    });
+    const cpuUsage = 100 - (totalIdle / totalTick * 100);
+
+    // Calculate error rate from last hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentTransactions = await Transaction.countDocuments({
+      createdAt: { $gte: oneHourAgo }
+    });
+    const failedTransactions = await Transaction.countDocuments({
+      status: 'failed',
+      createdAt: { $gte: oneHourAgo }
+    });
+    const errorRate = recentTransactions > 0 
+      ? (failedTransactions / recentTransactions) * 100 
+      : 0;
+
+    // Get average API response time
+    const activeProviders = await ApiProvider.find({ isActive: true });
+    const avgResponseTime = activeProviders.length > 0
+      ? activeProviders.reduce((sum, p) => sum + (p.metrics?.lastResponseTime || 0), 0) / activeProviders.length
+      : 0;
+
+    // Determine status
+    let status = 'healthy';
+    if (errorRate > 10 || memoryUsage > 90 || cpuUsage > 90) {
+      status = 'unhealthy';
+    } else if (errorRate > 5 || memoryUsage > 75 || cpuUsage > 75) {
+      status = 'degraded';
+    }
+
+    const healthData = {
+      metrics: {
+        uptime: Math.floor(uptime),
+        cpuUsage: parseFloat(cpuUsage.toFixed(2)),
+        memoryUsage: parseFloat(memoryUsage.toFixed(2)),
+        diskUsage: 0,
+        activeConnections: 0,
+        errorRate: parseFloat(errorRate.toFixed(2)),
+        apiResponseTime: Math.floor(avgResponseTime),
+        lastChecked: new Date()
+      },
+      status,
+      checkedBy: req.admin.id
+    };
+
+    const health = await SystemHealth.create(healthData);
+
+    res.json({
+      success: true,
+      data: health
+    });
+  } catch (error) {
+    console.error('Error fetching system health:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch system health'
+    });
+  }
+});
+
+// ===========================================
+// 3. SYSTEM LOGS
+// ===========================================
+
+// Get system logs
+router.get('/logs', adminAuth, async (req, res) => {
+  try {
+    const { level, service, resolved, page = 1, limit = 50 } = req.query;
+    
+    const filter = {};
+    if (level) filter.level = level;
+    if (service) filter.service = service;
+    if (resolved !== undefined) filter.resolved = resolved === 'true';
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const logs = await SystemLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip)
+      .populate('resolvedBy', 'username email');
+
+    const total = await SystemLog.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page: parseInt(page),
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch system logs'
+    });
+  }
+});
+
+// Resolve log
+router.put('/logs/:id/resolve', adminAuth, async (req, res) => {
+  try {
+    const { resolution } = req.body;
+
+    const log = await SystemLog.findByIdAndUpdate(
+      req.params.id,
+      {
+        resolved: true,
+        resolvedBy: req.admin.id,
+        resolvedAt: new Date(),
+        resolution
+      },
+      { new: true }
+    ).populate('resolvedBy', 'username email');
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: 'Log not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Log marked as resolved',
+      data: log
+    });
+  } catch (error) {
+    console.error('Error resolving log:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resolve log'
+    });
+  }
+});
+
+// ===========================================
+// 4. MAINTENANCE MODE
+// ===========================================
+
+// Get maintenance mode
+router.get('/maintenance', adminAuth, async (req, res) => {
+  try {
+    const maintenance = await MaintenanceMode.getCurrent();
+    
+    res.json({
+      success: true,
+      data: maintenance
+    });
+  } catch (error) {
+    console.error('Error fetching maintenance mode:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch maintenance mode'
+    });
+  }
+});
+
+// Update maintenance mode
+router.put('/maintenance', adminAuth, async (req, res) => {
+  try {
+    const { enabled, message, scheduledStart, scheduledEnd, affectedServices } = req.body;
+
+    const maintenance = await MaintenanceMode.getCurrent();
+    
+    maintenance.enabled = enabled;
+    if (message) maintenance.message = message;
+    if (scheduledStart) maintenance.scheduledStart = scheduledStart;
+    if (scheduledEnd) maintenance.scheduledEnd = scheduledEnd;
+    if (affectedServices) maintenance.affectedServices = affectedServices;
+    
+    if (enabled) {
+      maintenance.enabledBy = req.admin.id;
+    } else {
+      maintenance.disabledBy = req.admin.id;
+    }
+
+    await maintenance.save();
+
+    // Log change
+    await SystemLog.create({
+      level: 'info',
+      service: 'System',
+      message: `Maintenance mode ${enabled ? 'enabled' : 'disabled'}`,
+      details: { message, scheduledStart, scheduledEnd, affectedServices },
+      metadata: { adminId: req.admin.id }
+    });
+
+    res.json({
+      success: true,
+      message: `Maintenance mode ${enabled ? 'enabled' : 'disabled'}`,
+      data: maintenance
+    });
+  } catch (error) {
+    console.error('Error updating maintenance mode:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update maintenance mode'
+    });
+  }
+});
+
+module.exports = router;
+Register the Route
+In your main app.js or server.js, add:
+javascriptconst systemManagementRoutes = require('./routes/admin/systemManagement');
+app.use('/api/admin/system', systemManagementRoutes);
+Now you have:
+
+✅ All 4 models created
+✅ Seed script ready
+✅ Backend API routes complete
+
+Next: Update your React frontend to call these real APIs instead of using mock data. Ready?RetryClaude does not have the ability to run the code it generates yet.MRi dont have admin file differntly eveythin is inside adminEditGot it - everything is in the single routes/admin.js file. Let me add the system management routes directly to your existing admin.js file.
+Add to your routes/admin.js
+Add these routes at the end of your existing admin.js file (before module.exports = router;):
+javascript// ==================== SYSTEM MANAGEMENT ENDPOINTS ====================
+
+const os = require('os');
+const ApiProvider = require('../models/ApiProvider');
+const SystemHealth = require('../models/SystemHealth');
+const SystemLog = require('../models/SystemLog');
+const MaintenanceMode = require('../models/MaintenanceMode');
+
+// ===========================================
+// API PROVIDERS
+// ===========================================
+
+// GET /api/admin/system/providers - Get all API providers
+router.get('/system/providers', adminAuth, async (req, res) => {
+  try {
+    const providers = await ApiProvider.find()
+      .select('-apiKey')
+      .sort({ priority: 1 });
+    
+    res.json({
+      success: true,
+      data: providers
+    });
+  } catch (error) {
+    console.error('Error fetching providers:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch API providers'
+    });
+  }
+});
+
+// GET /api/admin/system/providers/:id - Get provider with balance
+router.get('/system/providers/:id', adminAuth, async (req, res) => {
+  try {
+    const provider = await ApiProvider.findById(req.params.id);
+    
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    let balance = null;
+    
+    if (provider.code === 'CLUBKONNECT') {
+      try {
+        const balanceResponse = await axios.post(
+          `${provider.endpoint}/APIWalletBalanceV1.asp`,
+          null,
+          {
+            params: {
+              UserID: provider.metadata.userId,
+              APIKey: provider.apiKey
+            },
+            timeout: 10000
+          }
+        );
+
+        if (balanceResponse.data) {
+          balance = parseFloat(balanceResponse.data) || 0;
+        }
+      } catch (balanceError) {
+        console.error('Balance fetch error:', balanceError.message);
+        
+        await SystemLog.create({
+          level: 'error',
+          service: 'ClubKonnect',
+          message: 'Failed to fetch balance',
+          details: {
+            error: balanceError.message,
+            provider: provider.code
+          }
+        });
+      }
+    }
+
+    const providerData = provider.toObject();
+    delete providerData.apiKey;
+
+    res.json({
+      success: true,
+      data: {
+        ...providerData,
+        currentBalance: balance
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch provider details'
+    });
+  }
+});
+
+// PUT /api/admin/system/providers/:id - Update provider
+router.put('/system/providers/:id', adminAuth, async (req, res) => {
+  try {
+    const { name, endpoint, timeout, retries, status, isActive, priority, weight } = req.body;
+
+    const provider = await ApiProvider.findByIdAndUpdate(
+      req.params.id,
+      {
+        name,
+        endpoint,
+        timeout,
+        retries,
+        status,
+        isActive,
+        priority,
+        weight,
+        updatedAt: new Date()
+      },
+      { new: true, runValidators: true }
+    ).select('-apiKey');
+
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    await SystemLog.create({
+      level: 'info',
+      service: 'API Provider',
+      message: `Provider ${provider.name} configuration updated`,
+      details: {
+        providerId: provider._id,
+        changes: { name, endpoint, timeout, retries, status, isActive, priority, weight }
+      },
+      metadata: {
+        adminId: req.admin.id
+      }
+    });
+
+    res.json({
+      success: true,
+      message: 'Provider updated successfully',
+      data: provider
+    });
+  } catch (error) {
+    console.error('Error updating provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update provider'
+    });
+  }
+});
+
+// POST /api/admin/system/providers/test/:id - Test provider connection
+router.post('/system/providers/test/:id', adminAuth, async (req, res) => {
+  try {
+    const provider = await ApiProvider.findById(req.params.id);
+    
+    if (!provider) {
+      return res.status(404).json({
+        success: false,
+        message: 'Provider not found'
+      });
+    }
+
+    const startTime = Date.now();
+    let testResult = {
+      success: false,
+      message: '',
+      responseTime: 0,
+      details: {}
+    };
+
+    try {
+      if (provider.code === 'CLUBKONNECT') {
+        const response = await axios.post(
+          `${provider.endpoint}/APIWalletBalanceV1.asp`,
+          null,
+          {
+            params: {
+              UserID: provider.metadata.userId,
+              APIKey: provider.apiKey
+            },
+            timeout: provider.timeout
+          }
+        );
+
+        const responseTime = Date.now() - startTime;
+        
+        if (response.data) {
+          testResult = {
+            success: true,
+            message: 'Connection successful',
+            responseTime,
+            details: {
+              balance: parseFloat(response.data) || 0,
+              status: response.status
+            }
+          };
+
+          await ApiProvider.findByIdAndUpdate(provider._id, {
+            'metrics.lastResponseTime': responseTime,
+            'metrics.successRate': Math.min((provider.metrics?.successRate || 0) + 5, 100),
+            'healthCheck.status': 'healthy',
+            'healthCheck.lastCheck': new Date()
+          });
+        }
+      } else if (provider.code === 'VTPASS') {
+        const response = await axios.get(
+          `${provider.endpoint}/balance`,
+          {
+            headers: {
+              'Authorization': `Bearer ${provider.apiKey}`
+            },
+            timeout: provider.timeout
+          }
+        );
+
+        const responseTime = Date.now() - startTime;
+        
+        testResult = {
+          success: response.status === 200,
+          message: 'Connection successful',
+          responseTime,
+          details: {
+            status: response.status
+          }
+        };
+      }
+    } catch (error) {
+      const responseTime = Date.now() - startTime;
+      testResult = {
+        success: false,
+        message: error.response?.data?.message || error.message,
+        responseTime,
+        details: {
+          error: error.message,
+          code: error.code
+        }
+      };
+
+      await ApiProvider.findByIdAndUpdate(provider._id, {
+        'metrics.failureCount': (provider.metrics?.failureCount || 0) + 1,
+        'healthCheck.status': 'unhealthy',
+        'healthCheck.lastCheck': new Date()
+      });
+
+      await SystemLog.create({
+        level: 'error',
+        service: 'API Provider',
+        message: `Connection test failed for ${provider.name}`,
+        details: {
+          providerId: provider._id,
+          error: error.message,
+          responseTime
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: testResult
+    });
+  } catch (error) {
+    console.error('Error testing provider:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to test provider connection'
+    });
+  }
+});
+
+// ===========================================
+// SYSTEM HEALTH
+// ===========================================
+
+// GET /api/admin/system/health - Get system health
+router.get('/system/health', adminAuth, async (req, res) => {
+  try {
+    const uptime = process.uptime();
+    const totalMem = os.totalmem();
+    const freeMem = os.freemem();
+    const memoryUsage = ((totalMem - freeMem) / totalMem) * 100;
+    
+    const cpus = os.cpus();
+    let totalIdle = 0, totalTick = 0;
+    cpus.forEach(cpu => {
+      for (let type in cpu.times) {
+        totalTick += cpu.times[type];
+      }
+      totalIdle += cpu.times.idle;
+    });
+    const cpuUsage = 100 - (totalIdle / totalTick * 100);
+
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const recentTransactions = await Transaction.countDocuments({
+      createdAt: { $gte: oneHourAgo }
+    });
+    const failedTransactions = await Transaction.countDocuments({
+      status: 'failed',
+      createdAt: { $gte: oneHourAgo }
+    });
+    const errorRate = recentTransactions > 0 
+      ? (failedTransactions / recentTransactions) * 100 
+      : 0;
+
+    const activeProviders = await ApiProvider.find({ isActive: true });
+    const avgResponseTime = activeProviders.length > 0
+      ? activeProviders.reduce((sum, p) => sum + (p.metrics?.lastResponseTime || 0), 0) / activeProviders.length
+      : 0;
+
+    let status = 'healthy';
+    if (errorRate > 10 || memoryUsage > 90 || cpuUsage > 90) {
+      status = 'unhealthy';
+    } else if (errorRate > 5 || memoryUsage > 75 || cpuUsage > 75) {
+      status = 'degraded';
+    }
+
+    const healthData = {
+      metrics: {
+        uptime: Math.floor(uptime),
+        cpuUsage: parseFloat(cpuUsage.toFixed(2)),
+        memoryUsage: parseFloat(memoryUsage.toFixed(2)),
+        diskUsage: 0,
+        activeConnections: 0,
+        errorRate: parseFloat(errorRate.toFixed(2)),
+        apiResponseTime: Math.floor(avgResponseTime),
+        lastChecked: new Date()
+      },
+      status,
+      checkedBy: req.admin.id
+    };
+
+    const health = await SystemHealth.create(healthData);
+
+    res.json({
+      success: true,
+      data: health
+    });
+  } catch (error) {
+    console.error('Error fetching system health:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch system health'
+    });
+  }
+});
+
+// ===========================================
+// SYSTEM LOGS
+// ===========================================
+
+// GET /api/admin/system/logs - Get logs
+router.get('/system/logs', adminAuth, async (req, res) => {
+  try {
+    const { level, service, resolved, page = 1, limit = 50 } = req.query;
+    
+    const filter = {};
+    if (level) filter.level = level;
+    if (service) filter.service = service;
+    if (resolved !== undefined) filter.resolved = resolved === 'true';
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const logs = await SystemLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip)
+      .populate('resolvedBy', 'username email');
+
+    const total = await SystemLog.countDocuments(filter);
+
+    res.json({
+      success: true,
+      data: {
+        logs,
+        pagination: {
+          total,
+          page: parseInt(page),
+          pages: Math.ceil(total / parseInt(limit))
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch system logs'
+    });
+  }
+});
+
+// PUT /api/admin/system/logs/:id/resolve - Resolve log
+router.put('/system/logs/:id/resolve', adminAuth, async (req, res) => {
+  try {
+    const { resolution } = req.body;
+
+    const log = await SystemLog.findByIdAndUpdate(
+      req.params.id,
+      {
+        resolved: true,
+        resolvedBy: req.admin.id,
+        resolvedAt: new Date(),
+        resolution
+      },
+      { new: true }
+    ).populate('resolvedBy', 'username email');
+
+    if (!log) {
+      return res.status(404).json({
+        success: false,
+        message: 'Log not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Log marked as resolved',
+      data: log
+    });
+  } catch (error) {
+    console.error('Error resolving log:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to resolve log'
+    });
+  }
+});
+
+// ===========================================
+// MAINTENANCE MODE
+// ===========================================
+
+// GET /api/admin/system/maintenance - Get maintenance mode
+router.get('/system/maintenance', adminAuth, async (req, res) => {
+  try {
+    const maintenance = await MaintenanceMode.getCurrent();
+    
+    res.json({
+      success: true,
+      data: maintenance
+    });
+  } catch (error) {
+    console.error('Error fetching maintenance mode:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch maintenance mode'
+    });
+  }
+});
+
+// PUT /api/admin/system/maintenance - Update maintenance mode
+router.put('/system/maintenance', adminAuth, async (req, res) => {
+  try {
+    const { enabled, message, scheduledStart, scheduledEnd, affectedServices } = req.body;
+
+    const maintenance = await MaintenanceMode.getCurrent();
+    
+    maintenance.enabled = enabled;
+    if (message) maintenance.message = message;
+    if (scheduledStart) maintenance.scheduledStart = scheduledStart;
+    if (scheduledEnd) maintenance.scheduledEnd = scheduledEnd;
+    if (affectedServices) maintenance.affectedServices = affectedServices;
+    
+    if (enabled) {
+      maintenance.enabledBy = req.admin.id;
+    } else {
+      maintenance.disabledBy = req.admin.id;
+    }
+
+    await maintenance.save();
+
+    await SystemLog.create({
+      level: 'info',
+      service: 'System',
+      message: `Maintenance mode ${enabled ? 'enabled' : 'disabled'}`,
+      details: { message, scheduledStart, scheduledEnd, affectedServices },
+      metadata: { adminId: req.admin.id }
+    });
+
+    res.json({
+      success: true,
+      message: `Maintenance mode ${enabled ? 'enabled' : 'disabled'}`,
+      data: maintenance
+    });
+  } catch (error) {
+    console.error('Error updating maintenance mode:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update maintenance mode'
+    });
+  }
+});
 module.exports = router;

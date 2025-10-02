@@ -40,10 +40,10 @@ const SupportTicketDetail = ({ ticketId: propTicketId, onBack }) => {
     let apiUrl;
     if (isReactNativeWebView) {
       // WebView - use your computer's IP address
-      apiUrl = 'http://192.168.126.7:5000';
+      apiUrl = 'https://vtu-application.onrender.com';
     } else if (isDevelopment) {
       // Web development - use localhost
-      apiUrl = 'http://192.168.126.7:5000';
+      apiUrl = 'https://vtu-application.onrender.com';
     } else {
       // Production - use your production API
       apiUrl = 'https://your-production-api.com';

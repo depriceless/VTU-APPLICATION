@@ -33,7 +33,7 @@ const NotificationManagement = () => {
   };
 
   // API Base URL - update this to match your server
-  const API_BASE_URL = 'http://192.168.126.7:5000';
+  const API_BASE_URL = 'https://vtu-application.onrender.com';
 
   // Fetch notifications from API
   const fetchNotifications = async () => {
