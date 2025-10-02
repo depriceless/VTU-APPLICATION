@@ -572,4 +572,16 @@ router.post('/transaction/cancel', authenticate, async (req, res) => {
   }
 });
 
+// Debug endpoint - NO AUTHENTICATION
+router.get('/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'ClubKonnect routes are working!',
+    config: {
+      userId: CK_CONFIG.userId ? 'Set' : 'Not set',
+      apiKey: CK_CONFIG.apiKey ? 'Set' : 'Not set',
+      baseUrl: CK_CONFIG.baseUrl
+    }
+  });
+});
 module.exports = router;
