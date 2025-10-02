@@ -545,6 +545,17 @@ try {
   console.error('❌ Support routes error:', err.message);
 }
 
+try {
+  console.log('🔍 Attempting to load ClubKonnect routes...');
+  const clubkonnectRoutes = require('./routes/clubkonnect');
+  app.use('/api/clubkonnect', clubkonnectRoutes);
+  console.log('✅ ClubKonnect VTU routes registered');
+} catch (err) {
+  console.error('❌ ClubKonnect routes error:', err.message);
+  console.error('❌ Full error:', err);
+  console.error('❌ Stack:', err.stack);
+}
+
 if (userManagementRoutes) {
   try {
     app.use('/api/users', userManagementRoutes);
