@@ -719,6 +719,292 @@ async function processPrintRechargePurchase({ network, value, quantity, amount, 
   }
 }
 
+async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
+  const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    console.log('=== CABLE TV PURCHASE START ===');
+    
+    // Validate required fields
+    if (!operator || !packageId || !smartCardNumber || !phone) {
+      throw new Error('Missing required fields: operator, packageId, smartCardNumber, or phone');
+    }
+
+    // Validate phone number format
+    if (!/^0[789][01]\d{8}$/.test(phone)) {
+      throw new Error('Invalid phone number format. Must be 11 digits starting with 070, 080, 081, or 090');
+    }
+
+    // Validate smart card number (basic check)
+    if (smartCardNumber.length < 10 || !/^\d+$/.test(smartCardNumber)) {
+      throw new Error('Invalid smart card number. Must be at least 10 digits');
+    }
+
+    // Map frontend operator names to ClubKonnect codes
+    const operatorMapping = {
+      'dstv': 'dstv',
+      'gotv': 'gotv',
+      'startime': 'startimes',
+      'startimes': 'startimes'
+    };
+
+    const ckOperator = operatorMapping[operator.toLowerCase()];
+    if (!ckOperator) {
+      throw new Error(`Unsupported cable operator: ${operator}`);
+    }
+
+    console.log('Cable TV Purchase Request:', {
+      operator: ckOperator,
+      packageId,
+      smartCardNumber: smartCardNumber.slice(0, 4) + '***' + smartCardNumber.slice(-2),
+      phone,
+      amount,
+      requestId
+    });
+
+    // Make ClubKonnect API request
+    const response = await makeClubKonnectRequest('/APICableTVV1.asp', {
+      CableTV: ckOperator,
+      Package: packageId,
+      SmartCardNo: smartCardNumber,
+      PhoneNo: phone,
+      RequestID: requestId
+    });
+
+    console.log('Cable TV Purchase Response:', response);
+
+    // Handle various response statuses
+    const statusCode = response.statuscode || response.status_code;
+    const status = response.status || response.orderstatus;
+    const remark = response.remark || response.message;
+
+    // Success cases
+    if (statusCode === '100' || statusCode === '200' || 
+        status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
+      
+      console.log('Cable TV purchase successful');
+      
+      return {
+        success: true,
+        reference: response.orderid || requestId,
+        description: `Cable TV - ${operator.toUpperCase()} - ${smartCardNumber}`,
+        successMessage: remark || 'Cable TV subscription successful',
+        transactionData: {
+          operator: operator.toUpperCase(),
+          packageId,
+          smartCardNumber,
+          phone,
+          serviceType: 'cable_tv',
+          orderid: response.orderid,
+          statuscode: statusCode,
+          status: status,
+          requestId: requestId,
+          apiResponse: response
+        }
+      };
+    }
+
+    // Handle specific error cases
+    if (status === 'INVALID_SMARTCARDNO' || remark?.includes('INVALID_SMARTCARDNO')) {
+      throw new Error('Invalid smart card number for this operator');
+    }
+
+    if (status === 'INVALID_CREDENTIALS' || remark?.includes('INVALID_CREDENTIALS')) {
+      console.error('ClubKonnect credentials error');
+      throw new Error('Service configuration error. Please contact support.');
+    }
+
+    if (status === 'PACKAGE_NOT_AVAILABLE' || remark?.includes('PACKAGE_NOT_AVAILABLE')) {
+      throw new Error('Selected package is currently unavailable. Please try another package.');
+    }
+
+    if (status === 'INSUFFICIENT_BALANCE' || remark?.includes('INSUFFICIENT')) {
+      throw new Error('Insufficient balance in service provider account. Please contact support.');
+    }
+
+    if (status === 'ORDER_FAILED' || remark?.includes('FAILED')) {
+      throw new Error(remark || 'Transaction failed. Please try again.');
+    }
+
+    // Generic failure
+    throw new Error(remark || status || 'Cable TV purchase failed');
+
+  } catch (error) {
+    console.error('Cable TV Purchase Error:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Create user-friendly error message
+    let userMessage = error.message;
+    
+    // Handle network errors
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      userMessage = 'Request timed out. Please check your internet connection and try again.';
+    } else if (error.code === 'ENOTFOUND' || error.message.includes('Network')) {
+      userMessage = 'Network error. Please check your internet connection.';
+    }
+    
+    return {
+      success: false,
+      reference: requestId,
+      errorMessage: userMessage,
+      transactionData: {
+        operator: operator?.toUpperCase(),
+        packageId,
+        smartCardNumber,
+        phone,
+        serviceType: 'cable_tv',
+        requestId: requestId,
+        error: error.message
+      }
+    };
+  } finally {
+    console.log('=== CABLE TV PURCHASE END ===');
+  }
+}// Update the processCableTVPurchase function in purchase.js
+// Replace the existing function with this improved version:
+
+async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
+  const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
+  try {
+    console.log('=== CABLE TV PURCHASE START ===');
+    
+    // Validate required fields
+    if (!operator || !packageId || !smartCardNumber || !phone) {
+      throw new Error('Missing required fields: operator, packageId, smartCardNumber, or phone');
+    }
+
+    // Validate phone number format
+    if (!/^0[789][01]\d{8}$/.test(phone)) {
+      throw new Error('Invalid phone number format. Must be 11 digits starting with 070, 080, 081, or 090');
+    }
+
+    // Validate smart card number (basic check)
+    if (smartCardNumber.length < 10 || !/^\d+$/.test(smartCardNumber)) {
+      throw new Error('Invalid smart card number. Must be at least 10 digits');
+    }
+
+    // Map frontend operator names to ClubKonnect codes
+    const operatorMapping = {
+      'dstv': 'dstv',
+      'gotv': 'gotv',
+      'startime': 'startimes',
+      'startimes': 'startimes'
+    };
+
+    const ckOperator = operatorMapping[operator.toLowerCase()];
+    if (!ckOperator) {
+      throw new Error(`Unsupported cable operator: ${operator}`);
+    }
+
+    console.log('Cable TV Purchase Request:', {
+      operator: ckOperator,
+      packageId,
+      smartCardNumber: smartCardNumber.slice(0, 4) + '***' + smartCardNumber.slice(-2),
+      phone,
+      amount,
+      requestId
+    });
+
+    // Make ClubKonnect API request
+    const response = await makeClubKonnectRequest('/APICableTVV1.asp', {
+      CableTV: ckOperator,
+      Package: packageId,
+      SmartCardNo: smartCardNumber,
+      PhoneNo: phone,
+      RequestID: requestId
+    });
+
+    console.log('Cable TV Purchase Response:', response);
+
+    // Handle various response statuses
+    const statusCode = response.statuscode || response.status_code;
+    const status = response.status || response.orderstatus;
+    const remark = response.remark || response.message;
+
+    // Success cases
+    if (statusCode === '100' || statusCode === '200' || 
+        status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
+      
+      console.log('Cable TV purchase successful');
+      
+      return {
+        success: true,
+        reference: response.orderid || requestId,
+        description: `Cable TV - ${operator.toUpperCase()} - ${smartCardNumber}`,
+        successMessage: remark || 'Cable TV subscription successful',
+        transactionData: {
+          operator: operator.toUpperCase(),
+          packageId,
+          smartCardNumber,
+          phone,
+          serviceType: 'cable_tv',
+          orderid: response.orderid,
+          statuscode: statusCode,
+          status: status,
+          requestId: requestId,
+          apiResponse: response
+        }
+      };
+    }
+
+    // Handle specific error cases
+    if (status === 'INVALID_SMARTCARDNO' || remark?.includes('INVALID_SMARTCARDNO')) {
+      throw new Error('Invalid smart card number for this operator');
+    }
+
+    if (status === 'INVALID_CREDENTIALS' || remark?.includes('INVALID_CREDENTIALS')) {
+      console.error('ClubKonnect credentials error');
+      throw new Error('Service configuration error. Please contact support.');
+    }
+
+    if (status === 'PACKAGE_NOT_AVAILABLE' || remark?.includes('PACKAGE_NOT_AVAILABLE')) {
+      throw new Error('Selected package is currently unavailable. Please try another package.');
+    }
+
+    if (status === 'INSUFFICIENT_BALANCE' || remark?.includes('INSUFFICIENT')) {
+      throw new Error('Insufficient balance in service provider account. Please contact support.');
+    }
+
+    if (status === 'ORDER_FAILED' || remark?.includes('FAILED')) {
+      throw new Error(remark || 'Transaction failed. Please try again.');
+    }
+
+    // Generic failure
+    throw new Error(remark || status || 'Cable TV purchase failed');
+
+  } catch (error) {
+    console.error('Cable TV Purchase Error:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Create user-friendly error message
+    let userMessage = error.message;
+    
+    // Handle network errors
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      userMessage = 'Request timed out. Please check your internet connection and try again.';
+    } else if (error.code === 'ENOTFOUND' || error.message.includes('Network')) {
+      userMessage = 'Network error. Please check your internet connection.';
+    }
+    
+    return {
+      success: false,
+      reference: requestId,
+      errorMessage: userMessage,
+      transactionData: {
+        operator: operator?.toUpperCase(),
+        packageId,
+        smartCardNumber,
+        phone,
+        serviceType: 'cable_tv',
+        requestId: requestId,
+        error: error.message
+      }
+    };
+  } finally {
+    console.log('=== CABLE TV PURCHASE END ===');
+  }
+}
 // ========== DEBUGGING & TESTING ENDPOINTS ==========
 
 // Test ClubKonnect connection

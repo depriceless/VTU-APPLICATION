@@ -98,25 +98,30 @@ export default function BuyCableTV() {
       id: 'dstv', 
       label: 'DStv', 
       logo: require('../assets/images/DStv.png'),
-      color: '#0066cc'
+      color: '#0066cc',
+      disabled: false
     },
     { 
       id: 'gotv', 
       label: 'GOtv', 
       logo: require('../assets/images/gotv.jpg'),
-      color: '#00b04f'
+      color: '#00b04f',
+      disabled: false
     },
     { 
       id: 'startime', 
       label: 'StarTimes', 
       logo: require('../assets/images/startime.png'),
-      color: '#ff6b35'
+      color: '#ff6b35',
+      disabled: false
     },
     { 
       id: 'showmax', 
       label: 'Showmax', 
       logo: require('../assets/images/showmax.png'),
-      color: '#e50914'
+      color: '#e50914',
+      disabled: true,
+      comingSoon: true
     },
   ];
 
@@ -124,7 +129,17 @@ export default function BuyCableTV() {
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const isSmartCardValid = smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber);
   const hasEnoughBalance = userBalance && selectedPackage ? selectedPackage.amount <= userBalance.total : true;
-  const canProceed = isPhoneValid && selectedOperator && selectedPackage && isSmartCardValid && hasEnoughBalance && customerName.trim() !== '';
+  
+const canProceed = 
+  isPhoneValid && 
+  selectedOperator && 
+  selectedPackage && 
+  selectedPackage.amount > 0 &&  // Add this check
+  selectedPackage.amount >= 500 && // Add this check
+  selectedPackage.amount <= 50000 && // Add this check
+  isSmartCardValid && 
+  hasEnoughBalance && 
+  customerName.trim() !== '';
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
   // Load packages when operator changes
@@ -417,44 +432,74 @@ export default function BuyCableTV() {
   // ========== CABLE TV SPECIFIC FUNCTIONS ==========
   
   const fetchCablePackages = async (operator: string) => {
-    setIsLoadingPackages(true);
-    setCablePackages([]);
-    setSelectedPackage(null);
-    
-    try {
-      console.log(`Fetching cable packages for: ${operator}`);
-      const response = await makeApiRequest(`/cable/packages/${operator}`);
+  setIsLoadingPackages(true);
+  setCablePackages([]);
+  setSelectedPackage(null);
+  
+  try {
+    console.log(`Fetching cable packages for: ${operator}`);
+    const response = await makeApiRequest(`/cable/packages/${operator}`);
 
-      if (response.success && response.data) {
-        const packages = response.data.map(pkg => ({
+    if (response.success && response.data) {
+      // Filter and validate packages
+      const validPackages = response.data
+        .map(pkg => ({
           id: pkg.variation_id || pkg.id,
           name: pkg.name || pkg.package_name,
           amount: parseFloat(pkg.amount || pkg.price),
           duration: pkg.duration || '30 days',
           operator: operator,
           description: pkg.description || pkg.details
-        }));
+        }))
+        // Filter out packages with invalid amounts
+        .filter(pkg => {
+          if (!pkg.amount || pkg.amount <= 0) {
+            console.warn(`Skipping package with invalid amount:`, pkg.name, pkg.amount);
+            return false;
+          }
+          if (pkg.amount < 500 || pkg.amount > 50000) {
+            console.warn(`Skipping package outside allowed range:`, pkg.name, pkg.amount);
+            return false;
+          }
+          return true;
+        })
+        // Sort by amount (lowest to highest)
+        .sort((a, b) => a.amount - b.amount);
 
-        setCablePackages(packages);
-        console.log(`Loaded ${packages.length} packages for ${operator}`);
-      } else {
-        throw new Error(response.message || 'Failed to fetch cable packages');
+      if (validPackages.length === 0) {
+        throw new Error('No valid packages available for this operator');
       }
-    } catch (error) {
-      console.error('Error fetching cable packages:', error);
-      setCablePackages([]);
+
+      setCablePackages(validPackages);
+      console.log(`Loaded ${validPackages.length} valid packages for ${operator}`);
       
-      if (error.message.includes('login again')) {
-        Alert.alert('Session Expired', 'Please login again to continue.');
-      } else if (error.message.includes('Network')) {
-        Alert.alert('Network Error', 'Please check your connection and try again.');
-      } else {
-        Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages. Please try again.`);
+      // Log sample for debugging
+      if (validPackages.length > 0) {
+        console.log('Sample package:', validPackages[0]);
       }
-    } finally {
-      setIsLoadingPackages(false);
+    } else {
+      throw new Error(response.message || 'Failed to fetch cable packages');
     }
-  };
+  } catch (error) {
+    console.error('Error fetching cable packages:', error);
+    setCablePackages([]);
+    
+    if (error.message.includes('login again')) {
+      Alert.alert('Session Expired', 'Please login again to continue.');
+    } else if (error.message.includes('Network')) {
+      Alert.alert('Network Error', 'Please check your connection and try again.');
+    } else if (error.message.includes('No valid packages')) {
+      Alert.alert(
+        'No Packages Available', 
+        `Unable to load packages for ${operator.toUpperCase()}. This may be temporary. Please try again later.`
+      );
+    } else {
+      Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages. Please try again.`);
+    }
+  } finally {
+    setIsLoadingPackages(false);
+  }
+};
 
   // Smart Card Validation
   const validateSmartCard = async () => {
@@ -761,7 +806,7 @@ export default function BuyCableTV() {
             </View>
           </View>
 
-          {/* Operator Selection */}
+           {/* Operator Selection */}
           <View style={styles.section}>
             <Text style={styles.label}>Select Operator</Text>
             <View style={styles.operatorGrid}>
@@ -771,11 +816,30 @@ export default function BuyCableTV() {
                   style={[
                     styles.operatorCard,
                     selectedOperator === operator.id && styles.operatorSelected,
+                    operator.disabled && styles.operatorDisabled,
                   ]}
-                  onPress={() => setSelectedOperator(operator.id)}
+                  onPress={() => {
+                    if (!operator.disabled) {
+                      setSelectedOperator(operator.id);
+                    }
+                  }}
+                  disabled={operator.disabled}
                 >
-                  <Image source={operator.logo} style={styles.operatorLogo} />
-                  <Text style={styles.operatorLabel}>{operator.label}</Text>
+                  <Image source={operator.logo} style={[
+                    styles.operatorLogo,
+                    operator.disabled && styles.operatorLogoDisabled
+                  ]} />
+                  <Text style={[
+                    styles.operatorLabel,
+                    operator.disabled && styles.operatorLabelDisabled
+                  ]}>
+                    {operator.label}
+                  </Text>
+                  {operator.comingSoon && (
+                    <View style={styles.comingSoonBadge}>
+                      <Text style={styles.comingSoonText}>Soon</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
@@ -873,6 +937,27 @@ export default function BuyCableTV() {
               <View style={styles.amountDisplay}>
                 <Text style={styles.amountText}>₦{selectedPackage.amount.toLocaleString()}</Text>
                 <Text style={styles.amountLabel}>Package Price</Text>
+              </View>
+            </View>
+          )}
+
+           {/* Package Validation Warning */}
+          {selectedPackage && selectedPackage.amount > 0 && selectedPackage.amount < 500 && (
+            <View style={styles.section}>
+              <View style={styles.warningBox}>
+                <Text style={styles.warningText}>
+                  ⚠️ Package amount is below minimum (₦500). Please select another package.
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {selectedPackage && selectedPackage.amount > 50000 && (
+            <View style={styles.section}>
+              <View style={styles.warningBox}>
+                <Text style={styles.warningText}>
+                  ⚠️ Package amount exceeds maximum (₦50,000). Please contact support.
+                </Text>
               </View>
             </View>
           )}
@@ -1973,4 +2058,46 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     color: '#666',
   },
+
+  operatorDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#f5f5f5',
+  },
+  operatorLogoDisabled: {
+    opacity: 0.4,
+  },
+  operatorLabelDisabled: {
+    color: '#999',
+  },
+  comingSoonBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#ff9500',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  comingSoonText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+  },
+
+   warningBox: {
+    backgroundColor: '#fff3cd',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff9500',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  warningText: {
+    color: '#856404',
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+
 });
