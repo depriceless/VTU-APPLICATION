@@ -1,4 +1,4 @@
-// routes/purchase.js - INTEGRATED WITH CLUBKONNECT API
+// routes/purchase.js - CORRECTED CLUBKONNECT INTEGRATION
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -16,7 +16,15 @@ const CK_CONFIG = {
   baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
 };
 
-// Helper function to make ClubKonnect API requests
+// Network code mapping for ClubKonnect
+const NETWORK_CODES = {
+  'MTN': '01',
+  'GLO': '02',
+  'AIRTEL': '04',
+  '9MOBILE': '03'
+};
+
+// Helper function to make ClubKonnect API requests with proper error handling
 const makeClubKonnectRequest = async (endpoint, params) => {
   try {
     const queryParams = new URLSearchParams({
@@ -26,9 +34,57 @@ const makeClubKonnectRequest = async (endpoint, params) => {
     });
     
     const url = `${CK_CONFIG.baseUrl}${endpoint}?${queryParams}`;
-    const response = await axios.get(url);
-    return response.data;
+    console.log('ClubKonnect Request URL:', url.replace(CK_CONFIG.apiKey, '***'));
+    
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('ClubKonnect Raw Response:', response.data);
+    
+    let data = response.data;
+    
+    // Handle string responses that need parsing
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        throw new Error(`Invalid response format: ${data}`);
+      }
+    }
+    
+    // Check for error status responses
+    if (data.status) {
+      const errorStatuses = [
+        'INVALID_CREDENTIALS',
+        'MISSING_CREDENTIALS',
+        'MISSING_USERID',
+        'MISSING_APIKEY',
+        'MISSING_MOBILENETWORK',
+        'MISSING_AMOUNT',
+        'INVALID_AMOUNT',
+        'MINIMUM_50',
+        'MINIMUM_200000',
+        'INVALID_RECIPIENT',
+        'ORDER_FAILED'
+      ];
+      
+      if (errorStatuses.includes(data.status)) {
+        throw new Error(data.status.replace(/_/g, ' ').toLowerCase());
+      }
+    }
+    
+    return data;
   } catch (error) {
+    console.error('ClubKonnect API Error:', error.message);
+    if (error.response) {
+      console.error('Response data:', error.response.data);
+      console.error('Response status:', error.response.status);
+    }
     throw new Error(error.response?.data?.message || error.message);
   }
 };
@@ -160,13 +216,8 @@ router.get('/pin-status', authenticate, async (req, res) => {
 
 // POST /api/purchase - Main purchase endpoint
 router.post('/', authenticate, async (req, res) => {
-  console.log('🎯 PURCHASE ENDPOINT HIT!');
+  console.log('PURCHASE ENDPOINT HIT');
   console.log('Request body:', req.body);
-  console.log('ClubKonnect Config:', {
-    userId: CK_CONFIG.userId ? 'SET' : 'NOT SET',
-    apiKey: CK_CONFIG.apiKey ? 'SET' : 'NOT SET',
-    baseUrl: CK_CONFIG.baseUrl
-  });
   
   try {
     const { type, amount, pin, ...serviceData } = req.body;
@@ -179,23 +230,18 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     if (!/^\d{4}$/.test(pin)) {
-      console.log('❌ PIN validation failed - not 4 digits');
       return res.status(400).json({ success: false, message: 'PIN must be exactly 4 digits' });
     }
-    console.log('✅ PIN format validated');
 
     // Validate service availability
-    console.log(`🔍 Validating service availability for: ${type}`);
     const serviceValidation = await validateServiceAvailability(type);
     if (!serviceValidation.available) {
-      console.log(`❌ Service ${type} not available:`, serviceValidation.reason);
       return res.status(400).json({ success: false, message: serviceValidation.reason });
     }
-    console.log(`✅ Service ${type} is available`);
 
     // Amount limits
     const amountLimits = {
-      airtime: { min: 50, max: 500000 },
+      airtime: { min: 50, max: 200000 },
       data: { min: 50, max: 500000 },
       electricity: { min: 100, max: 100000 },
       education: { min: 500, max: 1000000 },
@@ -208,52 +254,40 @@ router.post('/', authenticate, async (req, res) => {
 
     const limits = amountLimits[type];
     if (amount < limits.min || amount > limits.max) {
-      console.log(`❌ Amount validation failed. Amount: ${amount}, Min: ${limits.min}, Max: ${limits.max}`);
       return res.status(400).json({
         success: false,
         message: `Amount must be between ₦${limits.min.toLocaleString()} and ₦${limits.max.toLocaleString()}`
       });
     }
-    console.log(`✅ Amount validated: ₦${amount}`);
 
-    console.log('🔍 Fetching user and wallet...');
     const user = await User.findById(req.user.userId).select('+pin');
     const wallet = await Wallet.findOne({ userId: req.user.userId });
 
     if (!user || !wallet) {
-      console.log('❌ User or wallet not found');
       return res.status(404).json({ success: false, message: 'User or wallet not found' });
     }
-    console.log(`✅ User found: ${user.email}, Wallet balance: ₦${wallet.balance}`);
 
     if (!user.pin || !user.isPinSetup) {
-      console.log('❌ PIN not set up for user');
       return res.status(400).json({
         success: false,
         message: 'Transaction PIN not set. Please set up your PIN first.'
       });
     }
-    console.log('✅ User has PIN set up');
 
     // Check account lock
-    console.log('🔍 Checking account lock status...');
     const attemptData = getPinAttemptData(req.user.userId);
     const now = new Date();
 
     if (attemptData.lockedUntil && now < attemptData.lockedUntil) {
       const remainingMinutes = Math.ceil((attemptData.lockedUntil - now) / (1000 * 60));
-      console.log(`❌ Account is locked for ${remainingMinutes} minutes`);
       return res.status(423).json({
         success: false,
         message: `Account locked. Try again in ${remainingMinutes} minutes.`
       });
     }
-    console.log('✅ Account not locked');
 
     // Validate PIN
-    console.log('🔍 Validating PIN...');
     const isPinValid = await user.comparePin(pin);
-    console.log(`PIN validation result: ${isPinValid ? 'VALID' : 'INVALID'}`);
 
     if (!isPinValid) {
       attemptData.attempts += 1;
@@ -274,22 +308,19 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     // Check balance
-    console.log(`🔍 Checking balance. Required: ₦${amount}, Available: ₦${wallet.balance}`);
     if (wallet.balance < amount) {
-      console.log('❌ Insufficient balance');
       return res.status(400).json({
         success: false,
         message: `Insufficient balance. Available: ₦${wallet.balance.toLocaleString()}`
       });
     }
-    console.log('✅ Sufficient balance available');
 
     resetPinAttempts(req.user.userId);
-    console.log('✅ PIN attempts reset');
 
     // Process purchase based on type using ClubKonnect API
-    console.log(`🚀 Processing ${type} purchase via ClubKonnect...`);
+    console.log(`Processing ${type} purchase via ClubKonnect...`);
     let purchaseResult;
+    
     switch (type) {
       case 'airtime':
         purchaseResult = await processAirtimePurchase({ ...serviceData, amount, userId: req.user.userId });
@@ -320,10 +351,8 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     if (purchaseResult.success) {
-      console.log('✅ ClubKonnect purchase successful');
-      console.log('💳 Debiting wallet...');
+      console.log('ClubKonnect purchase successful');
       const transactionResult = await wallet.debit(amount, purchaseResult.description, purchaseResult.reference);
-      console.log(`✅ Wallet debited. New balance: ₦${transactionResult.wallet.balance}`);
 
       res.json({
         success: true,
@@ -344,9 +373,8 @@ router.post('/', authenticate, async (req, res) => {
           totalBalance: transactionResult.wallet.balance
         }
       });
-      console.log('✅ Success response sent to client');
     } else {
-      console.log('❌ ClubKonnect purchase failed:', purchaseResult.errorMessage);
+      console.log('ClubKonnect purchase failed:', purchaseResult.errorMessage);
       res.status(400).json({
         success: false,
         message: purchaseResult.errorMessage || 'Purchase failed',
@@ -363,7 +391,7 @@ router.post('/', authenticate, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('❌ PURCHASE ERROR:', error);
+    console.error('PURCHASE ERROR:', error);
     console.error('Error stack:', error.stack);
     res.status(500).json({ success: false, message: 'Server error processing purchase' });
   }
@@ -376,28 +404,44 @@ async function processAirtimePurchase({ network, phone, amount, userId }) {
     if (!network || !phone) throw new Error('Missing required fields: network, phone');
     if (!/^0[789][01]\d{8}$/.test(phone)) throw new Error('Invalid phone number format');
 
+    const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `AIR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+    console.log('Airtime Purchase Request:', { networkCode, phone, amount, requestId });
+
     const response = await makeClubKonnectRequest('/APIAirtimeV1.asp', {
-      MobileNetwork: network.toUpperCase(),
+      MobileNetwork: networkCode,
       Amount: amount,
       MobileNumber: phone,
       RequestID: requestId
     });
 
+    console.log('Airtime Purchase Response:', response);
+
+    // Check response status
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Airtime purchase - ${network.toUpperCase()} - ${phone}`,
-      successMessage: 'Airtime purchase successful',
+      successMessage: response.remark || 'Airtime purchase successful',
       transactionData: {
         network: network.toUpperCase(),
         phone,
         serviceType: 'airtime',
+        orderid: response.orderid,
+        statuscode: response.statuscode,
         apiResponse: response
       }
     };
   } catch (error) {
+    console.error('Airtime Purchase Error:', error);
     const reference = `AIR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
       success: false,
@@ -425,20 +469,28 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
       }
     }
 
+    const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `DATA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const response = await makeClubKonnectRequest('/APIDatabundleV1.asp', {
-      MobileNetwork: network.toUpperCase(),
+      MobileNetwork: networkCode,
       DataPlan: validatedPlan?.id || planId || plan,
       MobileNumber: phone,
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Data purchase - ${network.toUpperCase()} ${validatedPlan?.name || plan} - ${phone}`,
-      successMessage: 'Data purchase successful',
+      successMessage: response.remark || 'Data purchase successful',
       transactionData: {
         network: network.toUpperCase(),
         phone,
@@ -447,6 +499,7 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
         dataSize: validatedPlan?.dataSize,
         validity: validatedPlan?.validity,
         serviceType: 'data',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -478,16 +531,24 @@ async function processElectricityPurchase({ provider, meterNumber, meterType, am
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Electricity - ${provider.toUpperCase()} ${meterType} - ${meterNumber}`,
-      successMessage: 'Electricity payment successful',
+      successMessage: response.remark || 'Electricity payment successful',
       transactionData: {
         provider: provider.toUpperCase(),
         meterNumber,
         meterType,
         serviceType: 'electricity',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -517,16 +578,24 @@ async function processCableTVPurchase({ operator, smartCardNumber, packageId, am
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Cable TV - ${operator.toUpperCase()} ${packageId} - ${smartCardNumber}`,
-      successMessage: 'Cable TV subscription successful',
+      successMessage: response.remark || 'Cable TV subscription successful',
       transactionData: {
         operator: operator.toUpperCase(),
         smartCardNumber,
         packageId,
         serviceType: 'cable_tv',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -554,16 +623,24 @@ async function processFundBettingPurchase({ provider, customerId, customerName, 
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Betting Fund - ${provider.toUpperCase()} - ${customerId}`,
-      successMessage: 'Betting account funded successfully',
+      successMessage: response.remark || 'Betting account funded successfully',
       transactionData: {
         provider: provider.toUpperCase(),
         customerId,
         customerName,
         serviceType: 'fund_betting',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -578,7 +655,7 @@ async function processFundBettingPurchase({ provider, customerId, customerName, 
   }
 }
 
-async function processEducationPurchase({ provider, examType, phone, userId }) {
+async function processEducationPurchase({ provider, examType, phone, amount, userId }) {
   try {
     if (!provider || !examType || !phone) {
       throw new Error('Missing required fields');
@@ -599,16 +676,24 @@ async function processEducationPurchase({ provider, examType, phone, userId }) {
 
     const response = await makeClubKonnectRequest(endpoint, params);
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `${provider.toUpperCase()} ${examType} - ${phone}`,
-      successMessage: 'Education payment successful',
+      successMessage: response.remark || 'Education payment successful',
       transactionData: {
         provider: provider.toUpperCase(),
         examType,
         phone,
         serviceType: 'education',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -647,16 +732,24 @@ async function processInternetPurchase({ provider, plan, customerNumber, amount,
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `Internet - ${provider.toUpperCase()} ${plan} - ${customerNumber}`,
-      successMessage: 'Internet subscription successful',
+      successMessage: response.remark || 'Internet subscription successful',
       transactionData: {
         provider: provider.toUpperCase(),
         plan,
         customerNumber,
         serviceType: 'internet',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -677,25 +770,34 @@ async function processPrintRechargePurchase({ network, value, quantity, amount, 
       throw new Error('Missing required fields');
     }
 
+    const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `EPIN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const response = await makeClubKonnectRequest('/APIEPINV1.asp', {
-      MobileNetwork: network.toUpperCase(),
+      MobileNetwork: networkCode,
       Value: value,
       Quantity: quantity,
       RequestID: requestId
     });
 
+    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
+                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+
+    if (!isSuccess) {
+      throw new Error(response.remark || response.status || 'Purchase failed');
+    }
+
     return {
       success: true,
-      reference: requestId,
+      reference: response.orderid || requestId,
       description: `E-PIN - ${network.toUpperCase()} ₦${value} x ${quantity}`,
-      successMessage: 'Recharge PINs generated successfully',
+      successMessage: response.remark || 'Recharge PINs generated successfully',
       transactionData: {
         network: network.toUpperCase(),
         value,
         quantity,
         serviceType: 'print_recharge',
+        orderid: response.orderid,
         apiResponse: response
       }
     };
@@ -709,5 +811,68 @@ async function processPrintRechargePurchase({ network, value, quantity, amount, 
     };
   }
 }
+
+// ========== DEBUGGING & TESTING ENDPOINTS ==========
+
+// Test ClubKonnect connection
+router.get('/test-connection', authenticate, async (req, res) => {
+  try {
+    console.log('Testing ClubKonnect connection...');
+    console.log('Config:', {
+      userId: CK_CONFIG.userId ? 'SET' : 'NOT SET',
+      apiKey: CK_CONFIG.apiKey ? 'SET' : 'NOT SET',
+      baseUrl: CK_CONFIG.baseUrl
+    });
+
+    // Test with balance check endpoint
+    const response = await makeClubKonnectRequest('/APIWalletBalanceV1.asp', {});
+    
+    res.json({ 
+      success: true, 
+      message: 'ClubKonnect API is connected successfully',
+      response 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: 'ClubKonnect connection failed',
+      error: error.message,
+      config: {
+        userId: CK_CONFIG.userId ? 'SET' : 'NOT SET',
+        apiKey: CK_CONFIG.apiKey ? 'SET' : 'NOT SET',
+        baseUrl: CK_CONFIG.baseUrl
+      }
+    });
+  }
+});
+
+// Test airtime purchase (test mode - doesn't debit wallet)
+router.post('/test-airtime', authenticate, async (req, res) => {
+  try {
+    const { network, phone, amount } = req.body;
+    
+    if (!network || !phone || !amount) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Network, phone, and amount are required' 
+      });
+    }
+
+    console.log('Testing airtime purchase:', { network, phone, amount });
+    
+    const result = await processAirtimePurchase({ network, phone, amount, userId: req.user.userId });
+    
+    res.json({
+      success: result.success,
+      message: result.success ? 'Test purchase successful (wallet not debited)' : 'Test purchase failed',
+      result
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
+});
 
 module.exports = router;
