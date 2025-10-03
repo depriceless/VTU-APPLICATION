@@ -179,14 +179,19 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     if (!/^\d{4}$/.test(pin)) {
+      console.log('❌ PIN validation failed - not 4 digits');
       return res.status(400).json({ success: false, message: 'PIN must be exactly 4 digits' });
     }
+    console.log('✅ PIN format validated');
 
     // Validate service availability
+    console.log(`🔍 Validating service availability for: ${type}`);
     const serviceValidation = await validateServiceAvailability(type);
     if (!serviceValidation.available) {
+      console.log(`❌ Service ${type} not available:`, serviceValidation.reason);
       return res.status(400).json({ success: false, message: serviceValidation.reason });
     }
+    console.log(`✅ Service ${type} is available`);
 
     // Amount limits
     const amountLimits = {
@@ -203,40 +208,52 @@ router.post('/', authenticate, async (req, res) => {
 
     const limits = amountLimits[type];
     if (amount < limits.min || amount > limits.max) {
+      console.log(`❌ Amount validation failed. Amount: ${amount}, Min: ${limits.min}, Max: ${limits.max}`);
       return res.status(400).json({
         success: false,
         message: `Amount must be between ₦${limits.min.toLocaleString()} and ₦${limits.max.toLocaleString()}`
       });
     }
+    console.log(`✅ Amount validated: ₦${amount}`);
 
+    console.log('🔍 Fetching user and wallet...');
     const user = await User.findById(req.user.userId).select('+pin');
     const wallet = await Wallet.findOne({ userId: req.user.userId });
 
     if (!user || !wallet) {
+      console.log('❌ User or wallet not found');
       return res.status(404).json({ success: false, message: 'User or wallet not found' });
     }
+    console.log(`✅ User found: ${user.email}, Wallet balance: ₦${wallet.balance}`);
 
     if (!user.pin || !user.isPinSetup) {
+      console.log('❌ PIN not set up for user');
       return res.status(400).json({
         success: false,
         message: 'Transaction PIN not set. Please set up your PIN first.'
       });
     }
+    console.log('✅ User has PIN set up');
 
     // Check account lock
+    console.log('🔍 Checking account lock status...');
     const attemptData = getPinAttemptData(req.user.userId);
     const now = new Date();
 
     if (attemptData.lockedUntil && now < attemptData.lockedUntil) {
       const remainingMinutes = Math.ceil((attemptData.lockedUntil - now) / (1000 * 60));
+      console.log(`❌ Account is locked for ${remainingMinutes} minutes`);
       return res.status(423).json({
         success: false,
         message: `Account locked. Try again in ${remainingMinutes} minutes.`
       });
     }
+    console.log('✅ Account not locked');
 
     // Validate PIN
+    console.log('🔍 Validating PIN...');
     const isPinValid = await user.comparePin(pin);
+    console.log(`PIN validation result: ${isPinValid ? 'VALID' : 'INVALID'}`);
 
     if (!isPinValid) {
       attemptData.attempts += 1;
@@ -257,16 +274,21 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     // Check balance
+    console.log(`🔍 Checking balance. Required: ₦${amount}, Available: ₦${wallet.balance}`);
     if (wallet.balance < amount) {
+      console.log('❌ Insufficient balance');
       return res.status(400).json({
         success: false,
         message: `Insufficient balance. Available: ₦${wallet.balance.toLocaleString()}`
       });
     }
+    console.log('✅ Sufficient balance available');
 
     resetPinAttempts(req.user.userId);
+    console.log('✅ PIN attempts reset');
 
     // Process purchase based on type using ClubKonnect API
+    console.log(`🚀 Processing ${type} purchase via ClubKonnect...`);
     let purchaseResult;
     switch (type) {
       case 'airtime':
@@ -298,7 +320,10 @@ router.post('/', authenticate, async (req, res) => {
     }
 
     if (purchaseResult.success) {
+      console.log('✅ ClubKonnect purchase successful');
+      console.log('💳 Debiting wallet...');
       const transactionResult = await wallet.debit(amount, purchaseResult.description, purchaseResult.reference);
+      console.log(`✅ Wallet debited. New balance: ₦${transactionResult.wallet.balance}`);
 
       res.json({
         success: true,
@@ -319,7 +344,9 @@ router.post('/', authenticate, async (req, res) => {
           totalBalance: transactionResult.wallet.balance
         }
       });
+      console.log('✅ Success response sent to client');
     } else {
+      console.log('❌ ClubKonnect purchase failed:', purchaseResult.errorMessage);
       res.status(400).json({
         success: false,
         message: purchaseResult.errorMessage || 'Purchase failed',
@@ -336,7 +363,8 @@ router.post('/', authenticate, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Purchase error:', error);
+    console.error('❌ PURCHASE ERROR:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json({ success: false, message: 'Server error processing purchase' });
   }
 });
