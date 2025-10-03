@@ -339,8 +339,8 @@ if (dataRoutes) {
 
 if (cableRoutes) {
   try {
-    app.use('/api', cableRoutes);
-    console.log('✅ Cable routes registered');
+    app.use('/api/cable', cableRoutes);  // ✅ Fixed
+    console.log('✅ Cable routes registered at /api/cable');
   } catch (err) {
     console.error('❌ Cable routes registration error:', err.message);
   }
