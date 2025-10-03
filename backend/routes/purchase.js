@@ -457,24 +457,27 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     if (!network || !phone) throw new Error('Missing required fields: network, phone');
     if (!/^0[789][01]\d{8}$/.test(phone)) throw new Error('Invalid phone number format');
 
+    // Find the plan to validate
     let validatedPlan = null;
-    if (planId) {
-      const networkPlans = DATA_PLANS[network];
-      if (networkPlans) {
-        validatedPlan = networkPlans.find(p => p.id === planId);
-        if (!validatedPlan) throw new Error(`Invalid plan ID ${planId}`);
-        if (validatedPlan.amount !== amount) {
-          throw new Error(`Amount mismatch: expected ₦${validatedPlan.amount}`);
-        }
+    const networkKey = network.toLowerCase() === '9mobile' ? '9mobile' : network.toLowerCase();
+    const networkPlans = DATA_PLANS[networkKey];
+    
+    if (networkPlans && planId) {
+      validatedPlan = networkPlans.find(p => p.id === planId);
+      if (!validatedPlan) throw new Error(`Invalid plan ID: ${planId}`);
+      if (validatedPlan.amount !== amount) {
+        throw new Error(`Amount mismatch: expected ₦${validatedPlan.amount}`);
       }
     }
 
     const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `DATA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+    console.log('Data Purchase Request:', { networkCode, planId, phone, requestId });
+
     const response = await makeClubKonnectRequest('/APIDatabundleV1.asp', {
       MobileNetwork: networkCode,
-      DataPlan: validatedPlan?.id || planId || plan,
+      DataPlan: planId,  // Use ClubKonnect's plan ID directly
       MobileNumber: phone,
       RequestID: requestId
     });
@@ -495,7 +498,7 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
         network: network.toUpperCase(),
         phone,
         plan: validatedPlan?.name || plan,
-        planId: validatedPlan?.id || planId,
+        planId: planId,
         dataSize: validatedPlan?.dataSize,
         validity: validatedPlan?.validity,
         serviceType: 'data',
@@ -510,102 +513,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
       reference,
       errorMessage: error.message,
       transactionData: { network: network?.toUpperCase(), phone, plan, planId, serviceType: 'data' }
-    };
-  }
-}
-
-async function processElectricityPurchase({ provider, meterNumber, meterType, amount, phone, userId }) {
-  try {
-    if (!provider || !meterNumber || !meterType || !phone) {
-      throw new Error('Missing required fields');
-    }
-
-    const requestId = `ELEC_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const response = await makeClubKonnectRequest('/APIElectricityV1.asp', {
-      ElectricCompany: provider.toUpperCase(),
-      MeterType: meterType,
-      MeterNo: meterNumber,
-      Amount: amount,
-      PhoneNo: phone,
-      RequestID: requestId
-    });
-
-    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
-                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
-
-    if (!isSuccess) {
-      throw new Error(response.remark || response.status || 'Purchase failed');
-    }
-
-    return {
-      success: true,
-      reference: response.orderid || requestId,
-      description: `Electricity - ${provider.toUpperCase()} ${meterType} - ${meterNumber}`,
-      successMessage: response.remark || 'Electricity payment successful',
-      transactionData: {
-        provider: provider.toUpperCase(),
-        meterNumber,
-        meterType,
-        serviceType: 'electricity',
-        orderid: response.orderid,
-        apiResponse: response
-      }
-    };
-  } catch (error) {
-    const reference = `ELEC_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    return {
-      success: false,
-      reference,
-      errorMessage: error.message,
-      transactionData: { provider: provider?.toUpperCase(), meterNumber, meterType, serviceType: 'electricity' }
-    };
-  }
-}
-
-async function processCableTVPurchase({ operator, smartCardNumber, packageId, amount, userId }) {
-  try {
-    if (!operator || !smartCardNumber || !packageId) {
-      throw new Error('Missing required fields');
-    }
-
-    const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const response = await makeClubKonnectRequest('/APICableTVV1.asp', {
-      CableTV: operator.toUpperCase(),
-      Package: packageId,
-      SmartCardNo: smartCardNumber,
-      RequestID: requestId
-    });
-
-    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
-                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
-
-    if (!isSuccess) {
-      throw new Error(response.remark || response.status || 'Purchase failed');
-    }
-
-    return {
-      success: true,
-      reference: response.orderid || requestId,
-      description: `Cable TV - ${operator.toUpperCase()} ${packageId} - ${smartCardNumber}`,
-      successMessage: response.remark || 'Cable TV subscription successful',
-      transactionData: {
-        operator: operator.toUpperCase(),
-        smartCardNumber,
-        packageId,
-        serviceType: 'cable_tv',
-        orderid: response.orderid,
-        apiResponse: response
-      }
-    };
-  } catch (error) {
-    const reference = `CABLE_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    return {
-      success: false,
-      reference,
-      errorMessage: error.message,
-      transactionData: { operator: operator?.toUpperCase(), smartCardNumber, packageId, serviceType: 'cable_tv' }
     };
   }
 }
