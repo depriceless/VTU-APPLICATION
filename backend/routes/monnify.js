@@ -4,6 +4,7 @@ const axios = require('axios');
 const User = require('../models/User');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const { authenticate } = require('../middleware/auth');
+const Balance = require('../models/Balance');
 
 // Monnify Configuration
 const MONNIFY_CONFIG = {
@@ -282,7 +283,7 @@ router.post('/webhook', async (req, res) => {
     console.log('📩 Monnify Webhook received at:', new Date().toISOString());
     console.log('🔍 FULL WEBHOOK BODY:', JSON.stringify(req.body, null, 2));
 
-    // FIXED: Extract data from eventData object (Monnify wraps data in eventData)
+    // Extract data from eventData
     const eventData = req.body.eventData || req.body;
     const product = eventData.product || {};
     
@@ -290,10 +291,8 @@ router.post('/webhook', async (req, res) => {
       transactionReference,
       paymentReference,
       amountPaid,
-      totalPayable,
       paidOn,
       paymentStatus,
-      paymentMethod,
       destinationAccountInformation
     } = eventData;
 
@@ -306,7 +305,6 @@ router.post('/webhook', async (req, res) => {
     console.log('   Account Reference:', accountReference);
     console.log('   Account Number:', accountNumber);
 
-    // Verify payment is completed
     if (paymentStatus !== 'PAID') {
       console.log('⚠️ Payment not completed. Status:', paymentStatus);
       return res.status(200).json({ message: 'Payment not completed yet' });
@@ -314,7 +312,7 @@ router.post('/webhook', async (req, res) => {
 
     console.log('💰 Payment confirmed - searching for account...');
 
-    // Find account by account number first (most reliable)
+    // Find Monnify account
     let monnifyAccount = null;
     
     if (accountNumber) {
@@ -328,55 +326,26 @@ router.post('/webhook', async (req, res) => {
       }
     }
 
-    // Fallback 1: Try by exact reference match
     if (!monnifyAccount && accountReference) {
-      console.log('🔍 Searching by exact account reference:', accountReference);
+      console.log('🔍 Searching by account reference:', accountReference);
       monnifyAccount = await MonnifyAccount.findOne({ accountReference });
-      
-      if (monnifyAccount) {
-        console.log('✅ Account found by exact reference for user:', monnifyAccount.userId);
-      }
-    }
-    
-    // Fallback 2: Try by partial reference match
-    if (!monnifyAccount && accountReference) {
-      console.log('🔍 Searching by partial account reference...');
-      const baseReference = accountReference.split('_').slice(0, 3).join('_');
-      console.log('🔍 Base reference:', baseReference);
-      
-      monnifyAccount = await MonnifyAccount.findOne({ 
-        accountReference: { $regex: `^${baseReference}` } 
-      });
-      
-      if (monnifyAccount) {
-        console.log('✅ Account found by partial reference for user:', monnifyAccount.userId);
-      }
     }
 
     if (!monnifyAccount) {
-      console.error('❌ Account not found!');
-      console.error('   Searched account number:', accountNumber);
-      console.error('   Searched reference:', accountReference);
-      
-      // Log all accounts in database for debugging
-      const allAccounts = await MonnifyAccount.find({}).select('accountReference accounts');
-      console.log('📋 All accounts in database:', JSON.stringify(allAccounts, null, 2));
-      
-      return res.status(404).json({ 
-        message: 'Account not found',
-        debug: { accountNumber, accountReference }
-      });
+      console.error('❌ Account not found');
+      return res.status(404).json({ message: 'Account not found' });
     }
 
-    // Find user and update balance
-    const user = await User.findById(monnifyAccount.userId);
-    if (!user) {
-      console.error('❌ User not found:', monnifyAccount.userId);
-      return res.status(404).json({ message: 'User not found' });
+    // Find Balance document (THIS IS THE KEY CHANGE)
+    const balance = await Balance.findOne({ userId: monnifyAccount.userId });
+    
+    if (!balance) {
+      console.error('❌ Balance document not found for user:', monnifyAccount.userId);
+      return res.status(404).json({ message: 'Balance document not found' });
     }
 
     // Check for duplicate transaction
-    const isDuplicate = user.transactions?.some(
+    const isDuplicate = balance.transactions?.some(
       t => t.reference === transactionReference
     );
     
@@ -388,52 +357,42 @@ router.post('/webhook', async (req, res) => {
       });
     }
 
-    // Credit wallet
-    const previousBalance = user.balance || 0;
+    // Update Balance document
+    const previousBalance = balance.balance;
     const creditAmount = parseFloat(amountPaid);
-    user.balance = (user.balance || 0) + creditAmount;
+    balance.balance += creditAmount;
+    balance.lastTransactionDate = new Date();
     
-    // Optional: Add transaction to user's history if you have a transactions field
-    if (user.transactions) {
-      user.transactions.push({
-        type: 'credit',
-        amount: creditAmount,
-        reference: transactionReference,
-        date: new Date(paidOn),
-        description: 'Wallet funding via bank transfer'
-      });
+    // Update stats if they exist
+    if (balance.stats) {
+      balance.stats.totalDeposits = (balance.stats.totalDeposits || 0) + creditAmount;
+      balance.stats.depositCount = (balance.stats.depositCount || 0) + 1;
     }
     
-    await user.save();
+    await balance.save();
 
     console.log('✅ ========== WALLET CREDITED SUCCESSFULLY ==========');
-    console.log(`   User ID: ${user._id}`);
-    console.log(`   User Email: ${user.email}`);
-    console.log(`   User Name: ${user.name}`);
+    console.log(`   User ID: ${monnifyAccount.userId}`);
     console.log(`   Amount Credited: ₦${creditAmount.toLocaleString()}`);
     console.log(`   Previous Balance: ₦${previousBalance.toLocaleString()}`);
-    console.log(`   New Balance: ₦${user.balance.toLocaleString()}`);
+    console.log(`   New Balance: ₦${balance.balance.toLocaleString()}`);
     console.log(`   Transaction Ref: ${transactionReference}`);
     console.log(`   Account Number Used: ${accountNumber}`);
-    console.log(`   Payment Date: ${paidOn}`);
     console.log('===================================================');
 
     res.status(200).json({
       success: true,
       message: 'Webhook processed successfully',
       data: {
-        userId: user._id,
-        newBalance: user.balance,
+        userId: monnifyAccount.userId,
+        newBalance: balance.balance,
         creditedAmount: creditAmount
       }
     });
 
   } catch (error) {
-    console.error('❌ ========== WEBHOOK ERROR ==========');
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
-    console.error('Request body:', JSON.stringify(req.body, null, 2));
-    console.error('=====================================');
+    console.error('❌ WEBHOOK ERROR:', error.message);
+    console.error('Stack:', error.stack);
     
     res.status(500).json({
       success: false,
