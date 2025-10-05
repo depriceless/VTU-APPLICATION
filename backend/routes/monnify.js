@@ -280,8 +280,12 @@ router.get('/user-accounts', authenticate, async (req, res) => {
 router.post('/webhook', async (req, res) => {
   try {
     console.log('📩 Monnify Webhook received at:', new Date().toISOString());
-    console.log('📩 Webhook payload:', JSON.stringify(req.body, null, 2));
+    console.log('🔍 FULL WEBHOOK BODY:', JSON.stringify(req.body, null, 2));
 
+    // FIXED: Extract data from eventData object (Monnify wraps data in eventData)
+    const eventData = req.body.eventData || req.body;
+    const product = eventData.product || {};
+    
     const {
       transactionReference,
       paymentReference,
@@ -289,9 +293,18 @@ router.post('/webhook', async (req, res) => {
       totalPayable,
       paidOn,
       paymentStatus,
-      accountReference,
-      product
-    } = req.body;
+      paymentMethod,
+      destinationAccountInformation
+    } = eventData;
+
+    const accountReference = product.reference;
+    const accountNumber = destinationAccountInformation?.accountNumber;
+
+    console.log('🔍 Extracted data:');
+    console.log('   Payment Status:', paymentStatus);
+    console.log('   Amount:', amountPaid);
+    console.log('   Account Reference:', accountReference);
+    console.log('   Account Number:', accountNumber);
 
     // Verify payment is completed
     if (paymentStatus !== 'PAID') {
@@ -299,20 +312,60 @@ router.post('/webhook', async (req, res) => {
       return res.status(200).json({ message: 'Payment not completed yet' });
     }
 
-    // Find account - handle both main reference and individual references
-    let monnifyAccount = await MonnifyAccount.findOne({ accountReference });
+    console.log('💰 Payment confirmed - searching for account...');
+
+    // Find account by account number first (most reliable)
+    let monnifyAccount = null;
     
-    // If not found, try finding by partial match (for individually created accounts)
-    if (!monnifyAccount) {
+    if (accountNumber) {
+      console.log('🔍 Searching by account number:', accountNumber);
+      monnifyAccount = await MonnifyAccount.findOne({
+        'accounts.accountNumber': accountNumber
+      });
+      
+      if (monnifyAccount) {
+        console.log('✅ Account found by account number for user:', monnifyAccount.userId);
+      }
+    }
+
+    // Fallback 1: Try by exact reference match
+    if (!monnifyAccount && accountReference) {
+      console.log('🔍 Searching by exact account reference:', accountReference);
+      monnifyAccount = await MonnifyAccount.findOne({ accountReference });
+      
+      if (monnifyAccount) {
+        console.log('✅ Account found by exact reference for user:', monnifyAccount.userId);
+      }
+    }
+    
+    // Fallback 2: Try by partial reference match
+    if (!monnifyAccount && accountReference) {
+      console.log('🔍 Searching by partial account reference...');
       const baseReference = accountReference.split('_').slice(0, 3).join('_');
+      console.log('🔍 Base reference:', baseReference);
+      
       monnifyAccount = await MonnifyAccount.findOne({ 
         accountReference: { $regex: `^${baseReference}` } 
       });
+      
+      if (monnifyAccount) {
+        console.log('✅ Account found by partial reference for user:', monnifyAccount.userId);
+      }
     }
 
     if (!monnifyAccount) {
-      console.error('❌ Account not found:', accountReference);
-      return res.status(404).json({ message: 'Account not found' });
+      console.error('❌ Account not found!');
+      console.error('   Searched account number:', accountNumber);
+      console.error('   Searched reference:', accountReference);
+      
+      // Log all accounts in database for debugging
+      const allAccounts = await MonnifyAccount.find({}).select('accountReference accounts');
+      console.log('📋 All accounts in database:', JSON.stringify(allAccounts, null, 2));
+      
+      return res.status(404).json({ 
+        message: 'Account not found',
+        debug: { accountNumber, accountReference }
+      });
     }
 
     // Find user and update balance
@@ -322,29 +375,70 @@ router.post('/webhook', async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Check for duplicate transaction
+    const isDuplicate = user.transactions?.some(
+      t => t.reference === transactionReference
+    );
+    
+    if (isDuplicate) {
+      console.log('⚠️ Duplicate transaction detected:', transactionReference);
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Transaction already processed' 
+      });
+    }
+
     // Credit wallet
-    const previousBalance = user.balance;
-    user.balance += parseFloat(amountPaid);
+    const previousBalance = user.balance || 0;
+    const creditAmount = parseFloat(amountPaid);
+    user.balance = (user.balance || 0) + creditAmount;
+    
+    // Optional: Add transaction to user's history if you have a transactions field
+    if (user.transactions) {
+      user.transactions.push({
+        type: 'credit',
+        amount: creditAmount,
+        reference: transactionReference,
+        date: new Date(paidOn),
+        description: 'Wallet funding via bank transfer'
+      });
+    }
+    
     await user.save();
 
-    console.log(`✅ Wallet credited successfully:`);
-    console.log(`   User: ${user.email}`);
-    console.log(`   Amount: ₦${amountPaid}`);
-    console.log(`   Previous Balance: ₦${previousBalance}`);
-    console.log(`   New Balance: ₦${user.balance}`);
+    console.log('✅ ========== WALLET CREDITED SUCCESSFULLY ==========');
+    console.log(`   User ID: ${user._id}`);
+    console.log(`   User Email: ${user.email}`);
+    console.log(`   User Name: ${user.name}`);
+    console.log(`   Amount Credited: ₦${creditAmount.toLocaleString()}`);
+    console.log(`   Previous Balance: ₦${previousBalance.toLocaleString()}`);
+    console.log(`   New Balance: ₦${user.balance.toLocaleString()}`);
     console.log(`   Transaction Ref: ${transactionReference}`);
+    console.log(`   Account Number Used: ${accountNumber}`);
+    console.log(`   Payment Date: ${paidOn}`);
+    console.log('===================================================');
 
     res.status(200).json({
       success: true,
-      message: 'Webhook processed successfully'
+      message: 'Webhook processed successfully',
+      data: {
+        userId: user._id,
+        newBalance: user.balance,
+        creditedAmount: creditAmount
+      }
     });
 
   } catch (error) {
-    console.error('❌ Webhook error:', error.message);
-    console.error('❌ Stack:', error.stack);
+    console.error('❌ ========== WEBHOOK ERROR ==========');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Request body:', JSON.stringify(req.body, null, 2));
+    console.error('=====================================');
+    
     res.status(500).json({
       success: false,
-      message: 'Webhook processing failed'
+      message: 'Webhook processing failed',
+      error: process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message
     });
   }
 });
