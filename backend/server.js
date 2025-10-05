@@ -89,7 +89,7 @@ try {
 }
 
 try {
-  dataRoutes = require('./routes/dataplan');
+ dataRoutes = require('./routes/dataplan');
   console.log('✅ Data routes loaded');
 } catch (err) {
   console.error('❌ Data routes error:', err.message);
@@ -177,21 +177,21 @@ app.use(helmet());
 
 // === CORS CONFIGURATION ===
 try {
- app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:8081', 
-    'exp://localhost:19000',
-    'http://localhost:19006',
-    'http://localhost:5173',
-    'http://192.168.126.7:5173'
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 200
-}));
+  app.use(cors({
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:8081', 
+      'exp://localhost:19000',
+      'http://localhost:19006',
+      'http://localhost:5173',
+      'http://192.168.126.7:5173'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 200
+  }));
   
   app.options('*', cors());
   console.log('✅ CORS configured');
@@ -230,22 +230,21 @@ mongoose.connect(process.env.MONGO_URI, {
   maxPoolSize: 10,
   retryWrites: true,
 })
-.then(() => {
-  console.log('✅ Connected to MongoDB successfully');
+.then(async () => {
+  console.log('✅ Connected to MongoDB successfully\n');
 })
-.catch(err => {
-  console.error('❌ Initial MongoDB connection error:', err.message);
-  console.error('❌ Full error:', err);
+.catch((error) => {
+  console.error('❌ MongoDB connection error:', error.message);
+  console.error('Stack:', error.stack);
+  process.exit(1);
+});
+
+mongoose.connection.on('disconnected', () => {
+  console.log('⚠️ MongoDB disconnected');
 });
 
 mongoose.connection.on('error', (err) => {
-  console.error('🚨 MongoDB error:', err.message);
-});
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected, retrying...');
-});
-mongoose.connection.on('reconnected', () => {
-  console.log('🔄 MongoDB reconnected');
+  console.error('❌ MongoDB connection error:', err);
 });
 
 // === BASIC ROUTES ===
@@ -339,7 +338,7 @@ if (dataRoutes) {
 
 if (cableRoutes) {
   try {
-    app.use('/api/cable', cableRoutes);  // ✅ Fixed
+    app.use('/api/cable', cableRoutes);
     console.log('✅ Cable routes registered at /api/cable');
   } catch (err) {
     console.error('❌ Cable routes registration error:', err.message);
@@ -448,95 +447,14 @@ if (notificationRoutes) {
     console.error('❌ Notification routes registration error:', err.message);
   }
 }
-// Replace the entire Monnify section in your server.js with this:
-
-console.log('\n🔍 ========== MONNIFY ROUTES DEBUG ==========');
 
 try {
-  // Step 1: Check if file exists
-  const fs = require('fs');
-  const path = require('path');
-  const monnifyPath = path.join(__dirname, 'routes', 'monnify.js');
-  
-  console.log('📁 Checking file path:', monnifyPath);
-  console.log('📁 File exists:', fs.existsSync(monnifyPath));
-  
-  // Step 2: Import the module
-  console.log('📥 Attempting to require monnify routes...');
   const monnifyRoutes = require('./routes/monnify');
-  console.log('✅ Monnify module loaded successfully');
-  
-  // Step 3: Check what was exported
-  console.log('🔍 Type of monnifyRoutes:', typeof monnifyRoutes);
-  console.log('🔍 Is it a function?', typeof monnifyRoutes === 'function');
-  console.log('🔍 Constructor name:', monnifyRoutes.constructor?.name);
-  console.log('🔍 Has stack property?', !!monnifyRoutes.stack);
-  
-  // Step 4: If it has a stack, log the routes
-  if (monnifyRoutes.stack) {
-    console.log('📋 Routes in stack:', monnifyRoutes.stack.length);
-    monnifyRoutes.stack.forEach((layer, index) => {
-      if (layer.route) {
-        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
-        console.log(`   ${index}. ${methods} ${layer.route.path}`);
-      } else if (layer.name) {
-        console.log(`   ${index}. Middleware: ${layer.name}`);
-      }
-    });
-  } else {
-    console.log('❌ No stack property found!');
-    console.log('🔍 Available properties:', Object.keys(monnifyRoutes));
-  }
-  
-  // Step 5: Register the routes
-  console.log('🔧 Registering routes at /api/monnify...');
   app.use('/api/monnify', monnifyRoutes);
-  console.log('✅ app.use() called successfully');
-  
-  // Step 6: Verify registration
-  console.log('🔍 Verifying registration in app stack...');
-  let monnifyFound = false;
-  app._router.stack.forEach((layer, index) => {
-    if (layer.name === 'router' && layer.regexp.toString().includes('monnify')) {
-      console.log(`✅ Found monnify router at stack index ${index}`);
-      console.log(`   Regexp: ${layer.regexp}`);
-      console.log(`   Handle type: ${typeof layer.handle}`);
-      monnifyFound = true;
-      
-      // Log the sub-routes
-      if (layer.handle && layer.handle.stack) {
-        console.log(`   Sub-routes (${layer.handle.stack.length}):`);
-        layer.handle.stack.forEach((subLayer, subIndex) => {
-          if (subLayer.route) {
-            const methods = Object.keys(subLayer.route.methods).join(',').toUpperCase();
-            console.log(`      ${subIndex}. ${methods} ${subLayer.route.path}`);
-          }
-        });
-      }
-    }
-  });
-  
-  if (!monnifyFound) {
-    console.error('❌ Monnify router NOT found in app stack!');
-    console.log('📋 All routers in app:');
-    app._router.stack.forEach((layer, index) => {
-      if (layer.name === 'router') {
-        console.log(`   ${index}. ${layer.regexp}`);
-      }
-    });
-  }
-  
-  console.log('✅ Monnify routes registration complete');
-  
+  console.log('✅ Monnify routes registered');
 } catch (err) {
-  console.error('❌ MONNIFY ROUTES ERROR:');
-  console.error('   Message:', err.message);
-  console.error('   Code:', err.code);
-  console.error('   Stack:', err.stack);
+  console.error('❌ Monnify routes error:', err.message);
 }
-
-console.log('🔍 ========== END MONNIFY DEBUG ==========\n');
-
 
 try {
   app.use('/api/support', require('./routes/support'));
@@ -546,14 +464,11 @@ try {
 }
 
 try {
-  console.log('🔍 Attempting to load ClubKonnect routes...');
   const clubkonnectRoutes = require('./routes/clubkonnect');
   app.use('/api/clubkonnect', clubkonnectRoutes);
   console.log('✅ ClubKonnect VTU routes registered');
 } catch (err) {
   console.error('❌ ClubKonnect routes error:', err.message);
-  console.error('❌ Full error:', err);
-  console.error('❌ Stack:', err.stack);
 }
 
 if (userManagementRoutes) {
@@ -565,8 +480,9 @@ if (userManagementRoutes) {
   }
 }
 
-// 404 handler
-app.use('*', (req, res) => {
+
+// === 404 HANDLER ===
+app.use((req, res) => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
   res.status(404).json({
     success: false,
@@ -574,7 +490,7 @@ app.use('*', (req, res) => {
   });
 });
 
-// Global error handler
+// === GLOBAL ERROR HANDLER ===
 app.use((err, req, res, next) => {
   console.error('\n🚨 === GLOBAL ERROR HANDLER ===');
   console.error('Time:', new Date().toISOString());
@@ -591,7 +507,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Graceful shutdown
+// === GRACEFUL SHUTDOWN ===
 process.on('SIGINT', async () => {
   console.log('\n🛑 === SIGINT received - Shutting down gracefully ===');
   try {
@@ -614,7 +530,7 @@ process.on('SIGTERM', async () => {
   process.exit(0);
 });
 
-// Start server
+// === START SERVER ===
 console.log('🔍 Starting server...');
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
