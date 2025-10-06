@@ -18,7 +18,6 @@ import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../contexts/AuthContext';
 
-// Your Replit API base URL
 const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
@@ -55,11 +54,14 @@ interface PinStatus {
 interface DataPlan {
   id: string;
   name: string;
+  customerPrice: number;
   amount: number;
   validity: string;
   dataSize: string;
   network: string;
 }
+
+type PlanCategory = 'daily' | 'short' | 'weekly' | 'monthly';
 
 export default function BuyData() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
@@ -67,6 +69,7 @@ export default function BuyData() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<DataPlan | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<PlanCategory>('daily');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [contactsList, setContactsList] = useState<Contact[]>([]);
@@ -86,7 +89,67 @@ export default function BuyData() {
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [showPlans, setShowPlans] = useState(false);
 
-  // Network Detection
+  const categorizePlans = (plans: DataPlan[]) => {
+    const daily = plans.filter(p => {
+      const validity = p.validity.toLowerCase();
+      return validity.includes('1 day') || 
+             validity.includes('24 hours') ||
+             validity.includes('1day') ||
+             (validity.match(/^1\s*day/));
+    });
+    
+    const short = plans.filter(p => {
+      const validity = p.validity.toLowerCase();
+      return validity.includes('2 days') ||
+             validity.includes('3 days') ||
+             validity.includes('2days') ||
+             validity.includes('3days');
+    });
+    
+    const weekly = plans.filter(p => {
+      const validity = p.validity.toLowerCase();
+      const dayMatch = validity.match(/(\d+)\s*days?/);
+      const dayCount = dayMatch ? parseInt(dayMatch[1]) : 0;
+      
+      return validity.includes('week') ||
+             (dayCount >= 4 && dayCount <= 21) ||
+             validity.includes('7 days') ||
+             validity.includes('14 days') ||
+             validity.includes('7days') ||
+             validity.includes('14days');
+    });
+    
+    const monthly = plans.filter(p => {
+      const validity = p.validity.toLowerCase();
+      const dayMatch = validity.match(/(\d+)\s*days?/);
+      const dayCount = dayMatch ? parseInt(dayMatch[1]) : 0;
+      
+      return validity.includes('month') ||
+             (dayCount >= 22) ||
+             validity.includes('30 days') ||
+             validity.includes('60 days') ||
+             validity.includes('90 days') ||
+             validity.includes('30days') ||
+             validity.includes('60days') ||
+             validity.includes('90days') ||
+             validity.includes('365 days') ||
+             validity.includes('365days');
+    });
+
+    const categorized = new Set([...daily, ...short, ...weekly, ...monthly]);
+    const uncategorized = plans.filter(p => !categorized.has(p));
+    
+    return { 
+      daily, 
+      short,
+      weekly, 
+      monthly: [...monthly, ...uncategorized] 
+    };
+  };
+
+  const categorizedPlans = categorizePlans(dataPlans);
+  const displayPlans = categorizedPlans[selectedCategory];
+
   const detectNetwork = (phoneNumber: string): string | null => {
     const prefix = phoneNumber.substring(0, 4);
     const mtnPrefixes = ['0803', '0806', '0703', '0706', '0813', '0816', '0810', '0814', '0903', '0906', '0913', '0916'];
@@ -101,13 +164,11 @@ export default function BuyData() {
     return null;
   };
 
-  // Validation
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
-  const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.amount <= userBalance.total : true;
+  const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.customerPrice <= userBalance.total : true;
   const canProceed = isPhoneValid && selectedNetwork && selectedPlan && !isLoadingPlans;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Auto-detect network when phone changes
   useEffect(() => {
     if (isPhoneValid) {
       const detectedNetwork = detectNetwork(phone);
@@ -117,7 +178,6 @@ export default function BuyData() {
     }
   }, [phone]);
 
-  // Load data plans when network changes
   useEffect(() => {
     if (selectedNetwork) {
       fetchDataPlans(selectedNetwork);
@@ -129,12 +189,10 @@ export default function BuyData() {
     }
   }, [selectedNetwork]);
 
-  // Load data on mount
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
     
-    // Initialize balance from AuthContext
     if (balance) {
       const balanceAmount = parseFloat(balance.amount) || 0;
       setUserBalance({
@@ -145,21 +203,18 @@ export default function BuyData() {
       });
     }
     
-    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
     }, 1000);
   }, []);
 
-  // Refresh balance when stepping to review page
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
   useEffect(() => {
     if (currentStep === 3) {
       setPin('');
@@ -168,12 +223,10 @@ export default function BuyData() {
     }
   }, [currentStep]);
 
-  // Save form state whenever it changes
   useEffect(() => {
     saveFormState();
   }, [phone, selectedNetwork, selectedPlan]);
 
-  // FIXED: Simple token getter using AuthContext
   const getAuthToken = async () => {
     if (!token) {
       console.log('No token available from AuthContext');
@@ -182,7 +235,6 @@ export default function BuyData() {
     return token;
   };
 
-  // FIXED: Updated API request function
   const makeApiRequest = async (endpoint, options = {}) => {
     console.log(`API Request: ${endpoint}`);
     
@@ -219,7 +271,6 @@ export default function BuyData() {
         }
       }
 
-      // Handle authentication errors
       if (response.status === 401) {
         throw new Error('Session expired. Please login again.');
       }
@@ -255,28 +306,34 @@ export default function BuyData() {
       throw new Error(error.message || 'Request failed');
     }
   };
-
-  // Fetch data plans
-  const fetchDataPlans = async (network: string) => {
-    setIsLoadingPlans(true);
-    try {
-      const response = await makeApiRequest(`/data/plans/${network}`);
-      
-      if (response.success) {
-        setDataPlans(response.plans || []);
-      } else {
-        throw new Error(response.message || 'Failed to fetch data plans');
-      }
-    } catch (error) {
-      console.error('Error fetching data plans:', error);
-      Alert.alert('Error', 'Could not load data plans. Please try again.');
-      setDataPlans([]);
-    } finally {
-      setIsLoadingPlans(false);
+const fetchDataPlans = async (network: string) => {
+  setIsLoadingPlans(true);
+  try {
+    const timestamp = Date.now();
+    const response = await makeApiRequest(`/data/plans/${network}?t=${timestamp}`);
+    
+    console.log('Fetched plans:', response.plans?.slice(0, 2));
+    
+    if (response.success) {
+      // Ensure all plans have customerPrice
+      const plansWithPrice = (response.plans || []).map(plan => ({
+        ...plan,
+        customerPrice: plan.customerPrice || plan.providerCost || plan.amount || 0,
+        amount: plan.providerCost || plan.amount || 0
+      }));
+      setDataPlans(plansWithPrice);
+    } else {
+      throw new Error(response.message || 'Failed to fetch data plans');
     }
-  };
+  } catch (error) {
+    console.error('Error fetching data plans:', error);
+    Alert.alert('Error', 'Could not load data plans. Please try again.');
+    setDataPlans([]);
+  } finally {
+    setIsLoadingPlans(false);
+  }
+};
 
-  // PIN Functions
   const checkPinStatus = async () => {
     try {
       console.log('Checking PIN status...');
@@ -290,18 +347,15 @@ export default function BuyData() {
     }
   };
 
-  // FIXED: Updated balance fetch using AuthContext
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
       console.log("Refreshing balance from AuthContext");
       
-      // Use AuthContext's refresh function
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      // Update local balance state from AuthContext
       if (balance) {
         const balanceAmount = parseFloat(balance.amount) || 0;
         
@@ -318,7 +372,6 @@ export default function BuyData() {
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
         console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        // Fallback: try direct API call
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
@@ -340,7 +393,6 @@ export default function BuyData() {
     } catch (error) {
       console.error("Balance fetch error:", error);
       
-      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
@@ -411,7 +463,6 @@ export default function BuyData() {
     }
   };
 
-  // Network logos
   const networks = [
     { id: 'mtn', label: 'MTN', logo: require('../assets/images/mtnlogo.jpg') },
     { id: 'airtel', label: 'AIRTEL', logo: require('../assets/images/Airtelogo.png') },
@@ -419,7 +470,6 @@ export default function BuyData() {
     { id: '9mobile', label: '9MOBILE', logo: require('../assets/images/9mobilelogo.jpg') },
   ];
 
-  // Contact Selection
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -487,7 +537,6 @@ export default function BuyData() {
     setSelectedPlan(plan);
   };
 
-  // Payment processing
   const validatePinAndPurchase = async () => {
     console.log('=== DATA PAYMENT START ===');
     
@@ -509,7 +558,7 @@ export default function BuyData() {
           phone: phone,
           planId: selectedPlan?.id,
           plan: selectedPlan?.name,
-          amount: selectedPlan?.amount,
+          amount: selectedPlan?.customerPrice,
           pin: pin,
         }),
       });
@@ -517,10 +566,8 @@ export default function BuyData() {
       if (response.success === true) {
         console.log('Data payment successful!');
         
-        // Save recent number
         await saveRecentNumber(phone);
         
-        // Update balance
         if (response.newBalance) {
           const balanceAmount = response.newBalance.amount || 
                                response.newBalance.totalBalance || 
@@ -539,16 +586,14 @@ export default function BuyData() {
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
         }
 
-        // Clear form
         await AsyncStorage.removeItem('dataFormState');
 
-        // Prepare success data
         const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
         setSuccessData({
           transaction: response.transaction || {},
           networkName,
           phone,
-          amount: response.transaction?.amount || selectedPlan?.amount,
+          amount: response.transaction?.amount || selectedPlan?.customerPrice,
           dataPlan: selectedPlan?.name,
           newBalance: response.newBalance
         });
@@ -612,16 +657,12 @@ export default function BuyData() {
 
   return (
     <View style={styles.container}>
-   
-
-      {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Beneficiary Section */}
           <View style={styles.section}>
             <Text style={styles.label}>Beneficiary</Text>
             <View style={styles.buttonRow}>
@@ -653,7 +694,6 @@ export default function BuyData() {
             </View>
           </View>
 
-          {/* Phone Number */}
           <View style={styles.section}>
             <Text style={styles.label}>Phone Number</Text>
             <TextInput
@@ -674,10 +714,9 @@ export default function BuyData() {
             )}
           </View>
 
-          {/* Network Selection */}
           <View style={styles.section}>
             <Text style={styles.label}>
-              Select Network {selectedNetwork && '(Auto-detected)'}
+              Select Network{selectedNetwork ? ' (Auto-detected)' : ''}
             </Text>
             <View style={styles.networkRow}>
               {networks.map((net) => (
@@ -696,10 +735,10 @@ export default function BuyData() {
             </View>
           </View>
 
-          {/* Data Plan Selection */}
           {showPlans && (
             <View style={styles.section}>
               <Text style={styles.label}>Select Data Plan</Text>
+              
               {isLoadingPlans ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#ff3b30" />
@@ -707,27 +746,124 @@ export default function BuyData() {
                 </View>
               ) : dataPlans.length > 0 ? (
                 <>
-                  <View style={styles.planGrid}>
-                    {dataPlans.map((plan) => (
-                      <TouchableOpacity
-                        key={plan.id}
-                        style={[
-                          styles.planCard,
-                          selectedPlan?.id === plan.id && styles.planSelected
-                        ]}
-                        onPress={() => handleQuickPlanSelect(plan)}
-                      >
-                        <Text style={styles.planName}>{plan.name}</Text>
-                        <Text style={styles.planData}>{plan.dataSize}</Text>
-                        <Text style={styles.planValidity}>{plan.validity}</Text>
-                        <Text style={styles.planAmount}>₦{plan.amount.toLocaleString()}</Text>
-                      </TouchableOpacity>
-                    ))}
+                  <View style={styles.categoryTabs}>
+                    <TouchableOpacity
+                      style={[
+                        styles.categoryTab,
+                        selectedCategory === 'daily' && styles.categoryTabActive
+                      ]}
+                      onPress={() => setSelectedCategory('daily')}
+                    >
+                      <Text style={[
+                        styles.categoryTabText,
+                        selectedCategory === 'daily' && styles.categoryTabTextActive
+                      ]}>
+                        Daily
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.categoryTab,
+                        selectedCategory === 'short' && styles.categoryTabActive
+                      ]}
+                      onPress={() => setSelectedCategory('short')}
+                    >
+                      <Text style={[
+                        styles.categoryTabText,
+                        selectedCategory === 'short' && styles.categoryTabTextActive
+                      ]}>
+                        2-3 Days
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.categoryTab,
+                        selectedCategory === 'weekly' && styles.categoryTabActive
+                      ]}
+                      onPress={() => setSelectedCategory('weekly')}
+                    >
+                      <Text style={[
+                        styles.categoryTabText,
+                        selectedCategory === 'weekly' && styles.categoryTabTextActive
+                      ]}>
+                        Weekly
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.categoryTab,
+                        selectedCategory === 'monthly' && styles.categoryTabActive
+                      ]}
+                      onPress={() => setSelectedCategory('monthly')}
+                    >
+                      <Text style={[
+                        styles.categoryTabText,
+                        selectedCategory === 'monthly' && styles.categoryTabTextActive
+                      ]}>
+                        Monthly
+                      </Text>
+                    </TouchableOpacity>
                   </View>
+
+                  {displayPlans.length > 0 ? (
+                    <ScrollView 
+                      style={styles.plansScrollView}
+                      showsVerticalScrollIndicator={false}
+                      nestedScrollEnabled={true}
+                    >
+                      {displayPlans.map((plan, index) => (
+                        <TouchableOpacity
+                          key={`${plan.network}-${plan.id}-${index}`}
+                          style={[
+                            styles.planRow,
+                            selectedPlan?.id === plan.id && styles.planRowSelected
+                          ]}
+                          onPress={() => handleQuickPlanSelect(plan)}
+                        >
+                          <View style={styles.planRowLeft}>
+                            <Text style={styles.planRowName}>{plan.name}</Text>
+                            <Text style={styles.planRowData}>{plan.dataSize}</Text>
+                            <Text style={styles.planRowValidity}>{plan.validity}</Text>
+                          </View>
+                          <View style={styles.planRowRight}>
+                            <Text style={styles.planRowAmount}>₦{plan.customerPrice.toLocaleString()}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  ) : (
+                    <View style={styles.emptyCategory}>
+                      <Text style={styles.emptyCategoryText}>
+                        No {selectedCategory} plans available
+                      </Text>
+                      <TouchableOpacity 
+                        style={styles.showAllBtn}
+                        onPress={() => {
+                          const counts = {
+                            daily: categorizedPlans.daily.length,
+                            weekly: categorizedPlans.weekly.length,
+                            monthly: categorizedPlans.monthly.length
+                          };
+                          const maxCategory = Object.keys(counts).reduce((a, b) => 
+                            counts[a] > counts[b] ? a : b
+                          ) as PlanCategory;
+                          setSelectedCategory(maxCategory);
+                        }}
+                      >
+                        <Text style={styles.showAllBtnText}>View Available Plans</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
                   {selectedPlan && (
-                    <Text style={styles.success}>
-                      ✓ Selected: {selectedPlan.name} ({selectedPlan.dataSize}) - ₦{selectedPlan.amount.toLocaleString()}
-                    </Text>
+                    <View style={styles.selectedPlanSummary}>
+                      <Text style={styles.success}>
+                        ✓ {selectedPlan.name}: {selectedPlan.dataSize} for {selectedPlan.validity} - ₦{selectedPlan.customerPrice.toLocaleString()}
+                      </Text>
+                    </View>
                   )}
                 </>
               ) : (
@@ -736,26 +872,25 @@ export default function BuyData() {
             </View>
           )}
 
-          {/* Proceed Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
           >
             <Text style={styles.proceedText}>
-              Review Purchase {canProceed && selectedPlan && `• ₦${selectedPlan.amount.toLocaleString()}`}
+              {canProceed && selectedPlan 
+                ? `Review Purchase • ₦${selectedPlan.customerPrice.toLocaleString()}`
+                : 'Review Purchase'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW/SUMMARY */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* Balance Card */}
           <View style={styles.balanceCard}>
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceTitle}>Wallet Balance</Text>
@@ -782,28 +917,26 @@ export default function BuyData() {
                   Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
                 </Text>
 
-                {/* Show balance after transaction */}
                 {selectedPlan && (
                   <View style={styles.transactionPreview}>
                     <Text style={styles.previewLabel}>After purchase:</Text>
                     <Text style={[
                       styles.previewAmount,
-                      (userBalance.total - selectedPlan.amount) < 0 ? styles.insufficientPreview : styles.sufficientPreview
+                      (userBalance.total - selectedPlan.customerPrice) < 0 ? styles.insufficientPreview : styles.sufficientPreview
                     ]}>
-                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.amount).toLocaleString()}
+                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
                     </Text>
                   </View>
                 )}
 
-                {/* Insufficient balance warning */}
-                {selectedPlan && selectedPlan.amount > (userBalance.total || userBalance.amount || 0) && (
+                {selectedPlan && selectedPlan.customerPrice > (userBalance.total || userBalance.amount || 0) && (
                   <View style={styles.insufficientBalanceWarning}>
                     <Text style={styles.warningText}>
                       ⚠️ Insufficient balance for this transaction
                     </Text>
                     <TouchableOpacity 
                       style={styles.topUpBtn}
-                      onPress={() => {/* Navigate to top-up */}}
+                      onPress={() => {}}
                     >
                       <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
                     </TouchableOpacity>
@@ -827,11 +960,9 @@ export default function BuyData() {
             )}
           </View>
 
-          {/* Summary Card */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Purchase Summary</Text>
 
-            {/* Network */}
             {selectedNetwork && (
               <View style={styles.summaryRow}>
                 <View style={styles.summaryLeft}>
@@ -846,7 +977,6 @@ export default function BuyData() {
               </View>
             )}
 
-            {/* Data Plan */}
             {selectedPlan && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Plan:</Text>
@@ -854,7 +984,6 @@ export default function BuyData() {
               </View>
             )}
 
-            {/* Data Size */}
             {selectedPlan && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Data:</Text>
@@ -862,7 +991,6 @@ export default function BuyData() {
               </View>
             )}
 
-            {/* Validity */}
             {selectedPlan && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Validity:</Text>
@@ -870,18 +998,16 @@ export default function BuyData() {
               </View>
             )}
 
-            {/* Phone */}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Recipient:</Text>
               <Text style={styles.summaryValue}>{phone}</Text>
             </View>
 
-            {/* Amount */}
             {selectedPlan && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Amount:</Text>
                 <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                  ₦{selectedPlan.amount.toLocaleString()}
+                  ₦{selectedPlan.customerPrice.toLocaleString()}
                 </Text>
               </View>
             )}
@@ -892,7 +1018,7 @@ export default function BuyData() {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Total:</Text>
                 <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                  ₦{selectedPlan.amount.toLocaleString()}
+                  ₦{selectedPlan.customerPrice.toLocaleString()}
                 </Text>
               </View>
             )}
@@ -903,15 +1029,14 @@ export default function BuyData() {
                 <Text style={[
                   styles.summaryValue, 
                   styles.summaryBalance,
-                  (userBalance.total - selectedPlan.amount) < 0 ? styles.negativeBalance : {}
+                  (userBalance.total - selectedPlan.customerPrice) < 0 ? styles.negativeBalance : {}
                 ]}>
-                  ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.amount).toLocaleString()}
+                  ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
                 </Text>
               </View>
             )}
           </View>
 
-          {/* Proceed to PIN Button */}
           <TouchableOpacity
             style={[
               styles.proceedBtn, 
@@ -925,7 +1050,6 @@ export default function BuyData() {
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(1)}
@@ -935,13 +1059,11 @@ export default function BuyData() {
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
       {currentStep === 3 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* PIN Status Check */}
           {pinStatus?.isLocked && (
             <View style={styles.lockedCard}>
               <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
@@ -968,7 +1090,6 @@ export default function BuyData() {
 
           {pinStatus?.isPinSet && !pinStatus?.isLocked && (
             <>
-              {/* Transaction Summary */}
               <View style={styles.pinSummaryCard}>
                 <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
 
@@ -998,13 +1119,12 @@ export default function BuyData() {
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryLabel}>Amount:</Text>
                     <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                      ₦{selectedPlan.amount.toLocaleString()}
+                      ₦{selectedPlan.customerPrice.toLocaleString()}
                     </Text>
                   </View>
                 )}
               </View>
 
-              {/* PIN Entry */}
               <View style={styles.pinCard}>
                 <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
 
@@ -1038,7 +1158,6 @@ export default function BuyData() {
                   </Text>
                 )}
 
-                {/* PIN Dots Display */}
                 <View style={styles.pinDotsContainer}>
                   {[0, 1, 2, 3].map((index) => (
                     <View
@@ -1053,7 +1172,6 @@ export default function BuyData() {
                 </View>
               </View>
 
-              {/* Confirm Payment Button */}
               <TouchableOpacity
                 style={[
                   styles.proceedBtn,
@@ -1071,14 +1189,13 @@ export default function BuyData() {
                   </View>
                 ) : (
                   <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{selectedPlan?.amount.toLocaleString()}
+                    Confirm Payment • ₦{selectedPlan?.customerPrice.toLocaleString()}
                   </Text>
                 )}
               </TouchableOpacity>
             </>
           )}
 
-          {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(2)}
@@ -1089,7 +1206,6 @@ export default function BuyData() {
         </ScrollView>
       )}
 
-      {/* Contacts Modal */}
       <Modal visible={showContactsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -1119,7 +1235,6 @@ export default function BuyData() {
         </View>
       </Modal>
 
-      {/* Recent Numbers Modal */}
       <Modal visible={showRecentsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -1157,7 +1272,6 @@ export default function BuyData() {
         </View>
       </Modal>
 
-      {/* Success Modal */}
       {showSuccessModal && successData && (
         <DataSuccessModal
           visible={showSuccessModal}
@@ -1175,613 +1289,111 @@ export default function BuyData() {
   );
 }
 
-// Styles
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
-
-
-scrollContent: { 
-  flex: 1 
-},
-
-  section: { margin: 16, marginBottom: 24 },
-  label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#333' 
-  },
-
+  scrollContent: { flex: 1 },
+  section: { marginHorizontal: 16, marginTop: 20, marginBottom: 8 },
+  label: { fontSize: 16, fontWeight: '600', marginBottom: 12, color: '#333' },
   buttonRow: { flexDirection: 'row' },
-  actionBtn: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
+  actionBtn: { borderWidth: 1, borderColor: '#ddd', padding: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#fff' },
   actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
-
-  networkRow: { 
-    flexDirection: 'row', 
-    justifyContent: 'space-between',
-    gap: 8
-  },
-  networkCard: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-    flex: 1,
-    backgroundColor: '#fff',
-    minHeight: 80,
-  },
-  networkSelected: { 
-    borderColor: '#ff3b30', 
-    backgroundColor: '#fff5f5',
-    borderWidth: 2 
-  },
+  networkRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  networkCard: { borderWidth: 1, borderColor: '#ddd', padding: 12, borderRadius: 12, alignItems: 'center', flex: 1, backgroundColor: '#fff', minHeight: 80 },
+  networkSelected: { borderColor: '#ff3b30', backgroundColor: '#fff5f5', borderWidth: 2 },
   networkLogo: { width: 40, height: 40, resizeMode: 'contain', marginBottom: 4 },
   networkLabel: { fontSize: 10, fontWeight: '600', color: '#666' },
-
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  error: { 
-    color: '#ff3b30', 
-    fontSize: 12, 
-    marginTop: 6,
-    fontWeight: '500' 
-  },
-  success: {
-    color: '#28a745',
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '500'
-  },
-
-  proceedBtn: {
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#ff3b30',
-    alignItems: 'center',
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  proceedDisabled: { 
-    backgroundColor: '#ccc',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  proceedText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
-  },
-
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  backBtnText: {
-    color: '#fff',
-  },
-
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  summaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  summaryTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    marginBottom: 16, 
-    textAlign: 'center',
-    color: '#333' 
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  summaryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryLogo: { 
-    width: 30, 
-    height: 30, 
-    resizeMode: 'contain', 
-    marginRight: 8 
-  },
-  summaryLabel: { 
-    fontWeight: '600', 
-    fontSize: 14, 
-    color: '#666',
-    flex: 1,
-  },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 14, fontSize: 16, backgroundColor: '#fff' },
+  error: { color: '#ff3b30', fontSize: 12, marginTop: 6, fontWeight: '500' },
+  success: { color: '#28a745', fontSize: 12, marginTop: 6, fontWeight: '500' },
+  proceedBtn: { margin: 16, padding: 16, borderRadius: 12, backgroundColor: '#ff3b30', alignItems: 'center', shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
+  proceedDisabled: { backgroundColor: '#ccc', shadowOpacity: 0, elevation: 0 },
+  proceedText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  backBtn: { backgroundColor: '#6c757d', marginTop: 8, shadowColor: '#6c757d' },
+  backBtnText: { color: '#fff' },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
+  categoryTabs: { flexDirection: 'row', marginBottom: 16, backgroundColor: '#f0f0f0', borderRadius: 12, padding: 4, gap: 8 },
+  categoryTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+  categoryTabActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
+  categoryTabText: { fontSize: 11, fontWeight: '500', color: '#666' },
+  categoryTabTextActive: { color: '#ff3b30', fontWeight: '700' },
+  plansScrollView: { maxHeight: 300 },
+  planRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, marginBottom: 8, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ddd' },
+  planRowSelected: { borderColor: '#ff3b30', backgroundColor: '#fff5f5', borderWidth: 2 },
+  planRowLeft: { flex: 1 },
+  planRowName: { fontSize: 14, fontWeight: 'bold', color: '#ff3b30', marginBottom: 4 },
+  planRowData: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 2 },
+  planRowValidity: { fontSize: 12, color: '#666' },
+  planRowRight: { alignItems: 'flex-end' },
+  planRowAmount: { fontSize: 18, fontWeight: '700', color: '#28a745' },
+  emptyCategory: { padding: 40, alignItems: 'center' },
+  emptyCategoryText: { color: '#999', fontSize: 14, marginBottom: 12 },
+  showAllBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  showAllBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  selectedPlanSummary: { marginTop: 12, padding: 12, backgroundColor: '#f0f9ff', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#28a745' },
+  summaryCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
+  summaryTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center', color: '#333' },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  summaryLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  summaryLogo: { width: 30, height: 30, resizeMode: 'contain', marginRight: 8 },
+  summaryLabel: { fontWeight: '600', fontSize: 14, color: '#666', flex: 1 },
   summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
-  summaryValue: { 
-    fontSize: 14, 
-    color: '#333', 
-    fontWeight: '600',
-    textAlign: 'right',
-  },
+  summaryValue: { fontSize: 14, color: '#333', fontWeight: '600', textAlign: 'right' },
   summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 12,
-  },
-  summaryTotal: {
-    fontSize: 18,
-    color: '#ff3b30',
-    fontWeight: '700',
-  },
-
-  // Balance Card Styles
-  balanceCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
-  },
-  balanceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  balanceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  refreshBtn: {
-    padding: 4,
-  },
-  refreshText: {
-    fontSize: 16,
-  },
-  totalBalance: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#28a745',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  insufficientBalanceWarning: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
-  },
-  warningText: {
-    color: '#856404',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  topUpBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  retryBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryBalance: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  negativeBalance: {
-    color: '#dc3545',
-  },
-
-  // PIN Entry Styles
-  pinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    alignItems: 'center',
-  },
-  pinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pinInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    letterSpacing: 8,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: '#f8f9fa',
-    width: 150,
-  },
-  pinInputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  pinError: {
-    color: '#ff3b30',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
-  },
-  pinHelp: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  pinDotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    marginBottom: 20,
-  },
-  pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#e0e0e0',
-    borderWidth: 2,
-    borderColor: '#ddd',
-  },
-  pinDotFilled: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  pinDotError: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff3b30',
-  },
-
-  pinSummaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderTopWidth: 4,
-    borderTopColor: '#ff3b30',
-  },
-  pinSummaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-
-  attemptsWarning: {
-    color: '#ff8c00',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 16,
-    backgroundColor: '#fff3cd',
-    padding: 8,
-    borderRadius: 8,
-  },
-
-  // Account Locked Styles
-  lockedCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#dc3545',
-  },
-  lockedTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  lockedText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-
-  // No PIN Set Styles
-  noPinCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
-  },
-  noPinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  noPinText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-
-  // Modal Styles
-  modalContainer: { 
-    flex: 1, 
-    backgroundColor: '#fff',
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: '#333' 
-  },
-  modalCloseBtn: {
-    padding: 8,
-  },
-  modalCloseBtnText: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: 'bold',
-  },
-
-  contactItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  contactInfo: {
-    flex: 1,
-  },
-  contactName: { 
-    fontSize: 16, 
-    fontWeight: '500', 
-    color: '#333',
-    marginBottom: 2,
-  },
-  contactNumber: { 
-    color: '#666', 
-    fontSize: 14 
-  },
-  recentTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 16,
-    marginTop: 40,
-  },
-
-  // Data Plan Styles
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-  },
-  loadingText: {
-    marginLeft: 8,
-    color: '#666',
-  },
-  planGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 16,
-  },
-  planCard: {
-    width: '48%',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-  },
-  planSelected: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-    borderWidth: 2,
-  },
-  planName: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 4,
-  },
-  planData: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ff3b30',
-    marginBottom: 4,
-  },
-  planValidity: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 8,
-  },
-  planAmount: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#28a745',
-  },
+  summaryDivider: { height: 1, backgroundColor: '#eee', marginVertical: 12 },
+  summaryTotal: { fontSize: 18, color: '#ff3b30', fontWeight: '700' },
+  balanceCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#ff3b30' },
+  balanceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  balanceTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
+  refreshBtn: { padding: 4 },
+  refreshText: { fontSize: 16 },
+  totalBalance: { fontSize: 32, fontWeight: '700', color: '#28a745', textAlign: 'center', marginBottom: 16 },
+  lastUpdated: { fontSize: 11, color: '#999', textAlign: 'center', marginTop: 8 },
+  insufficientBalanceWarning: { marginTop: 16, padding: 12, backgroundColor: '#fff3cd', borderRadius: 8, borderWidth: 1, borderColor: '#ffeaa7' },
+  warningText: { color: '#856404', fontSize: 14, fontWeight: '500', textAlign: 'center', marginBottom: 8 },
+  topUpBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, alignSelf: 'center' },
+  topUpBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  loadingBalance: { alignItems: 'center', paddingVertical: 20 },
+  noBalanceText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 12 },
+  retryBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
+  retryBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  summaryBalance: { fontSize: 16, fontWeight: '600', color: '#28a745' },
+  negativeBalance: { color: '#dc3545' },
+  pinCard: { margin: 16, padding: 24, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, alignItems: 'center' },
+  pinTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 16, textAlign: 'center' },
+  pinInputContainer: { width: '100%', alignItems: 'center', marginBottom: 16 },
+  pinInput: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, borderWidth: 2, borderColor: '#ddd', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 20, backgroundColor: '#f8f9fa', width: 150 },
+  pinInputError: { borderColor: '#ff3b30', backgroundColor: '#fff5f5' },
+  pinError: { color: '#ff3b30', fontSize: 14, textAlign: 'center', marginBottom: 16, fontWeight: '500' },
+  pinHelp: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16 },
+  pinDotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 20 },
+  pinDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#e0e0e0', borderWidth: 2, borderColor: '#ddd' },
+  pinDotFilled: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
+  pinDotError: { backgroundColor: '#ff6b6b', borderColor: '#ff3b30' },
+  pinSummaryCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderTopWidth: 4, borderTopColor: '#ff3b30' },
+  pinSummaryTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginBottom: 16, textAlign: 'center' },
+  attemptsWarning: { color: '#ff8c00', fontSize: 14, fontWeight: '500', textAlign: 'center', marginBottom: 16, backgroundColor: '#fff3cd', padding: 8, borderRadius: 8 },
+  lockedCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#dc3545' },
+  lockedTitle: { fontSize: 18, fontWeight: '700', color: '#dc3545', textAlign: 'center', marginBottom: 12 },
+  lockedText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  noPinCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#ff8c00' },
+  noPinTitle: { fontSize: 18, fontWeight: '700', color: '#ff8c00', textAlign: 'center', marginBottom: 12 },
+  noPinText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
+  modalContainer: { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'ios' ? 50 : 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
+  modalCloseBtn: { padding: 8 },
+  modalCloseBtnText: { fontSize: 18, color: '#666', fontWeight: 'bold' },
+  contactItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  contactInfo: { flex: 1 },
+  contactName: { fontSize: 16, fontWeight: '500', color: '#333', marginBottom: 2 },
+  contactNumber: { color: '#666', fontSize: 14 },
+  recentTime: { fontSize: 12, color: '#999' },
+  transactionPreview: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
+  previewLabel: { fontSize: 14, color: '#666', fontWeight: '500' },
+  previewAmount: { fontSize: 16, fontWeight: '600' },
+  sufficientPreview: { color: '#28a745' },
+  insufficientPreview: { color: '#dc3545' },
+  emptyText: { textAlign: 'center', color: '#999', fontSize: 16, marginTop: 40 },
+  loadingContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: '#f8f9fa', borderRadius: 12 },
+  loadingText: { marginLeft: 8, color: '#666' },
 });
-
-const additionalStyles = {
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-};

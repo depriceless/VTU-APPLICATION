@@ -178,6 +178,7 @@ router.get('/providers', authenticate, async (req, res) => {
 });
 
 // GET /api/cable/packages/:operator - Get packages for specific operator
+// GET /api/cable/packages/:operator - Get packages for specific operator
 router.get('/packages/:operator', authenticate, async (req, res) => {
   try {
     const { operator } = req.params;
@@ -192,102 +193,64 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
 
     console.log(`Fetching packages for ${operator} (${clubKonnectOperator})`);
 
-    // Get packages from ClubKonnect
     const response = await makeClubKonnectRequest('/APICableTVPackagesV2.asp', {
       CableTV: clubKonnectOperator
     });
 
-    console.log('Raw ClubKonnect packages response:', JSON.stringify(response, null, 2));
+    console.log('ClubKonnect Raw Response:', JSON.stringify(response, null, 2));
 
-    // Parse the response based on ClubKonnect's actual format
     let packages = [];
     
-    // ClubKonnect returns an object with package codes as keys
-    if (response && typeof response === 'object' && !Array.isArray(response)) {
-      // Filter out non-package fields (status codes, etc.)
-      const packageEntries = Object.entries(response).filter(([code]) => {
-        // Exclude common API response fields
-        const excludedFields = ['status', 'statuscode', 'message', 'error'];
-        return !excludedFields.includes(code.toLowerCase());
-      });
-
-      packages = packageEntries.map(([code, details]) => {
-        // Handle different response formats
-        let description = '';
-        let amount = 0;
-
-        // Case 1: details is a string (most common for ClubKonnect)
-        if (typeof details === 'string') {
-          description = details;
+    if (response && response.TV_ID) {
+      const operatorKeyMap = {
+        'dstv': 'DStv',
+        'gotv': 'GOtv',
+        'startimes': 'Startimes'
+      };
+      
+      const operatorKey = operatorKeyMap[clubKonnectOperator];
+      
+      if (operatorKey && response.TV_ID[operatorKey]) {
+        const operatorData = response.TV_ID[operatorKey];
+        
+        if (Array.isArray(operatorData) && operatorData.length > 0) {
+          const productList = operatorData[0].PRODUCT;
           
-          // Extract amount from description
-          // Matches: "N4,400", "N 4,400", "4400 Naira", "NGN4400", etc.
-          const amountMatch = description.match(/(?:N|NGN|₦)?\s?([\d,]+(?:\.\d{2})?)/i);
-          if (amountMatch) {
-            amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+          if (Array.isArray(productList)) {
+           packages = productList.map(product => {
+  // Use PACKAGE_AMOUNT as both provider cost and customer price
+  const providerCost = parseFloat(product.PACKAGE_AMOUNT || 0);
+  
+  // NO MARKUP - customer pays exactly what ClubKonnect charges
+  const customerPrice = providerCost;
+  const profit = 0;
+  
+  return {
+    id: product.PACKAGE_ID,
+    variation_id: product.PACKAGE_ID,
+    name: product.PACKAGE_NAME,
+    amount: customerPrice,  // Customer pays ₦1,900
+    providerCost: providerCost,  // You pay ₦1,900
+    profit: profit,  // ₦0 profit
+    duration: '30 days',
+    description: product.PACKAGE_NAME,
+    package_name: product.PACKAGE_NAME
+  };
+}).filter(pkg => pkg.providerCost > 0 && pkg.amount >= 500 && pkg.amount <= 50000);
           }
-        } 
-        // Case 2: details is an object
-        else if (typeof details === 'object' && details !== null) {
-          description = details.description || details.name || details.package_name || code;
-          amount = parseFloat(details.amount || details.price || 0);
         }
-        // Case 3: fallback
-        else {
-          description = String(details || code);
-        }
-
-        // Return formatted package
-        return {
-          id: code,
-          variation_id: code,
-          name: description.trim(),
-          amount: amount,
-          duration: '30 days',
-          description: description.trim(),
-          package_name: description.trim()
-        };
-      })
-      // Filter out packages with invalid amounts
-      .filter(pkg => pkg.amount > 0);
-    } 
-    // Fallback: if response is an array
-    else if (Array.isArray(response)) {
-      packages = response
-        .map(pkg => {
-          const description = pkg.description || pkg.name || pkg.package_name || '';
-          let amount = parseFloat(pkg.amount || pkg.price || 0);
-          
-          // If amount not found, try to extract from description
-          if (amount === 0 && description) {
-            const amountMatch = description.match(/(?:N|NGN|₦)?\s?([\d,]+(?:\.\d{2})?)/i);
-            if (amountMatch) {
-              amount = parseFloat(amountMatch[1].replace(/,/g, ''));
-            }
-          }
-
-          return {
-            id: pkg.code || pkg.package_code || pkg.id || pkg.variation_id,
-            variation_id: pkg.code || pkg.package_code || pkg.id || pkg.variation_id,
-            name: description,
-            amount: amount,
-            duration: pkg.duration || '30 days',
-            description: description,
-            package_name: description
-          };
-        })
-        .filter(pkg => pkg.amount > 0);
+      }
     }
     
-    // Log parsing results
-    console.log(`Successfully parsed ${packages.length} packages`);
-    if (packages.length > 0) {
-      console.log('Sample package:', packages[0]);
-    } else {
-      console.warn('No valid packages found in response');
-    }
+    console.log(`Processed ${packages.length} valid packages for ${operator}`);
 
-    console.log(`Processed ${packages.length} packages for ${operator}`);
+    if (packages.length === 0) {
+      console.error('No valid packages found!');
+      return res.status(400).json({
+        success: false,
+        message: 'No packages available from provider'
+      });
+    }
 
     res.json({
       success: true,
@@ -305,7 +268,6 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
     });
   }
 });
-
 // Health check
 router.get('/health', (req, res) => {
   res.json({

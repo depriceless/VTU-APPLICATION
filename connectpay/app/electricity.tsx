@@ -20,10 +20,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../contexts/AuthContext';
 
 // API Configuration
+// API Configuration - TEMPORARY HARDCODED FOR TESTING PORT 5001
 const API_CONFIG = {
-  BASE_URL: Platform.OS === 'web' 
-    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
-    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+  BASE_URL: 'http://10.157.13.7:5002/api',
 };
 
 interface Contact {
@@ -124,13 +123,13 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
   // Meter Types
   const meterTypes: MeterType[] = [
     { 
-      id: 'prepaid', 
+      id: '01', 
       name: 'Prepaid Meter', 
       type: 'prepaid',
       description: 'Pay before you use electricity - Buy units in advance'
     },
     { 
-      id: 'postpaid', 
+      id: '02', 
       name: 'Postpaid Meter', 
       type: 'postpaid',
       description: 'Pay after you use electricity - Monthly billing system'
@@ -139,17 +138,17 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
 
   // Default electricity providers
   const defaultProviders: ElectricityProvider[] = [
-    { id: 'aedc', name: 'Abuja Electric', fullName: 'Abuja Electricity Distribution Company', acronym: 'AEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'bedc', name: 'Benin Electric', fullName: 'Benin Electricity Distribution Company', acronym: 'BEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'eedc', name: 'Enugu Electric', fullName: 'Enugu Electricity Distribution Company', acronym: 'EEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'ekedc', name: 'Eko Electric', fullName: 'Eko Electricity Distribution Company', acronym: 'EKEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'ibedc', name: 'Ibadan Electric', fullName: 'Ibadan Electricity Distribution Company', acronym: 'IBEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'ikedc', name: 'Ikeja Electric', fullName: 'Ikeja Electric Distribution Company', acronym: 'IKEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'jedc', name: 'Jos Electric', fullName: 'Jos Electricity Distribution Company', acronym: 'JEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'kaedc', name: 'Kaduna Electric', fullName: 'Kaduna Electric Distribution Company', acronym: 'KAEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'kedc', name: 'Kano Electric', fullName: 'Kano Electricity Distribution Company', acronym: 'KEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'phedc', name: 'Port Harcourt Electric', fullName: 'Port Harcourt Electric Distribution Company', acronym: 'PHEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
-    { id: 'yedc', name: 'Yola Electric', fullName: 'Yola Electricity Distribution Company', acronym: 'YEDC', isActive: true, minAmount: 100, maxAmount: 100000, fee: 50 },
+    { id: '01', name: 'Eko Electric', fullName: 'Eko Electricity Distribution Company', acronym: 'EKEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '02', name: 'Ikeja Electric', fullName: 'Ikeja Electric Distribution Company', acronym: 'IKEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '03', name: 'Abuja Electric', fullName: 'Abuja Electricity Distribution Company', acronym: 'AEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '04', name: 'Kano Electric', fullName: 'Kano Electricity Distribution Company', acronym: 'KEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '05', name: 'Port Harcourt Electric', fullName: 'Port Harcourt Electric Distribution Company', acronym: 'PHEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '06', name: 'Jos Electric', fullName: 'Jos Electricity Distribution Company', acronym: 'JEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '07', name: 'Ibadan Electric', fullName: 'Ibadan Electricity Distribution Company', acronym: 'IBEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '08', name: 'Kaduna Electric', fullName: 'Kaduna Electric Distribution Company', acronym: 'KAEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '09', name: 'Enugu Electric', fullName: 'Enugu Electricity Distribution Company', acronym: 'EEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '10', name: 'Benin Electric', fullName: 'Benin Electricity Distribution Company', acronym: 'BEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
+    { id: '11', name: 'Yola Electric', fullName: 'Yola Electricity Distribution Company', acronym: 'YEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
   ];
 
   // Validation
@@ -400,15 +399,14 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     setCustomerAccountNumber('');
 
     try {
-      const response = await makeApiRequest('/electricity/validate-meter', {
-        method: 'POST',
-        body: JSON.stringify({ 
-          meterNumber, 
-          provider: selectedProvider,
-          meterType: selectedMeterType
-        }),
-      });
-
+     const response = await makeApiRequest('/purchase/electricity/validate-meter', {
+  method: 'POST',
+  body: JSON.stringify({ 
+    meterNumber, 
+    provider: selectedProvider,
+    meterType: selectedMeterType
+  }),
+});
       if (response?.success) {
         setCustomerName(response.data?.customerName || 'Verified Customer');
         setCustomerAddress(response.data?.customerAddress || '');
@@ -694,8 +692,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#ff3b30" />
-      
-      
 
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
@@ -716,7 +712,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 {isLoadingContacts ? (
                   <ActivityIndicator size="small" color="#555" />
                 ) : (
-                  <Text style={styles.actionBtnText}>📞 Contacts</Text>
+                  <Text style={styles.actionBtnText}>Contacts</Text>
                 )}
               </TouchableOpacity>
 
@@ -724,7 +720,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
                 onPress={showRecentNumbers}
               >
-                <Text style={styles.actionBtnText}>🕐 Recent ({recentNumbers.length})</Text>
+                <Text style={styles.actionBtnText}>Recent ({recentNumbers.length})</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -735,7 +731,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
             <TextInput
               style={styles.input}
               keyboardType="phone-pad"
-              placeholder="Enter phone number (e.g., 08012345678)"
+              placeholder="08012345678"
               maxLength={11}
               value={phone}
               onChangeText={setPhone}
@@ -744,13 +740,13 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
               <Text style={styles.error}>{getPhoneValidation(phone)}</Text>
             )}
             {phone !== '' && isPhoneValid && (
-              <Text style={styles.success}>✓ Valid phone number</Text>
+              <Text style={styles.success}>Valid phone number</Text>
             )}
           </View>
 
           {/* Provider Selection */}
           <View style={styles.section}>
-            <Text style={styles.label}>Select Electricity Provider</Text>
+            <Text style={styles.label}>Electricity Provider</Text>
             <TouchableOpacity
               style={styles.selector}
               onPress={() => setShowProvidersModal(true)}
@@ -761,7 +757,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                   {selectedProvider ? 
                     electricityProviders.find(p => p.id === selectedProvider)?.fullName + 
                     ` (${electricityProviders.find(p => p.id === selectedProvider)?.acronym})` 
-                    : 'Choose your electricity provider (DISCO)'}
+                    : 'Choose your DISCO'}
                 </Text>
                 {isLoadingProviders ? (
                   <ActivityIndicator size="small" color="#999" />
@@ -784,7 +780,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                   <Text style={[styles.selectorText, selectedMeterType ? styles.selectorTextSelected : {}]}>
                     {selectedMeterType ? 
                       meterTypes.find(m => m.id === selectedMeterType)?.name 
-                      : 'Choose your meter type'}
+                      : 'Choose meter type'}
                   </Text>
                   <Text style={styles.dropdownArrow}>▼</Text>
                 </View>
@@ -809,7 +805,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                     customerName ? styles.inputSuccess : {}
                   ]}
                   keyboardType="numeric"
-                  placeholder="Enter your meter number"
+                  placeholder="Enter meter number"
                   value={meterNumber}
                   onChangeText={setMeterNumber}
                   maxLength={15}
@@ -829,7 +825,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
 
               {customerName && !meterError && (
                 <View style={styles.customerInfo}>
-                  <Text style={styles.success}>✓ Meter verified</Text>
+                  <Text style={styles.success}>Meter verified</Text>
                   <Text style={styles.customerName}>Customer: {customerName}</Text>
                   {customerAddress && (
                     <Text style={styles.customerAddress}>Address: {customerAddress}</Text>
@@ -846,40 +842,14 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
             </View>
           )}
 
-          {/* Quick Amount Buttons */}
+          {/* Amount */}
           {selectedProvider && selectedMeterType && customerName && (
             <View style={styles.section}>
-              <Text style={styles.label}>Quick Amount</Text>
-              <View style={styles.quickAmountGrid}>
-                {quickAmounts.map((quickAmount) => (
-                  <TouchableOpacity
-                    key={quickAmount}
-                    style={[
-                      styles.quickAmountBtn,
-                      amount === quickAmount.toString() && styles.quickAmountSelected
-                    ]}
-                    onPress={() => handleQuickAmount(quickAmount)}
-                  >
-                    <Text style={[
-                      styles.quickAmountText,
-                      amount === quickAmount.toString() && styles.quickAmountSelectedText
-                    ]}>
-                      ₦{quickAmount.toLocaleString()}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
-
-          {/* Custom Amount */}
-          {selectedProvider && selectedMeterType && customerName && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Or Enter Custom Amount (₦)</Text>
+              <Text style={styles.label}>Amount (₦)</Text>
               <TextInput
                 style={styles.input}
                 keyboardType="numeric"
-                placeholder="Enter amount (minimum ₦100)"
+                placeholder="Enter amount (min. ₦100)"
                 value={amount}
                 onChangeText={setAmount}
                 maxLength={6}
@@ -888,24 +858,12 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 <Text style={styles.error}>Amount must be between ₦100 and ₦100,000</Text>
               )}
               {amount !== '' && isAmountValid && hasEnoughBalance && (
-                <Text style={styles.success}>✓ Valid amount</Text>
+                <Text style={styles.success}>Valid amount</Text>
               )}
               {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
                 <Text style={styles.error}>
                   Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
                 </Text>
-              )}
-              {amount !== '' && isAmountValid && (
-                <View style={styles.amountInfo}>
-                  <Text style={styles.amountDisplay}>
-                    You will pay: ₦{amountNum.toLocaleString()}
-                  </Text>
-                  {electricityProviders.find(p => p.id === selectedProvider)?.fee && (
-                    <Text style={styles.feeInfo}>
-                      + ₦{electricityProviders.find(p => p.id === selectedProvider)?.fee} transaction fee
-                    </Text>
-                  )}
-                </View>
               )}
             </View>
           )}
@@ -1470,54 +1428,50 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
   );
 }
 
-// Complete StyleSheet
+// Complete StyleSheet with optimized spacing
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#f8f9fa' 
   },
 
-
   // Content
- scrollContent: { 
-  flex: 1 
-},
-
+  scrollContent: { 
+    flex: 1 
+  },
 
   section: { 
-    margin: 16, 
-    marginBottom: 24 
+    marginHorizontal: 16, 
+    marginBottom: 16 
   },
+  
   label: { 
-    fontSize: 16, 
+    fontSize: 15, 
     fontWeight: '600', 
     marginBottom: 8, 
     color: '#2b2d42' 
   },
+  
   helperText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6c757d',
     marginTop: 4,
-    fontStyle: 'italic',
   },
 
   // Button Row
   buttonRow: { 
     flexDirection: 'row' 
   },
+  
   actionBtn: {
     borderWidth: 1,
     borderColor: '#dee2e6',
-    padding: 14,
-    borderRadius: 12,
+    padding: 12,
+    borderRadius: 10,
     alignItems: 'center',
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
   },
+  
   actionBtnText: { 
     color: '#495057', 
     fontSize: 14, 
@@ -1528,41 +1482,42 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: '#dee2e6',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
     backgroundColor: '#fff',
     color: '#2b2d42',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
   },
+  
   inputError: {
     borderColor: '#ff6b6b',
   },
+  
   inputSuccess: {
     borderColor: '#51cf66',
   },
+  
   inputContainer: {
     position: 'relative',
   },
+  
   inputLoader: {
     position: 'absolute',
-    right: 16,
-    top: 16,
+    right: 12,
+    top: 12,
   },
+  
   error: { 
     color: '#ff6b6b', 
-    fontSize: 13, 
-    marginTop: 6,
+    fontSize: 12, 
+    marginTop: 4,
     fontWeight: '500' 
   },
+  
   success: {
     color: '#51cf66',
-    fontSize: 13,
-    marginTop: 6,
+    fontSize: 12,
+    marginTop: 4,
     fontWeight: '500'
   },
 
@@ -1571,28 +1526,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#dee2e6',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
+    borderRadius: 10,
+    padding: 14,
   },
+  
   selectorContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  
   selectorText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#adb5bd',
     flex: 1,
     marginRight: 8,
   },
+  
   selectorTextSelected: {
     color: '#2b2d42',
   },
+  
   dropdownArrow: {
     color: '#adb5bd',
     fontSize: 12,
@@ -1603,95 +1557,44 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     borderLeftWidth: 3,
     borderLeftColor: '#51cf66',
-    padding: 12,
+    padding: 10,
     borderRadius: 8,
-    marginTop: 8,
+    marginTop: 6,
   },
+  
   customerName: {
     fontSize: 14,
     fontWeight: '600',
     color: '#2b2d42',
-    marginTop: 4,
+    marginTop: 2,
   },
+  
   customerAddress: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6c757d',
     marginTop: 2,
   },
+  
   customerAccount: {
-    fontSize: 13,
-    color: '#6c757d',
-    marginTop: 2,
-  },
-
-  // Quick Amount
-  quickAmountGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  quickAmountBtn: {
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: '#fff',
-    minWidth: 80,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  quickAmountSelected: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  quickAmountText: {
-    textAlign: 'center',
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#495057',
-  },
-  quickAmountSelectedText: {
-    color: '#fff',
-  },
-
-  // Amount Info
-  amountInfo: {
-    marginTop: 8,
-  },
-  amountDisplay: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2b2d42',
-    marginTop: 4,
-  },
-  feeInfo: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6c757d',
     marginTop: 2,
   },
 
   // Proceed Button
   proceedBtn: {
-    margin: 16,
+    marginHorizontal: 16,
+    marginTop: 8,
     padding: 16,
     borderRadius: 12,
     backgroundColor: '#ff3b30',
     alignItems: 'center',
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
   },
+  
   proceedDisabled: { 
     backgroundColor: '#adb5bd',
-    shadowOpacity: 0,
-    elevation: 0,
   },
+  
   proceedText: { 
     color: '#fff', 
     fontSize: 16, 
@@ -1700,9 +1603,8 @@ const styles = StyleSheet.create({
 
   backBtn: {
     backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
   },
+  
   backBtnText: {
     color: '#fff',
   },
@@ -1715,87 +1617,98 @@ const styles = StyleSheet.create({
 
   // Balance Card
   balanceCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',
   },
+  
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
+  
   balanceTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#2b2d42',
   },
+  
   refreshBtn: {
     padding: 4,
   },
+  
   refreshText: {
     fontSize: 16,
   },
+  
   totalBalance: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     color: '#28a745',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
+  
   lastUpdated: {
     fontSize: 11,
     color: '#999',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 4,
   },
+  
   transactionPreview: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 10,
+    paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
+  
   previewLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
     fontWeight: '500',
   },
+  
   previewAmount: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
   },
+  
   sufficientPreview: {
     color: '#28a745',
   },
+  
   insufficientPreview: {
     color: '#dc3545',
   },
+  
   insufficientBalanceWarning: {
-    marginTop: 16,
-    padding: 12,
+    marginTop: 12,
+    padding: 10,
     backgroundColor: '#fff3cd',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ffeaa7',
   },
+  
   warningText: {
     color: '#856404',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
     marginBottom: 8,
   },
+  
   topUpBtn: {
     backgroundColor: '#ff3b30',
     paddingVertical: 8,
@@ -1803,27 +1716,32 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignSelf: 'center',
   },
+  
   topUpBtnText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
   },
+  
   loadingBalance: {
     alignItems: 'center',
     paddingVertical: 20,
   },
+  
   noBalanceText: {
     color: '#666',
     fontSize: 14,
     textAlign: 'center',
     marginBottom: 12,
   },
+  
   retryBtn: {
     backgroundColor: '#ff3b30',
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 20,
   },
+  
   retryBtnText: {
     color: '#fff',
     fontSize: 12,
@@ -1832,89 +1750,93 @@ const styles = StyleSheet.create({
 
   // Summary Card
   summaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
   },
+  
   summaryTitle: { 
-    fontSize: 18, 
+    fontSize: 17, 
     fontWeight: '700', 
-    marginBottom: 16, 
+    marginBottom: 14, 
     textAlign: 'center',
     color: '#2b2d42' 
   },
+  
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
+  
   summaryLabel: { 
-    fontSize: 15,
+    fontSize: 14,
     color: '#6c757d',
     fontWeight: '500',
   },
+  
   summaryValue: { 
-    fontSize: 15, 
+    fontSize: 14, 
     color: '#2b2d42', 
     fontWeight: '500',
     textAlign: 'right',
   },
+  
   summaryAmount: { 
-    fontSize: 16, 
+    fontSize: 15, 
     color: '#ff3b30',
     fontWeight: '600',
   },
+  
   summaryDivider: {
     height: 1,
     backgroundColor: '#e9ecef',
-    marginVertical: 16,
+    marginVertical: 12,
   },
+  
   summaryTotal: {
-    fontSize: 18,
+    fontSize: 17,
     color: '#ff3b30',
     fontWeight: '700',
   },
+  
   summaryBalance: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#28a745',
   },
+  
   negativeBalance: {
     color: '#dc3545',
   },
 
   // PIN Entry Styles
   pinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 20,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
     alignItems: 'center',
   },
+  
   pinTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#2b2d42',
-    marginBottom: 16,
+    marginBottom: 14,
     textAlign: 'center',
   },
+  
   pinInputContainer: {
     width: '100%',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
+  
   pinInput: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -1923,79 +1845,84 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#dee2e6',
     borderRadius: 12,
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     backgroundColor: '#f8f9fa',
     width: 150,
     color: '#2b2d42',
   },
+  
   pinInputError: {
     borderColor: '#ff6b6b',
     backgroundColor: '#fff5f5',
   },
+  
   pinError: {
     color: '#ff6b6b',
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     fontWeight: '500',
   },
+  
   pinHelp: {
     color: '#6c757d',
-    fontSize: 14,
+    fontSize: 13,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
+  
   pinDotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
   },
+  
   pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: '#e9ecef',
     borderWidth: 2,
     borderColor: '#dee2e6',
   },
+  
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
+  
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff6b6b',
   },
 
   pinSummaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
     borderTopWidth: 4,
     borderTopColor: '#ff3b30',
   },
+  
   pinSummaryTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     color: '#2b2d42',
-    marginBottom: 16,
+    marginBottom: 12,
     textAlign: 'center',
   },
 
   attemptsWarning: {
     color: '#ff922b',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     backgroundColor: '#fff3cd',
     padding: 8,
     borderRadius: 8,
@@ -2003,58 +1930,54 @@ const styles = StyleSheet.create({
 
   // Account Status Cards
   lockedCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
     borderLeftWidth: 4,
     borderLeftColor: '#dc3545',
   },
+  
   lockedTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#dc3545',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
+  
   lockedText: {
     color: '#666',
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     lineHeight: 20,
   },
 
   noPinCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+    marginHorizontal: 16,
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
     borderLeftWidth: 4,
     borderLeftColor: '#339af0',
   },
+  
   noPinTitle: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: '#1971c2',
     textAlign: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
+  
   noPinText: {
     color: '#666',
     fontSize: 14,
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     lineHeight: 20,
   },
 
@@ -2064,6 +1987,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     paddingTop: Platform.OS === 'ios' ? 50 : 30,
   },
+  
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -2073,14 +1997,17 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e9ecef',
     backgroundColor: '#fff',
   },
+  
   modalTitle: { 
-    fontSize: 18, 
+    fontSize: 17, 
     fontWeight: '600', 
     color: '#2b2d42' 
   },
+  
   modalCloseBtn: {
     padding: 4,
   },
+  
   modalCloseBtnText: {
     fontSize: 20,
     color: '#6c757d',
@@ -2096,24 +2023,29 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e9ecef',
     backgroundColor: '#fff',
   },
+  
   providerItemSelected: {
     backgroundColor: '#f8f9fa',
   },
+  
   providerInfo: {
     flex: 1,
     marginRight: 12,
   },
+  
   providerName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#2b2d42',
     marginBottom: 2,
   },
+  
   providerFullName: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6c757d',
     marginBottom: 2,
   },
+  
   providerDetails: {
     fontSize: 12,
     color: '#adb5bd',
@@ -2129,21 +2061,25 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e9ecef',
     backgroundColor: '#fff',
   },
+  
   meterTypeItemSelected: {
     backgroundColor: '#f8f9fa',
   },
+  
   meterTypeInfo: {
     flex: 1,
     marginRight: 12,
   },
+  
   meterTypeName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     color: '#2b2d42',
     marginBottom: 4,
   },
+  
   meterTypeDescription: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6c757d',
   },
 
@@ -2157,19 +2093,23 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e9ecef',
     backgroundColor: '#fff',
   },
+  
   contactInfo: {
     flex: 1,
   },
+  
   contactName: { 
-    fontSize: 16, 
+    fontSize: 15, 
     fontWeight: '600', 
     color: '#2b2d42',
     marginBottom: 2,
   },
+  
   contactNumber: { 
     color: '#6c757d', 
-    fontSize: 14 
+    fontSize: 13 
   },
+  
   recentTime: {
     fontSize: 12,
     color: '#adb5bd',
@@ -2184,7 +2124,7 @@ const styles = StyleSheet.create({
   emptyText: {
     textAlign: 'center',
     color: '#adb5bd',
-    fontSize: 16,
+    fontSize: 15,
     marginTop: 40,
   },
 });

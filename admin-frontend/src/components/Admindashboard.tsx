@@ -178,7 +178,14 @@ useEffect(() => {
       return;
     }
     
-    const response = await fetch('https://vtu-application.onrender.com/api/admin/profile', {
+    // Use API_CONFIG for consistent URL handling
+    const isDevelopment = window.location.hostname === 'localhost' || 
+                         window.location.hostname === '127.0.0.1';
+    const BASE_URL = isDevelopment 
+      ? 'http://localhost:5002' 
+      : 'https://vtu-application.onrender.com';
+    
+    const response = await fetch(`${BASE_URL}/api/admin/profile`, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`

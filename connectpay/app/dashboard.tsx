@@ -1,4 +1,7 @@
-import React, { useContext, useEffect, useState, useCallback } from 'react';
+// ✅ DEBUGGING GUIDE: Why Transactions Aren't Showing After Airtime Purchase
+
+// 1. ENHANCED DASHBOARD WITH BETTER DEBUGGING
+import React, { useContext, useEffect, useState } from 'react';
 import FundWallet from './fund-wallet'; 
 import TransactionDetails from './TransactionDetails';
 import { Share } from 'react-native';

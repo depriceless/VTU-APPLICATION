@@ -1,36 +1,98 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, ScrollView, Alert
+  View, 
+  Text, 
+  TextInput, 
+  TouchableOpacity, 
+  StyleSheet, 
+  ActivityIndicator, 
+  ScrollView, 
+  Alert 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+// Types
+interface FundWalletProps {
+  token: string;
+  currentBalance?: number;
+  onSuccess?: () => void;
+}
+
+interface BankAccount {
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+}
+
+interface BankData {
+  accounts?: BankAccount[];
+  reference?: string;
+  bankName?: string;
+  accountName?: string;
+  accountNumber?: string;
+  gateway?: string;
+}
+
+interface CardInfo {
+  cardNumber: string;
+  expiry: string;
+  cvv: string;
+}
+
+interface PaymentMethod {
+  id: 'bank' | 'card';
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+}
+
+// API Configuration
 const API_CONFIG = {
-  BASE_URL: 'http://10.157.13.7:5000/api',
+  BASE_URL: process.env.EXPO_PUBLIC_API_URL 
+    ? `${process.env.EXPO_PUBLIC_API_URL}/api`
+    : 'http://10.157.13.7:5000/api',
   ENDPOINTS: {
-    CREATE_ACCOUNT: '/monnify/create-reserved-account',
-    GET_ACCOUNTS: '/monnify/user-accounts',
+    // Unified endpoint - automatically uses active gateway
+    GET_VIRTUAL_ACCOUNT: '/payment/virtual-account',
+    CARD_PAYMENT: '/card/pay',
+    // Gateway check
+    ACTIVE_GATEWAY: '/payment/active-gateway'
   }
 };
 
-const PAYMENT_METHODS = [
-  { id: 'monnify', label: 'BANK TRANSFER', icon: 'business-outline' },
+console.log('🔧 FundWallet API URL:', API_CONFIG.BASE_URL);
+
+const PAYMENT_METHODS: PaymentMethod[] = [
+  { id: 'bank', label: 'BANK TRANSFER', icon: 'business-outline' },
   { id: 'card', label: 'DEBIT CARD', icon: 'card-outline' }
 ];
 
-export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
-  const [amount, setAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('monnify');
-  const [loading, setLoading] = useState(true);
-  const [bankData, setBankData] = useState(null);
-  const [cardInfo, setCardInfo] = useState({ cardNumber: '', expiry: '', cvv: '' });
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+export default function FundWallet({ token, currentBalance = 0, onSuccess }: FundWalletProps) {
+  const [amount, setAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank');
+  const [loading, setLoading] = useState<boolean>(true);
+  const [bankData, setBankData] = useState<BankData | null>(null);
+  const [cardInfo, setCardInfo] = useState<CardInfo>({ cardNumber: '', expiry: '', cvv: '' });
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [activeGateway, setActiveGateway] = useState<string>('');
 
   useEffect(() => {
-    fetchAccountDetails();
-  }, []);
+    if (token) {
+      checkActiveGateway();
+      fetchAccountDetails();
+    } else {
+      setError('Please login to continue');
+      setLoading(false);
+    }
+  }, [token]);
 
-  const makeAPICall = async (url, options) => {
+  const makeAPICall = async (url: string, options: RequestInit = {}): Promise<any> => {
+    const method = options.method || 'GET';
+    console.log(`\n📡 === API REQUEST ===`);
+    console.log(`Method: ${method}`);
+    console.log(`URL: ${url}`);
+    console.log(`Time: ${new Date().toISOString()}`);
+    
     try {
       const response = await fetch(url, {
         ...options,
@@ -41,85 +103,151 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
         },
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      console.log(`📄 Response Status: ${response.status}`);
+      console.log(`📄 Response (first 300 chars):`, responseText.substring(0, 300));
 
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      let data: any;
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error:', parseError);
+        throw new Error('Invalid server response');
       }
 
+      if (!response.ok) {
+        console.error('❌ Request failed:', data);
+        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      console.log('✅ Request successful\n');
       return data;
+
     } catch (error) {
-      console.error('API call failed:', error);
+      console.error('❌ API Error:', error);
+      
+      if (error instanceof Error && error.message === 'Network request failed') {
+        throw new Error('Cannot connect to server. Please check your internet connection.');
+      }
+      
       throw error;
     }
   };
 
-  const fetchAccountDetails = async () => {
-  setLoading(true);
-  try {
-    console.log('Fetching account details...');
-    const response = await makeAPICall(
-      `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CREATE_ACCOUNT}`, 
-      { method: 'POST' }
-    );
+  const checkActiveGateway = async () => {
+    try {
+      const response = await makeAPICall(
+        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.ACTIVE_GATEWAY}`,
+        { method: 'GET' }
+      );
 
-    console.log('Full API Response:', JSON.stringify(response, null, 2));
+      if (response.success) {
+        setActiveGateway(response.activeGateway);
+        console.log('💳 Active Gateway:', response.activeGateway);
+      }
+    } catch (error) {
+      console.error('❌ Failed to check active gateway:', error);
+    }
+  };
 
-    if (response.success) {
-      const accounts = response.data.accounts;
-      
-      // Log to see the actual structure
-      console.log('Raw accounts:', accounts);
-      console.log('Number of accounts:', accounts.length);
-      console.log('First account:', JSON.stringify(accounts[0], null, 2));
-      
-      // Check if accounts[0] has nested accounts
-      const actualAccounts = accounts[0]?.accounts || accounts;
-      console.log('Actual accounts to display:', actualAccounts);
-      
-      // Store all accounts in an array
-      const allAccounts = actualAccounts.map((acc) => ({
+  const processAccounts = (data: any) => {
+    console.log('📋 Processing account data...');
+    console.log('Gateway:', data.gateway);
+    
+    if (data.gateway === 'paystack') {
+      // Paystack has single account
+      setBankData({
+        accounts: [{
+          bankName: data.bankName,
+          accountNumber: data.accountNumber,
+          accountName: data.accountName
+        }],
+        bankName: data.bankName,
+        accountName: data.accountName,
+        accountNumber: data.accountNumber,
+        gateway: 'paystack'
+      });
+      console.log('✅ Loaded Paystack account');
+    } else if (data.gateway === 'monnify') {
+      // Monnify has multiple accounts
+      const allAccounts: BankAccount[] = data.accounts.map((acc: any) => ({
         bankName: acc.bankName || acc.bank_name,
         accountNumber: acc.accountNumber || acc.account_number,
         accountName: acc.accountName || acc.account_name
       }));
 
-      console.log('Formatted accounts:', allAccounts);
-
       setBankData({
         accounts: allAccounts,
-        reference: response.data.accountReference,
-        // Keep backward compatibility
+        reference: data.accountReference,
         bankName: allAccounts[0]?.bankName,
         accountName: allAccounts[0]?.accountName,
         accountNumber: allAccounts[0]?.accountNumber,
-        secondBank: allAccounts[1]?.bankName,
-        secondAccountNumber: allAccounts[1]?.accountNumber
+        gateway: 'monnify'
       });
-
-      console.log('All accounts loaded:', allAccounts.length);
-    } else {
-      setError(response.message || 'Failed to get account details');
+      console.log('✅ Loaded', allAccounts.length, 'Monnify accounts');
     }
-  } catch (error) {
-    console.error('Fetch account details error:', error);
-    setError(error.message || 'Failed to load account details');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
-  const validateAmount = (value) => {
+  const fetchAccountDetails = async () => {
+    setLoading(true);
+    setError('');
+    
+    try {
+      console.log('🔍 Fetching virtual account details...');
+      
+      // Use unified endpoint - automatically returns active gateway account
+      const response = await makeAPICall(
+        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.GET_VIRTUAL_ACCOUNT}`,
+        { method: 'GET' }
+      );
+
+      if (response.success && response.data) {
+        processAccounts(response.data);
+      } else {
+        throw new Error(response.message || 'Failed to load account');
+      }
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to load account details';
+      console.error('❌ Fetch error:', errorMessage);
+      
+      // Check if account doesn't exist
+      if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+        setError('Virtual account not created yet. Please contact support.');
+        
+        Alert.alert(
+          'Account Setup Required',
+          'Your virtual account needs to be set up. Please contact support or try again later.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        setError(errorMessage);
+        
+        Alert.alert(
+          'Error Loading Account',
+          errorMessage,
+          [
+            { text: 'Retry', onPress: fetchAccountDetails },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const validateAmount = (value: string): boolean => {
     const numericAmount = Number(value);
     return value.trim() !== '' && !isNaN(numericAmount) && numericAmount > 0 && numericAmount <= 1000000;
   };
 
-  const validateCardNumber = (cardNumber) => {
+  const validateCardNumber = (cardNumber: string): boolean => {
     const cleaned = cardNumber.replace(/\s/g, '');
     return /^\d{13,19}$/.test(cleaned);
   };
 
-  const validateExpiry = (expiry) => {
+  const validateExpiry = (expiry: string): boolean => {
     const regex = /^(0[1-9]|1[0-2])\/\d{2}$/;
     if (!regex.test(expiry)) return false;
 
@@ -135,17 +263,17 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
     return true;
   };
 
-  const validateCVV = (cvv) => {
+  const validateCVV = (cvv: string): boolean => {
     return /^\d{3,4}$/.test(cvv);
   };
 
-  const formatCardNumber = (text) => {
+  const formatCardNumber = (text: string): string => {
     const cleaned = text.replace(/\s/g, '');
     const match = cleaned.match(/.{1,4}/g);
     return match ? match.join(' ').substr(0, 19) : cleaned;
   };
 
-  const formatExpiry = (text) => {
+  const formatExpiry = (text: string): string => {
     const cleaned = text.replace(/\D/g, '');
     if (cleaned.length >= 2) {
       return cleaned.substring(0, 2) + '/' + cleaned.substring(2, 4);
@@ -183,16 +311,19 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
       const [expiry_month, expiry_year] = cardInfo.expiry.split('/');
       const cleanedCardNumber = cardInfo.cardNumber.replace(/\s/g, '');
 
-      const response = await makeAPICall(`${API_CONFIG.BASE_URL}/card/pay`, {
-        method: 'POST',
-        body: JSON.stringify({
-          amount: numericAmount,
-          card_number: cleanedCardNumber,
-          cvv: cardInfo.cvv,
-          expiry_month,
-          expiry_year: `20${expiry_year}`,
-        }),
-      });
+      const response = await makeAPICall(
+        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CARD_PAYMENT}`, 
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            amount: numericAmount,
+            card_number: cleanedCardNumber,
+            cvv: cardInfo.cvv,
+            expiry_month,
+            expiry_year: `20${expiry_year}`,
+          }),
+        }
+      );
 
       if (response.status === 'success' || response.success) {
         setSuccess(`Wallet funded successfully with ₦${numericAmount.toLocaleString()}!`);
@@ -206,10 +337,17 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
         setError(response.message || 'Card payment failed');
       }
     } catch (error) {
-      setError(error.message || 'Network error occurred');
+      const errorMessage = error instanceof Error ? error.message : 'Payment processing failed';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getGatewayName = () => {
+    if (bankData?.gateway === 'paystack') return 'Paystack';
+    if (bankData?.gateway === 'monnify') return 'Monnify';
+    return activeGateway === 'paystack' ? 'Paystack' : 'Monnify';
   };
 
   return (
@@ -259,102 +397,75 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
           </View>
         ) : null}
 
-        {paymentMethod === 'monnify' && (
-  <View style={styles.section}>
-    <Text style={styles.label}>Your Permanent Account Details</Text>
-    <View style={styles.bankCard}>
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator color="#ff3b30" size="small" />
-          <Text style={styles.loadingText}>Loading account details...</Text>
-        </View>
-      ) : bankData ? (
-        <>
-          {/* Display ALL accounts */}
-          {bankData.accounts && bankData.accounts.length > 0 ? (
-            bankData.accounts.map((account, index) => (
-              <View 
-                key={index} 
-                style={[
-                  styles.accountBlock,
-                  index < bankData.accounts.length - 1 && styles.accountWithBorder
-                ]}
-              >
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Bank:</Text>
-                  <Text style={styles.accountValue}>{account.bankName}</Text>
-                </View>
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Account Name:</Text>
-                  <Text style={styles.accountValue}>{account.accountName}</Text>
-                </View>
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Account Number:</Text>
-                  <Text style={[styles.accountValue, styles.accountNumber]}>
-                    {account.accountNumber}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            // Fallback to old structure if accounts array doesn't exist
-            <>
-              <View style={styles.accountBlock}>
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Bank:</Text>
-                  <Text style={styles.accountValue}>{bankData.bankName}</Text>
-                </View>
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Account Name:</Text>
-                  <Text style={styles.accountValue}>{bankData.accountName}</Text>
-                </View>
-                <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Account Number:</Text>
-                  <Text style={[styles.accountValue, styles.accountNumber]}>
-                    {bankData.accountNumber}
-                  </Text>
-                </View>
-              </View>
-
-              {bankData.secondBank && (
-                <View style={[styles.accountBlock, styles.secondAccount]}>
-                  <View style={styles.accountRow}>
-                    <Text style={styles.accountLabel}>Bank:</Text>
-                    <Text style={styles.accountValue}>{bankData.secondBank}</Text>
-                  </View>
-                  <View style={styles.accountRow}>
-                    <Text style={styles.accountLabel}>Account Name:</Text>
-                    <Text style={styles.accountValue}>{bankData.accountName}</Text>
-                  </View>
-                  <View style={styles.accountRow}>
-                    <Text style={styles.accountLabel}>Account Number:</Text>
-                    <Text style={[styles.accountValue, styles.accountNumber]}>
-                      {bankData.secondAccountNumber}
-                    </Text>
-                  </View>
+        {/* Bank Transfer Section */}
+        {paymentMethod === 'bank' && (
+          <View style={styles.section}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>Your Virtual Account Details</Text>
+              {bankData?.gateway && (
+                <View style={styles.gatewayBadge}>
+                  <Text style={styles.gatewayText}>{getGatewayName()}</Text>
                 </View>
               )}
-            </>
-          )}
+            </View>
+            <View style={styles.bankCard}>
+              {loading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="#ff3b30" size="small" />
+                  <Text style={styles.loadingText}>Loading account...</Text>
+                </View>
+              ) : bankData && bankData.accounts && bankData.accounts.length > 0 ? (
+                <>
+                  {bankData.accounts.map((account, index) => (
+                    <View 
+                      key={index} 
+                      style={[
+                        styles.accountBlock,
+                        index < bankData.accounts!.length - 1 && styles.accountWithBorder
+                      ]}
+                    >
+                      <View style={styles.accountRow}>
+                        <Text style={styles.accountLabel}>Bank:</Text>
+                        <Text style={styles.accountValue}>{account.bankName}</Text>
+                      </View>
+                      <View style={styles.accountRow}>
+                        <Text style={styles.accountLabel}>Account Name:</Text>
+                        <Text style={styles.accountValue}>{account.accountName}</Text>
+                      </View>
+                      <View style={styles.accountRow}>
+                        <Text style={styles.accountLabel}>Account Number:</Text>
+                        <Text style={[styles.accountValue, styles.accountNumber]}>
+                          {account.accountNumber}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
 
-          <View style={styles.infoBox}>
-            <Ionicons name="information-circle-outline" size={16} color="#666" />
-            <Text style={styles.infoText}>
-              Transfer any amount to any of the accounts above. Your wallet will be credited automatically within minutes.
-            </Text>
+                  <View style={styles.infoBox}>
+                    <Ionicons name="information-circle-outline" size={16} color="#666" />
+                    <Text style={styles.infoText}>
+                      {bankData.accounts.length > 1 
+                        ? 'Transfer any amount to any account above. Your wallet will be credited automatically within minutes.'
+                        : 'Transfer any amount to this account. Your wallet will be credited automatically within minutes.'
+                      }
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle-outline" size={48} color="#ff3b30" />
+                  <Text style={styles.errorContainerText}>
+                    {error || 'Failed to load account'}
+                  </Text>
+                  <TouchableOpacity style={styles.retryButton} onPress={fetchAccountDetails}>
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
-        </>
-      ) : (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorContainerText}>Failed to load account details</Text>
-          <TouchableOpacity style={styles.retryButton} onPress={fetchAccountDetails}>
-            <Text style={styles.retryButtonText}>Tap to Retry</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  </View>
-)}
+        )}
+
         {/* Card Payment Section */}
         {paymentMethod === 'card' && (
           <>
@@ -453,8 +564,8 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }) {
         {/* Help Text */}
         <View style={styles.helpContainer}>
           <Text style={styles.helpText}>
-            {paymentMethod === 'monnify' 
-              ? 'These account numbers are permanent and can be used anytime to fund your wallet.'
+            {paymentMethod === 'bank' 
+              ? `This account ${bankData?.accounts && bankData.accounts.length > 1 ? 'numbers are' : 'number is'} permanent and can be used anytime to fund your wallet.`
               : 'Your wallet will be credited immediately after successful payment.'
             }
           </Text>
@@ -469,23 +580,35 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#f8f9fa' 
   },
-
   scrollContent: { 
     flex: 1 
   },
-  
   section: { 
     margin: 16, 
     marginBottom: 24 
   },
-  
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   label: { 
     fontSize: 16, 
     fontWeight: '600', 
-    marginBottom: 8, 
     color: '#333' 
   },
-
+  gatewayBadge: {
+    backgroundColor: '#ff3b30',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  gatewayText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+  },
   methodGrid: { 
     flexDirection: 'row', 
     gap: 8 
@@ -518,7 +641,6 @@ const styles = StyleSheet.create({
     color: '#ff3b30', 
     fontWeight: '700' 
   },
-
   messageContainer: {
     marginHorizontal: 16,
     marginBottom: 16,
@@ -545,7 +667,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#c3e6cb',
   },
-
   bankCard: {
     padding: 20,
     borderRadius: 12,
@@ -571,13 +692,10 @@ const styles = StyleSheet.create({
   accountBlock: {
     marginBottom: 16,
     paddingBottom: 16,
+  },
+  accountWithBorder: {
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
-  },
-  secondAccount: {
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    paddingTop: 16,
   },
   accountRow: {
     flexDirection: 'row',
@@ -619,25 +737,26 @@ const styles = StyleSheet.create({
   },
   errorContainer: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 30,
+    gap: 12,
   },
   errorContainerText: {
     color: '#666',
     fontSize: 14,
-    marginBottom: 12,
+    textAlign: 'center',
   },
   retryButton: {
     backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    marginTop: 8,
   },
   retryButtonText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '600',
   },
-
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
@@ -679,7 +798,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '500',
   },
-
   proceedBtn: {
     margin: 16,
     padding: 16,
@@ -710,7 +828,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   helpContainer: {
     marginHorizontal: 16,
     marginTop: 8,
@@ -723,10 +840,4 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 18,
   },
-  accountWithBorder: {
-  borderBottomWidth: 1,
-  borderBottomColor: '#f0f0f0',
-  marginBottom: 16,
-  paddingBottom: 16,
-},
 });

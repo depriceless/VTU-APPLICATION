@@ -52,7 +52,11 @@ const ServiceManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://vtu-application.onrender.com';
+const isDevelopment = window.location.hostname === 'localhost' || 
+                     window.location.hostname === '127.0.0.1';
+const API_BASE_URL = isDevelopment 
+  ? 'http://localhost:5002' 
+  : 'https://vtu-application.onrender.com';
 
   // Service type icons and colors
   const SERVICE_CONFIG = {
@@ -133,30 +137,29 @@ const ServiceManagement = () => {
 
   // API Functions
   const fetchStats = useCallback(async () => {
-    if (!token) return;
-    
-    try {
-      const data = await makeApiCall('/api/admin/overview');
-      
-      const statsData = data.overview || {};
-      setStats({
-        totalServices: statsData.services || 0,
-        activeServices: statsData.activeProviders || 0,
-        maintenanceServices: statsData.maintenanceServices || 0,
-        inactiveServices: statsData.inactiveServices || 0
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      showNotification(`Failed to fetch statistics: ${error.message}`, 'error');
-      setStats({
-        totalServices: 0,
-        activeServices: 0,
-        maintenanceServices: 0,
-        inactiveServices: 0
-      });
-    }
-  }, [token, makeApiCall, showNotification]);
-
+  if (!token) return;
+  
+  try {
+    // Change from '/api/services/stats' to '/api/admin/services/stats'
+    const data = await makeApiCall('/api/admin/services/stats');
+    const statsData = data.data || data;
+    setStats({
+      totalServices: statsData.services || 0,
+      activeServices: statsData.activeProviders || 0,
+      maintenanceServices: statsData.maintenanceServices || 0,
+      inactiveServices: statsData.inactiveServices || 0
+    });
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    showNotification(`Failed to fetch statistics: ${error.message}`, 'error');
+    setStats({
+      totalServices: 0,
+      activeServices: 0,
+      maintenanceServices: 0,
+      inactiveServices: 0
+    });
+  }
+}, [token, makeApiCall, showNotification]);
   const fetchServices = useCallback(async () => {
     if (!token) {
       setLoading(false);
@@ -181,11 +184,9 @@ const ServiceManagement = () => {
       
       const apiUrl = `${API_BASE_URL}/api/admin/services/config?${queryParams}`;
       console.log('Making API call to:', apiUrl);
-      
-      const data = await makeApiCall(`/api/admin/services/config?${queryParams}`);
-      console.log('API response:', data);
-      
-      let servicesData = data.data || data.services || data || [];
+
+     const data = await makeApiCall('/api/admin/services/config');
+let servicesData = data.data || [];
       console.log('Services data:', servicesData);
       
       // Client-side filtering as fallback
@@ -237,7 +238,7 @@ const ServiceManagement = () => {
     
     try {
       setServiceDetailsLoading(true);
-      const data = await makeApiCall(`/api/admin/services/${serviceId}`);
+     const data = await makeApiCall(`/api/admin/services/${serviceId}`);
       return data.data || data;
     } catch (error) {
       console.error('Error fetching service details:', error);
@@ -253,7 +254,7 @@ const ServiceManagement = () => {
     
     try {
       setActionLoading(true);
-      await makeApiCall(`/api/admin/services/config/${serviceId}`, {
+    await makeApiCall(`/api/services/${serviceId}/status`, {
         method: 'PUT',
         body: JSON.stringify(statusUpdate)
       });
@@ -288,7 +289,7 @@ const ServiceManagement = () => {
     try {
       setActionLoading(true);
       
-      await makeApiCall(`/api/admin/services/config/${serviceId}`, {
+   await makeApiCall(`/api/admin/pricing/services/${serviceId}`, {
         method: 'PUT',
         body: JSON.stringify({
           pricing: { 

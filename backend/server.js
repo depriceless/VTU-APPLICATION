@@ -456,6 +456,25 @@ try {
   console.error('❌ Monnify routes error:', err.message);
 }
 
+
+// === PAYSTACK ROUTES ===
+try {
+  const paystackRoutes = require('./routes/paystack');
+  app.use('/api/paystack', paystackRoutes);
+  console.log('✅ Paystack routes registered');
+} catch (err) {
+  console.error('❌ Paystack routes error:', err.message);
+}
+
+// === UNIFIED PAYMENT GATEWAY ROUTES ===
+try {
+  const paymentRoutes = require('./routes/payment');
+  app.use('/api/payment', paymentRoutes);
+  console.log('✅ Payment gateway routes registered');
+} catch (err) {
+  console.error('❌ Payment gateway routes error:', err.message);
+}
+
 try {
   app.use('/api/support', require('./routes/support'));
   console.log('✅ Support routes registered');

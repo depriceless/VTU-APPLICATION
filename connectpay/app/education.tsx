@@ -7,8 +7,6 @@ import {
   Image,
   StyleSheet,
   ScrollView,
-  Modal,
-  FlatList,
   Platform,
   Alert,
   ActivityIndicator,
@@ -17,7 +15,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import EducationSuccessModal from './EducationSuccessModal';
 import { AuthContext } from '../contexts/AuthContext';
 
-// Your Replit API base URL
 const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
@@ -64,6 +61,7 @@ export default function BuyEducation() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [selectedExam, setSelectedExam] = useState<ExamCard | null>(null);
   const [quantity, setQuantity] = useState('1');
+  const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [userBalance, setUserBalance] = useState<UserBalance | null>(null);
   const [pinStatus, setPinStatus] = useState<PinStatus | null>(null);
@@ -76,73 +74,59 @@ export default function BuyEducation() {
   const [successData, setSuccessData] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState('all');
 
-  // Exam cards data
+  // Only JAMB and WAEC (supported by ClubKonnect)
   const examCards: ExamCard[] = [
-    {
-      id: 'waec',
-      name: 'WAEC Scratch Card',
-      code: 'WAEC',
-      price: 3500,
-      description: 'West African Examination Council PIN',
-      examBody: 'WAEC',
-      validity: '1 year',
-      logo: require('../assets/images/waec.png'),
-      category: 'secondary'
-    },
-    {
-      id: 'neco',
-      name: 'NECO Scratch Card',
-      code: 'NECO',
-      price: 3500,
-      description: 'National Examination Council PIN',
-      examBody: 'NECO',
-      validity: '1 year',
-      logo: require('../assets/images/neco.png'),
-      category: 'secondary'
-    },
-    {
-      id: 'jamb',
-      name: 'JAMB e-PIN',
-      code: 'JAMB',
-      price: 4700,
-      description: 'Joint Admissions and Matriculation Board PIN',
-      examBody: 'JAMB',
-      validity: 'Current session',
-      logo: require('../assets/images/jamb.jpeg'),
-      category: 'tertiary'
-    },
-    {
-      id: 'nabteb',
-      name: 'NABTEB Scratch Card',
-      code: 'NABTEB',
-      price: 3500,
-      description: 'National Business and Technical Examinations Board PIN',
-      examBody: 'NABTEB',
-      validity: '1 year',
-      logo: require('../assets/images/nabteb.jpeg'),
-      category: 'secondary'
-    },
-    {
-      id: 'gce',
-      name: 'GCE Scratch Card',
-      code: 'GCE',
-      price: 18000,
-      description: 'General Certificate Examination PIN',
-      examBody: 'WAEC',
-      validity: '1 year',
-      logo: require('../assets/images/waec.png'),
-      category: 'secondary'
-    },
-  ];
-
-  // Categories
+  {
+    id: 'jamb_utme',
+    name: 'JAMB UTME e-PIN',
+    code: 'jamb',  // Changed from 'utme' to 'jamb'
+    price: 4500,
+    description: 'JAMB UTME Registration PIN',
+    examBody: 'jamb',
+    validity: 'Current session',
+    logo: require('../assets/images/jamb.jpeg'),
+    category: 'tertiary'
+  },
+  {
+    id: 'jamb_de',
+    name: 'JAMB Direct Entry e-PIN',
+    code: 'jamb',  // Changed from 'de' to 'jamb'
+    price: 4500,
+    description: 'JAMB Direct Entry Registration PIN',
+    examBody: 'jamb',
+    validity: 'Current session',
+    logo: require('../assets/images/jamb.jpeg'),
+    category: 'tertiary'
+  },
+  {
+    id: 'waec_checker',
+    name: 'WAEC Result Checker PIN',
+    code: 'waecdirect',  // Changed from 'waec' to 'waecdirect'
+    price: 3900,         // Changed from 2500 to 3900
+    description: 'WAEC Result Checker PIN',
+    examBody: 'waec',
+    validity: '1 year',
+    logo: require('../assets/images/waec.png'),
+    category: 'secondary'
+  },
+  {
+    id: 'waec_registration',
+    name: 'WAEC Registration PIN',
+    code: 'waec-registration',
+    price: 14000,
+    description: 'WAEC Registration PIN',
+    examBody: 'waec',
+    validity: 'Current session',
+    logo: require('../assets/images/waec.png'),
+    category: 'secondary'
+  },
+];
   const categories = [
     { id: 'all', name: 'All Exams' },
     { id: 'secondary', name: 'Secondary' },
     { id: 'tertiary', name: 'Tertiary' },
   ];
 
-  // Filter exams by category
   const filteredExams = activeCategory === 'all' 
     ? examCards 
     : examCards.filter(exam => exam.category === activeCategory);
@@ -150,16 +134,15 @@ export default function BuyEducation() {
   const quantityNum = parseInt(quantity) || 1;
   const totalAmount = selectedExam ? selectedExam.price * quantityNum : 0;
   const isQuantityValid = quantityNum >= 1 && quantityNum <= 10;
+  const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const hasEnoughBalance = userBalance ? totalAmount <= userBalance.total : true;
-  const canProceed = selectedExam && isQuantityValid && hasEnoughBalance;
+  const canProceed = selectedExam && isQuantityValid && hasEnoughBalance && isPhoneValid;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Load data on mount
   useEffect(() => {
     loadRecentPurchases();
     loadFormState();
     
-    // Initialize balance from AuthContext
     if (balance) {
       const balanceAmount = parseFloat(balance.amount) || 0;
       setUserBalance({
@@ -170,21 +153,18 @@ export default function BuyEducation() {
       });
     }
     
-    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
     }, 1000);
   }, []);
 
-  // Refresh balance when stepping to review page
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
   useEffect(() => {
     if (currentStep === 3) {
       setPin('');
@@ -193,23 +173,18 @@ export default function BuyEducation() {
     }
   }, [currentStep]);
 
-  // Save form state whenever it changes
   useEffect(() => {
     saveFormState();
   }, [selectedExam, quantity]);
 
-  // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
     if (!token) {
-      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
     return token;
   };
 
   const makeApiRequest = async (endpoint: string, options: any = {}) => {
-    console.log(`API Request: ${endpoint}`);
-    
     try {
       const authToken = await getAuthToken();
       
@@ -243,49 +218,28 @@ export default function BuyEducation() {
         }
       }
 
-      // Handle authentication errors
       if (response.status === 401) {
         throw new Error('Session expired. Please login again.');
       }
 
       if (!response.ok) {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
-        
-        if (endpoint === '/purchase' && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
-          throw error;
-        }
-        
         throw new Error(errorMessage);
       }
 
       return data;
 
     } catch (error) {
-      console.error(`API Error for ${endpoint}:`, error.message);
-
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
-
-      if (error.message.includes('Authentication') || 
-          error.message.includes('Session expired') ||
-          error.responseData) {
-        throw error;
-      }
-
-      throw new Error(error.message || 'Request failed');
+      throw error;
     }
   };
 
-  // ---------- PIN Functions ----------
   const checkPinStatus = async () => {
     try {
-      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
-      
       if (response.success) {
         setPinStatus(response);
       }
@@ -297,17 +251,12 @@ export default function BuyEducation() {
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Refreshing balance from AuthContext");
-      
-      // Use AuthContext's refresh function
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      // Update local balance state from AuthContext
       if (balance) {
         const balanceAmount = parseFloat(balance.amount) || 0;
-        
         const realBalance = {
           main: balanceAmount,
           bonus: 0,
@@ -319,38 +268,12 @@ export default function BuyEducation() {
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("Balance updated from AuthContext:", realBalance);
-      } else {
-        // Fallback: try direct API call
-        const balanceData = await makeApiRequest("/balance");
-        
-        if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
-          
-          const realBalance = {
-            main: balanceAmount,
-            bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
-          };
-
-          setUserBalance(realBalance);
-          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        }
       }
     } catch (error) {
-      console.error("Balance fetch error:", error);
-      
-      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
-        } else {
-          setUserBalance(null);
+          setUserBalance(JSON.parse(cachedBalance));
         }
       } catch (cacheError) {
         setUserBalance(null);
@@ -420,8 +343,6 @@ export default function BuyEducation() {
   };
 
   const validatePinAndPurchase = async () => {
-    console.log('=== PAYMENT START ===');
-    
     if (!isPinValid) {
       setPinError('PIN must be exactly 4 digits');
       return;
@@ -436,22 +357,17 @@ export default function BuyEducation() {
         method: 'POST',
         body: JSON.stringify({
           type: 'education',
-          provider: selectedExam?.examBody.toLowerCase(), // e.g., 'waec', 'jamb', 'neco'
-          examType: selectedExam?.code,                   // e.g., 'WAEC', 'JAMB', 'NECO'  
-          studentId: 'NOT_PROVIDED',                     // Placeholder value
-          candidateName: 'Customer',                     // Placeholder value
+          provider: selectedExam?.examBody,
+          examType: selectedExam?.code,
+          phone: phone,
           amount: totalAmount,
           pin: pin,
         }),
       });
 
-      console.log('Purchase response:', response);
-
       if (response.success === true) {
-        console.log('Payment successful!');
         await saveRecentPurchase(selectedExam?.name || '', quantityNum, totalAmount);
         
-        // Update balance
         if (response.newBalance) {
           const balanceAmount = response.newBalance.amount || 
                                response.newBalance.totalBalance || 
@@ -485,7 +401,6 @@ export default function BuyEducation() {
         }, 300);
 
       } else {
-        console.log('Payment failed:', response.message);
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
         }
@@ -493,7 +408,6 @@ export default function BuyEducation() {
       }
 
     } catch (error) {
-      console.error('Payment error:', error);
       if (error.message.includes('locked') || error.message.includes('attempts')) {
         setPinError(error.message);
       } else if (error.message.includes('PIN')) {
@@ -504,7 +418,6 @@ export default function BuyEducation() {
     } finally {
       setIsValidatingPin(false);
       setIsProcessingPayment(false);
-      console.log('=== PAYMENT END ===');
     }
   };
 
@@ -519,25 +432,23 @@ export default function BuyEducation() {
     setCurrentStep(1);
     setSelectedExam(null);
     setQuantity('1');
+    setPhone('');
     setPin('');
     setPinError('');
   };
 
   return (
     <View style={styles.container}>
-      {/* Fixed Header */}
       <View style={styles.header}>
         <Text style={styles.headerText}>Buy Exam Cards</Text>
       </View>
 
-      {/* STEP 1: SELECT EXAM */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
           showsVerticalScrollIndicator={false}
         >
-          {/* Category Filter */}
           <View style={styles.section}>
             <Text style={styles.label}>Filter by Category</Text>
             <View style={styles.categoryRow}>
@@ -561,7 +472,6 @@ export default function BuyEducation() {
             </View>
           </View>
 
-          {/* Exam Cards Grid */}
           <View style={styles.section}>
             <Text style={styles.label}>Select Exam Card</Text>
             <View style={styles.examGrid}>
@@ -587,7 +497,6 @@ export default function BuyEducation() {
             </View>
           </View>
 
-          {/* Quantity Selection */}
           {selectedExam && (
             <View style={styles.section}>
               <Text style={styles.label}>Quantity</Text>
@@ -624,7 +533,29 @@ export default function BuyEducation() {
             </View>
           )}
 
-          {/* Total Amount Preview */}
+          {selectedExam && (
+            <View style={styles.section}>
+              <Text style={styles.label}>Phone Number</Text>
+              <TextInput
+                style={styles.input}
+                keyboardType="phone-pad"
+                placeholder="08012345678"
+                maxLength={11}
+                value={phone}
+                onChangeText={setPhone}
+              />
+              <Text style={styles.quantityHelp}>
+                PIN details will be sent to this number
+              </Text>
+              {phone !== '' && !isPhoneValid && (
+                <Text style={styles.error}>Enter valid 11-digit number starting with 070, 080, 081, or 090</Text>
+              )}
+              {phone !== '' && isPhoneValid && (
+                <Text style={styles.success}>Valid phone number</Text>
+              )}
+            </View>
+          )}
+
           {selectedExam && (
             <View style={styles.totalPreview}>
               <Text style={styles.totalLabel}>Total Amount:</Text>
@@ -632,7 +563,6 @@ export default function BuyEducation() {
             </View>
           )}
 
-          {/* Proceed Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
             disabled={!canProceed}
@@ -643,7 +573,6 @@ export default function BuyEducation() {
             </Text>
           </TouchableOpacity>
 
-          {/* Recent Purchases */}
           {recentPurchases.length > 0 && (
             <View style={styles.section}>
               <Text style={styles.label}>Recent Purchases</Text>
@@ -665,13 +594,11 @@ export default function BuyEducation() {
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW/SUMMARY */}
       {currentStep === 2 && selectedExam && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* Balance Card */}
           <View style={styles.balanceCard}>
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceTitle}>Wallet Balance</Text>
@@ -713,7 +640,7 @@ export default function BuyEducation() {
                 {totalAmount > (userBalance.total || userBalance.amount || 0) && (
                   <View style={styles.insufficientBalanceWarning}>
                     <Text style={styles.warningText}>
-                      ⚠️ Insufficient balance for this transaction
+                      Insufficient balance for this transaction
                     </Text>
                   </View>
                 )}
@@ -735,17 +662,12 @@ export default function BuyEducation() {
             )}
           </View>
           
-          {/* Summary Card */}
           <View style={styles.summaryCard}>
             <Text style={styles.summaryTitle}>Purchase Summary</Text>
 
-            {/* Exam Details */}
             <View style={styles.summaryRow}>
               <View style={styles.summaryLeft}>
-                <Image
-                  source={selectedExam.logo}
-                  style={styles.summaryLogo}
-                />
+                <Image source={selectedExam.logo} style={styles.summaryLogo} />
                 <View>
                   <Text style={styles.summaryText}>{selectedExam.name}</Text>
                   <Text style={styles.summaryDesc}>{selectedExam.description}</Text>
@@ -753,13 +675,16 @@ export default function BuyEducation() {
               </View>
             </View>
 
-            {/* Quantity */}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Quantity:</Text>
               <Text style={styles.summaryValue}>{quantityNum}</Text>
             </View>
 
-            {/* Unit Price */}
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Phone Number:</Text>
+              <Text style={styles.summaryValue}>{phone}</Text>
+            </View>
+
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Unit Price:</Text>
               <Text style={styles.summaryValue}>₦{selectedExam.price.toLocaleString()}</Text>
@@ -767,7 +692,6 @@ export default function BuyEducation() {
 
             <View style={styles.summaryDivider} />
 
-            {/* Total */}
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total:</Text>
               <Text style={[styles.summaryValue, styles.summaryTotal]}>
@@ -789,12 +713,8 @@ export default function BuyEducation() {
             )}
           </View>
 
-          {/* Proceed to PIN Button */}
           <TouchableOpacity
-            style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
-            ]}
+            style={[styles.proceedBtn, !hasEnoughBalance && styles.proceedDisabled]}
             disabled={!hasEnoughBalance}
             onPress={() => setCurrentStep(3)}
           >
@@ -803,7 +723,6 @@ export default function BuyEducation() {
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(1)}
@@ -813,16 +732,14 @@ export default function BuyEducation() {
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
       {currentStep === 3 && selectedExam && (
         <ScrollView
           style={styles.scrollContent}
           contentContainerStyle={{ paddingBottom: 40 }}
         >
-          {/* PIN Status Check */}
           {pinStatus?.isLocked && (
             <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
+              <Text style={styles.lockedTitle}>Account Locked</Text>
               <Text style={styles.lockedText}>
                 Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
               </Text>
@@ -831,7 +748,7 @@ export default function BuyEducation() {
 
           {!pinStatus?.isPinSet && (
             <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>📱 PIN Required</Text>
+              <Text style={styles.noPinTitle}>PIN Required</Text>
               <Text style={styles.noPinText}>
                 You need to set up a 4-digit transaction PIN in your account settings before making purchases.
               </Text>
@@ -840,7 +757,6 @@ export default function BuyEducation() {
 
           {pinStatus?.isPinSet && !pinStatus?.isLocked && (
             <>
-              {/* Transaction Summary */}
               <View style={styles.pinSummaryCard}>
                 <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
 
@@ -862,13 +778,12 @@ export default function BuyEducation() {
                 </View>
               </View>
 
-              {/* PIN Entry */}
               <View style={styles.pinCard}>
                 <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
 
                 {pinStatus?.attemptsRemaining < 3 && (
                   <Text style={styles.attemptsWarning}>
-                    ⚠️ {pinStatus.attemptsRemaining} attempts remaining
+                    {pinStatus.attemptsRemaining} attempts remaining
                   </Text>
                 )}
 
@@ -896,7 +811,6 @@ export default function BuyEducation() {
                   </Text>
                 )}
 
-                {/* PIN Dots Display */}
                 <View style={styles.pinDotsContainer}>
                   {[0, 1, 2, 3].map((index) => (
                     <View
@@ -911,7 +825,6 @@ export default function BuyEducation() {
                 </View>
               </View>
 
-              {/* Confirm Payment Button */}
               <TouchableOpacity
                 style={[
                   styles.proceedBtn,
@@ -936,7 +849,6 @@ export default function BuyEducation() {
             </>
           )}
 
-          {/* Back Button */}
           <TouchableOpacity
             style={[styles.proceedBtn, styles.backBtn]}
             onPress={() => setCurrentStep(2)}
@@ -947,7 +859,6 @@ export default function BuyEducation() {
         </ScrollView>
       )}
 
-      {/* Success Modal */}
       {showSuccessModal && successData && (
         <EducationSuccessModal
           visible={showSuccessModal}
@@ -965,7 +876,6 @@ export default function BuyEducation() {
   );
 }
 
-// ---------- Styles ----------
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8f9fa' },
   header: {
@@ -990,17 +900,8 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   section: { margin: 16, marginBottom: 24 },
-  label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#333' 
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
+  label: { fontSize: 16, fontWeight: '600', marginBottom: 8, color: '#333' },
+  categoryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   categoryBtn: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -1009,18 +910,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ddd',
   },
-  categoryBtnActive: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  categoryText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  categoryTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
+  categoryBtnActive: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
+  categoryText: { fontSize: 14, color: '#666' },
+  categoryTextActive: { color: '#fff', fontWeight: '600' },
   examGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1037,16 +929,8 @@ const styles = StyleSheet.create({
     borderColor: '#eee',
     position: 'relative',
   },
-  examCardSelected: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  examLogo: {
-    width: 50,
-    height: 50,
-    resizeMode: 'contain',
-    marginBottom: 8,
-  },
+  examCardSelected: { borderColor: '#ff3b30', backgroundColor: '#fff5f5' },
+  examLogo: { width: 50, height: 50, resizeMode: 'contain', marginBottom: 8 },
   examName: {
     fontSize: 14,
     fontWeight: '600',
@@ -1054,11 +938,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: '#333',
   },
-  examPrice: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#ff3b30',
-  },
+  examPrice: { fontSize: 16, fontWeight: 'bold', color: '#ff3b30' },
   selectedIndicator: {
     position: 'absolute',
     top: 8,
@@ -1070,11 +950,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  selectedIndicatorText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
+  selectedIndicatorText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   quantityContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1089,11 +965,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quantityBtnText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
+  quantityBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
   quantityInput: {
     width: 60,
     height: 40,
@@ -1105,11 +977,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  quantityHelp: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
+  quantityHelp: { fontSize: 12, color: '#666', textAlign: 'center' },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 16,
+    backgroundColor: '#fff',
   },
+  error: { 
+    color: '#ff3b30', 
+    fontSize: 12, 
+    marginTop: 6,
+    fontWeight: '500' 
+  },
+  success: { color: '#28a745', fontSize: 12, marginTop: 6, fontWeight: '500' },
   totalPreview: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1121,41 +1004,13 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',
   },
-  totalLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  totalAmount: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#ff3b30',
-  },
-  recentList: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  recentItem: {
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  recentExam: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 4,
-  },
-  recentDetails: {
-    fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  recentTime: {
-    fontSize: 11,
-    color: '#999',
-  },
+  totalLabel: { fontSize: 16, fontWeight: '600', color: '#333' },
+  totalAmount: { fontSize: 20, fontWeight: 'bold', color: '#ff3b30' },
+  recentList: { backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden' },
+  recentItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+  recentExam: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 4 },
+  recentDetails: { fontSize: 12, color: '#666', marginBottom: 4 },
+  recentTime: { fontSize: 11, color: '#999' },
   proceedBtn: {
     margin: 16,
     padding: 16,
@@ -1168,24 +1023,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 4,
   },
-  proceedDisabled: { 
-    backgroundColor: '#ccc',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  proceedText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
-  },
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  backBtnText: {
-    color: '#fff',
-  },
+  proceedDisabled: { backgroundColor: '#ccc', shadowOpacity: 0, elevation: 0 },
+  proceedText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  backBtn: { backgroundColor: '#6c757d', marginTop: 8, shadowColor: '#6c757d' },
+  backBtnText: { color: '#fff' },
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1210,17 +1051,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  balanceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  refreshBtn: {
-    padding: 4,
-  },
-  refreshText: {
-    fontSize: 16,
-  },
+  balanceTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
+  refreshBtn: { padding: 4 },
+  refreshText: { fontSize: 16 },
   totalBalance: {
     fontSize: 32,
     fontWeight: '700',
@@ -1228,12 +1061,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
   },
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
-  },
+  lastUpdated: { fontSize: 11, color: '#999', textAlign: 'center', marginTop: 8 },
   transactionPreview: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1243,21 +1071,10 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
-  },
+  previewLabel: { fontSize: 14, color: '#666', fontWeight: '500' },
+  previewAmount: { fontSize: 16, fontWeight: '600' },
+  sufficientPreview: { color: '#28a745' },
+  insufficientPreview: { color: '#dc3545' },
   insufficientBalanceWarning: {
     marginTop: 16,
     padding: 12,
@@ -1272,27 +1089,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
+  loadingBalance: { alignItems: 'center', paddingVertical: 20 },
+  noBalanceText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 12 },
   retryBtn: {
     backgroundColor: '#ff3b30',
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 20,
   },
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
+  retryBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   summaryCard: {
     margin: 16,
     padding: 20,
@@ -1317,28 +1122,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  summaryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryLogo: { 
-    width: 30, 
-    height: 30, 
-    resizeMode: 'contain', 
-    marginRight: 8 
-  },
+  summaryLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  summaryLogo: { width: 30, height: 30, resizeMode: 'contain', marginRight: 8 },
   summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
-  summaryDesc: {
-    fontSize: 12,
-    color: '#666',
-  },
-  summaryLabel: { 
-    fontWeight: '600', 
-    fontSize: 14, 
-    color: '#666',
-    flex: 1,
-  },
+  summaryDesc: { fontSize: 12, color: '#666' },
+  summaryLabel: { fontWeight: '600', fontSize: 14, color: '#666', flex: 1 },
   summaryValue: { 
     fontSize: 14, 
     color: '#333', 
@@ -1346,24 +1134,10 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 12,
-  },
-  summaryTotal: {
-    fontSize: 18,
-    color: '#ff3b30',
-    fontWeight: '700',
-  },
-  summaryBalance: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  negativeBalance: {
-    color: '#dc3545',
-  },
+  summaryDivider: { height: 1, backgroundColor: '#eee', marginVertical: 12 },
+  summaryTotal: { fontSize: 18, color: '#ff3b30', fontWeight: '700' },
+  summaryBalance: { fontSize: 16, fontWeight: '600', color: '#28a745' },
+  negativeBalance: { color: '#dc3545' },
   pinCard: {
     margin: 16,
     padding: 24,
@@ -1383,11 +1157,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+  pinInputContainer: { width: '100%', alignItems: 'center', marginBottom: 16 },
   pinInput: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -1401,10 +1171,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8f9fa',
     width: 150,
   },
-  pinInputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
+  pinInputError: { borderColor: '#ff3b30', backgroundColor: '#fff5f5' },
   pinError: {
     color: '#ff3b30',
     fontSize: 14,
@@ -1412,12 +1179,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontWeight: '500',
   },
-  pinHelp: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
+  pinHelp: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16 },
   pinDotsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
@@ -1432,14 +1194,8 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#ddd',
   },
-  pinDotFilled: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  pinDotError: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff3b30',
-  },
+  pinDotFilled: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
+  pinDotError: { backgroundColor: '#ff6b6b', borderColor: '#ff3b30' },
   pinSummaryCard: {
     margin: 16,
     padding: 20,
@@ -1523,11 +1279,5 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 16,
     lineHeight: 20,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 16,
-    marginTop: 40,
   },
 });

@@ -97,32 +97,21 @@ export default function BuyInternet() {
   const [successData, setSuccessData] = useState(null);
 
   // Internet Service Providers with their plans
-  const internetProviders: InternetProvider[] = [
-    {
-      id: 'spectranet',
-      label: 'SPECTRANET',
-      logo: require('../assets/images/spectranet-logo.jpeg'),
-      plans: [
-        { id: 'spec_1gb_month', name: '1GB Monthly', dataSize: '1GB', speed: '10Mbps', validity: '30 days', amount: 2500 },
-        { id: 'spec_5gb_month', name: '5GB Monthly', dataSize: '5GB', speed: '10Mbps', validity: '30 days', amount: 8000 },
-        { id: 'spec_10gb_month', name: '10GB Monthly', dataSize: '10GB', speed: '20Mbps', validity: '30 days', amount: 15000 },
-        { id: 'spec_20gb_month', name: '20GB Monthly', dataSize: '20GB', speed: '20Mbps', validity: '30 days', amount: 25000 },
-        { id: 'spec_unlimited', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '5Mbps', validity: '7 days', amount: 5000 },
-      ]
-    },
-    {
-      id: 'smile',
-      label: 'SMILE',
-      logo: require('../assets/images/smile-logo.jpeg'),
-      plans: [
-        { id: 'smile_2gb_month', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 3000 },
-        { id: 'smile_6gb_month', name: '6GB Monthly', dataSize: '6GB', speed: '10Mbps', validity: '30 days', amount: 8500 },
-        { id: 'smile_12gb_month', name: '12GB Monthly', dataSize: '12GB', speed: '15Mbps', validity: '30 days', amount: 15500 },
-        { id: 'smile_25gb_month', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 28000 },
-        { id: 'smile_unlimited_week', name: 'Unlimited Weekly', dataSize: 'Unlimited', speed: '8Mbps', validity: '7 days', amount: 4500 },
-      ]
-    },
-  ];
+ const internetProviders: InternetProvider[] = [
+  {
+    id: 'smile',
+    label: 'SMILE',
+    logo: require('../assets/images/smile-logo.jpeg'),
+    plans: [
+      { id: '626', name: '1GB Weekly', dataSize: '1GB', speed: '10Mbps', validity: '7 days', amount: 750 },
+      { id: '607', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 1850 },
+      { id: '608', name: '3GB Monthly', dataSize: '3GB', speed: '10Mbps', validity: '30 days', amount: 2300 },
+      { id: '609', name: '6.5GB Monthly', dataSize: '6.5GB', speed: '15Mbps', validity: '30 days', amount: 3800 },
+      { id: '722', name: '10GB Monthly', dataSize: '10GB', speed: '15Mbps', validity: '30 days', amount: 4600 },
+      { id: '725', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 9500 },
+    ]
+  }
+];
 
   // ---------- Validation ----------
   const isCustomerNumberValid = customerNumber.length >= 6 && /^[A-Za-z0-9]+$/.test(customerNumber);

@@ -1,262 +1,178 @@
-// config/dataPlans.js - UPDATED WITH ACTUAL CLUBKONNECT PLAN IDS
+// config/dataPlans.js - Dynamic Pricing Version
+// Only store provider costs - prices calculated on-the-fly
 
 const DATA_PLANS = {
   mtn: [
     // SME Plans
-    { id: '500.0', name: '500MB - 30 days (SME)', dataSize: '500MB', validity: '30 days', amount: 424, category: 'monthly', active: true, popular: false },
-    { id: '1000.0', name: '1GB - 30 days (SME)', dataSize: '1GB', validity: '30 days', amount: 595, category: 'monthly', active: true, popular: true },
-    { id: '2000.0', name: '2GB - 30 days (SME)', dataSize: '2GB', validity: '30 days', amount: 1189, category: 'monthly', active: true, popular: true },
-    { id: '3000.0', name: '3GB - 30 days (SME)', dataSize: '3GB', validity: '30 days', amount: 1680, category: 'monthly', active: true, popular: false },
-    { id: '5000.0', name: '5GB - 30 days (SME)', dataSize: '5GB', validity: '30 days', amount: 2540, category: 'monthly', active: true, popular: true },
+    { id: '500.0', name: '500MB - 30 days (SME)', dataSize: '500MB', validity: '30 days', providerCost: 424, category: 'monthly', active: true, popular: false },
+    { id: '1000.0', name: '1GB - 30 days (SME)', dataSize: '1GB', validity: '30 days', providerCost: 595, category: 'monthly', active: true, popular: true },
+    { id: '2000.0', name: '2GB - 30 days (SME)', dataSize: '2GB', validity: '30 days', providerCost: 1189, category: 'monthly', active: true, popular: true },
+    { id: '3000.0', name: '3GB - 30 days (SME)', dataSize: '3GB', validity: '30 days', providerCost: 1680, category: 'monthly', active: true, popular: false },
+    { id: '5000.0', name: '5GB - 30 days (SME)', dataSize: '5GB', validity: '30 days', providerCost: 2540, category: 'monthly', active: true, popular: true },
     
-    // Daily Plans (Awoof Data)
-    { id: '100.01', name: '110MB Daily Plan', dataSize: '110MB', validity: '1 day', amount: 97, category: 'daily', active: true, popular: false },
-    { id: '200.01', name: '230MB Daily Plan', dataSize: '230MB', validity: '1 day', amount: 194, category: 'daily', active: true, popular: false },
-    { id: '350.01', name: '500MB Daily Plan', dataSize: '500MB', validity: '1 day', amount: 339.50, category: 'daily', active: true, popular: true },
-    { id: '500.01', name: '1GB Daily Plan + 1.5mins', dataSize: '1GB', validity: '1 day', amount: 485, category: 'daily', active: true, popular: true },
-    { id: '750.01', name: '2.5GB Daily Plan', dataSize: '2.5GB', validity: '1 day', amount: 727.50, category: 'daily', active: true, popular: false },
+    // Daily Plans
+    { id: '100.01', name: '110MB Daily Plan', dataSize: '110MB', validity: '1 day', providerCost: 97, category: 'daily', active: true, popular: false },
+    { id: '200.01', name: '230MB Daily Plan', dataSize: '230MB', validity: '1 day', providerCost: 194, category: 'daily', active: true, popular: false },
+    { id: '350.01', name: '500MB Daily Plan', dataSize: '500MB', validity: '1 day', providerCost: 339.50, category: 'daily', active: true, popular: true },
+    { id: '500.01', name: '1GB Daily Plan', dataSize: '1GB', validity: '1 day', providerCost: 485, category: 'daily', active: true, popular: true },
+    { id: '750.01', name: '2.5GB Daily Plan', dataSize: '2.5GB', validity: '1 day', providerCost: 727.50, category: 'daily', active: true, popular: false },
     
     // 2-Day Plans
-    { id: '900.01', name: '2.5GB 2-Day Plan', dataSize: '2.5GB', validity: '2 days', amount: 873, category: 'daily', active: true, popular: false },
-    { id: '1000.01', name: '3.2GB 2-Day Plan', dataSize: '3.2GB', validity: '2 days', amount: 970, category: 'daily', active: true, popular: false },
+    { id: '900.01', name: '2.5GB 2-Day Plan', dataSize: '2.5GB', validity: '2 days', providerCost: 873, category: 'daily', active: true, popular: false },
+    { id: '1000.01', name: '3.2GB 2-Day Plan', dataSize: '3.2GB', validity: '2 days', providerCost: 970, category: 'daily', active: true, popular: false },
     
-    // Weekly Plans (Direct Data)
-    { id: '500.02', name: '500MB Weekly Plan', dataSize: '500MB', validity: '7 days', amount: 485, category: 'weekly', active: true, popular: false },
-    { id: '800.01', name: '1GB Weekly Plan', dataSize: '1GB', validity: '7 days', amount: 776, category: 'weekly', active: true, popular: true },
-    { id: '2500.01', name: '6GB Weekly Plan', dataSize: '6GB', validity: '7 days', amount: 2425, category: 'weekly', active: true, popular: false },
-    { id: '3500.01', name: '11GB Weekly Bundle', dataSize: '11GB', validity: '7 days', amount: 3395, category: 'weekly', active: true, popular: false },
-    { id: '5000.01', name: '20GB Weekly Plan', dataSize: '20GB', validity: '7 days', amount: 4850, category: 'weekly', active: true, popular: false },
+    // Weekly Plans
+    { id: '500.02', name: '500MB Weekly Plan', dataSize: '500MB', validity: '7 days', providerCost: 485, category: 'weekly', active: true, popular: false },
+    { id: '800.01', name: '1GB Weekly Plan', dataSize: '1GB', validity: '7 days', providerCost: 776, category: 'weekly', active: true, popular: true },
+    { id: '2500.01', name: '6GB Weekly Plan', dataSize: '6GB', validity: '7 days', providerCost: 2425, category: 'weekly', active: true, popular: false },
+    { id: '3500.01', name: '11GB Weekly Bundle', dataSize: '11GB', validity: '7 days', providerCost: 3395, category: 'weekly', active: true, popular: false },
+    { id: '5000.01', name: '20GB Weekly Plan', dataSize: '20GB', validity: '7 days', providerCost: 4850, category: 'weekly', active: true, popular: false },
     
-    // Monthly Plans (Direct Data)
-    { id: '1500.02', name: '2GB+2mins Monthly Plan', dataSize: '2GB', validity: '30 days', amount: 1455, category: 'monthly', active: true, popular: true },
-    { id: '2000.01', name: '2.7GB+2mins Monthly Plan', dataSize: '2.7GB', validity: '30 days', amount: 1940, category: 'monthly', active: true, popular: false },
-    { id: '2500.02', name: '3.5GB+5mins Monthly Plan', dataSize: '3.5GB', validity: '30 days', amount: 2425, category: 'monthly', active: true, popular: false },
-    { id: '3500.02', name: '7GB Monthly Plan', dataSize: '7GB', validity: '30 days', amount: 3395, category: 'monthly', active: true, popular: false },
-    { id: '4500.01', name: '10GB+10mins Monthly Plan', dataSize: '10GB', validity: '30 days', amount: 4365, category: 'monthly', active: true, popular: true },
-    { id: '5500.01', name: '12.5GB Monthly Plan', dataSize: '12.5GB', validity: '30 days', amount: 5335, category: 'monthly', active: true, popular: false },
-    { id: '6500.01', name: '16.5GB+10mins Monthly Plan', dataSize: '16.5GB', validity: '30 days', amount: 6305, category: 'monthly', active: true, popular: false },
-    { id: '7500.01', name: '20GB Monthly Plan', dataSize: '20GB', validity: '30 days', amount: 7275, category: 'monthly', active: true, popular: false },
-    { id: '9000.01', name: '25GB Monthly Plan', dataSize: '25GB', validity: '30 days', amount: 8730, category: 'monthly', active: true, popular: false },
-    { id: '11000.01', name: '36GB Monthly Plan', dataSize: '36GB', validity: '30 days', amount: 10670, category: 'monthly', active: true, popular: false },
-    { id: '18000.01', name: '75GB Monthly Plan', dataSize: '75GB', validity: '30 days', amount: 17460, category: 'monthly', active: true, popular: false },
-    { id: '35000.01', name: '165GB Monthly Plan', dataSize: '165GB', validity: '30 days', amount: 33950, category: 'monthly', active: true, popular: false },
+    // Monthly Plans
+    { id: '1500.02', name: '2GB+2mins Monthly', dataSize: '2GB', validity: '30 days', providerCost: 1455, category: 'monthly', active: true, popular: true },
+    { id: '2000.01', name: '2.7GB+2mins Monthly', dataSize: '2.7GB', validity: '30 days', providerCost: 1940, category: 'monthly', active: true, popular: false },
+    { id: '2500.02', name: '3.5GB+5mins Monthly', dataSize: '3.5GB', validity: '30 days', providerCost: 2425, category: 'monthly', active: true, popular: false },
+    { id: '3500.02', name: '7GB Monthly Plan', dataSize: '7GB', validity: '30 days', providerCost: 3395, category: 'monthly', active: true, popular: false },
+    { id: '4500.01', name: '10GB+10mins Monthly', dataSize: '10GB', validity: '30 days', providerCost: 4365, category: 'monthly', active: true, popular: true },
+    { id: '5500.01', name: '12.5GB Monthly', dataSize: '12.5GB', validity: '30 days', providerCost: 5335, category: 'monthly', active: true, popular: false },
+    { id: '6500.01', name: '16.5GB+10mins Monthly', dataSize: '16.5GB', validity: '30 days', providerCost: 6305, category: 'monthly', active: true, popular: false },
+    { id: '7500.01', name: '20GB Monthly', dataSize: '20GB', validity: '30 days', providerCost: 7275, category: 'monthly', active: true, popular: false },
+    { id: '9000.01', name: '25GB Monthly', dataSize: '25GB', validity: '30 days', providerCost: 8730, category: 'monthly', active: true, popular: false },
+    { id: '11000.01', name: '36GB Monthly', dataSize: '36GB', validity: '30 days', providerCost: 10670, category: 'monthly', active: true, popular: false },
+    { id: '18000.01', name: '75GB Monthly', dataSize: '75GB', validity: '30 days', providerCost: 17460, category: 'monthly', active: true, popular: false },
+    { id: '35000.01', name: '165GB Monthly', dataSize: '165GB', validity: '30 days', providerCost: 33950, category: 'monthly', active: true, popular: false },
     
     // Long-term Plans
-    { id: '40000.01', name: '150GB 2-Month Plan', dataSize: '150GB', validity: '60 days', amount: 38800, category: 'monthly', active: true, popular: false },
-    { id: '90000.03', name: '480GB 3-Month Plan', dataSize: '480GB', validity: '90 days', amount: 87300, category: 'monthly', active: true, popular: false }
+    { id: '40000.01', name: '150GB 2-Month', dataSize: '150GB', validity: '60 days', providerCost: 38800, category: 'monthly', active: true, popular: false },
+    { id: '90000.03', name: '480GB 3-Month', dataSize: '480GB', validity: '90 days', providerCost: 87300, category: 'monthly', active: true, popular: false }
   ],
 
   glo: [
     // SME Plans - 3 Days
-    { id: '1000.11', name: '1GB - 3 days (SME)', dataSize: '1GB', validity: '3 days', amount: 282, category: 'daily', active: true, popular: false },
-    { id: '3000.11', name: '3GB - 3 days (SME)', dataSize: '3GB', validity: '3 days', amount: 846, category: 'daily', active: true, popular: true },
-    { id: '5000.11', name: '5GB - 3 days (SME)', dataSize: '5GB', validity: '3 days', amount: 1410, category: 'daily', active: true, popular: false },
+    { id: '1000.11', name: '1GB - 3 days (SME)', dataSize: '1GB', validity: '3 days', providerCost: 282, category: 'daily', active: true, popular: false },
+    { id: '3000.11', name: '3GB - 3 days (SME)', dataSize: '3GB', validity: '3 days', providerCost: 846, category: 'daily', active: true, popular: true },
+    { id: '5000.11', name: '5GB - 3 days (SME)', dataSize: '5GB', validity: '3 days', providerCost: 1410, category: 'daily', active: true, popular: false },
     
     // SME Plans - 7 Days
-    { id: '1000.12', name: '1GB - 7 days (SME)', dataSize: '1GB', validity: '7 days', amount: 329, category: 'weekly', active: true, popular: true },
-    { id: '3000.12', name: '3GB - 7 days (SME)', dataSize: '3GB', validity: '7 days', amount: 987, category: 'weekly', active: true, popular: true },
-    { id: '5000.12', name: '5GB - 7 days (SME)', dataSize: '5GB', validity: '7 days', amount: 1645, category: 'weekly', active: true, popular: false },
+    { id: '1000.12', name: '1GB - 7 days (SME)', dataSize: '1GB', validity: '7 days', providerCost: 329, category: 'weekly', active: true, popular: true },
+    { id: '3000.12', name: '3GB - 7 days (SME)', dataSize: '3GB', validity: '7 days', providerCost: 987, category: 'weekly', active: true, popular: true },
+    { id: '5000.12', name: '5GB - 7 days (SME)', dataSize: '5GB', validity: '7 days', providerCost: 1645, category: 'weekly', active: true, popular: false },
     
     // Night Plans
-    { id: '1000.21', name: '1GB - 14 days Night Plan', dataSize: '1GB', validity: '14 days', amount: 329, category: 'weekly', active: true, popular: false },
-    { id: '3000.21', name: '3GB - 14 days Night Plan', dataSize: '3GB', validity: '14 days', amount: 987, category: 'weekly', active: true, popular: false },
-    { id: '5000.21', name: '5GB - 14 days Night Plan', dataSize: '5GB', validity: '14 days', amount: 1645, category: 'weekly', active: true, popular: false },
-    { id: '10000.21', name: '10GB - 14 days Night Plan', dataSize: '10GB', validity: '14 days', amount: 3290, category: 'weekly', active: true, popular: false },
+    { id: '1000.21', name: '1GB - 14 days Night', dataSize: '1GB', validity: '14 days', providerCost: 329, category: 'weekly', active: true, popular: false },
+    { id: '3000.21', name: '3GB - 14 days Night', dataSize: '3GB', validity: '14 days', providerCost: 987, category: 'weekly', active: true, popular: false },
+    { id: '5000.21', name: '5GB - 14 days Night', dataSize: '5GB', validity: '14 days', providerCost: 1645, category: 'weekly', active: true, popular: false },
+    { id: '10000.21', name: '10GB - 14 days Night', dataSize: '10GB', validity: '14 days', providerCost: 3290, category: 'weekly', active: true, popular: false },
     
-    // SME Plans - Monthly
-    { id: '200', name: '200MB - 14 days (SME)', dataSize: '200MB', validity: '14 days', amount: 94, category: 'weekly', active: true, popular: false },
-    { id: '500', name: '500MB - 30 days (SME)', dataSize: '500MB', validity: '30 days', amount: 235, category: 'monthly', active: true, popular: true },
-    { id: '1000', name: '1GB - 30 days (SME)', dataSize: '1GB', validity: '30 days', amount: 470, category: 'monthly', active: true, popular: true },
-    { id: '2000', name: '2GB - 30 days (SME)', dataSize: '2GB', validity: '30 days', amount: 940, category: 'monthly', active: true, popular: true },
-    { id: '3000', name: '3GB - 30 days (SME)', dataSize: '3GB', validity: '30 days', amount: 1410, category: 'monthly', active: true, popular: false },
-    { id: '5000', name: '5GB - 30 days (SME)', dataSize: '5GB', validity: '30 days', amount: 2350, category: 'monthly', active: true, popular: true },
-    { id: '10000', name: '10GB - 30 days (SME)', dataSize: '10GB', validity: '30 days', amount: 4700, category: 'monthly', active: true, popular: false },
-    
-    // Awoof Data
-    { id: '100.01', name: '125MB - 1 day', dataSize: '125MB', validity: '1 day', amount: 95.50, category: 'daily', active: true, popular: false },
-    { id: '200.01', name: '260MB - 2 day', dataSize: '260MB', validity: '2 days', amount: 191, category: 'daily', active: true, popular: false },
-    { id: '500.02', name: '2GB - 1 day', dataSize: '2GB', validity: '1 day', amount: 477.50, category: 'daily', active: true, popular: true },
-    
-    // Direct Data Plans
-    { id: '500.01', name: '1.5GB - 14 days', dataSize: '1.5GB', validity: '14 days', amount: 477.50, category: 'weekly', active: true, popular: false },
-    { id: '1500.02', name: '6GB - 7 days', dataSize: '6GB', validity: '7 days', amount: 1432.50, category: 'weekly', active: true, popular: false },
-    { id: '1000.01', name: '2.6GB - 30 days', dataSize: '2.6GB', validity: '30 days', amount: 955, category: 'monthly', active: true, popular: false },
-    { id: '1500.01', name: '5GB - 30 days', dataSize: '5GB', validity: '30 days', amount: 1432.50, category: 'monthly', active: true, popular: false },
-    { id: '2000.01', name: '6.15GB - 30 days', dataSize: '6.15GB', validity: '30 days', amount: 1910, category: 'monthly', active: true, popular: false },
-    { id: '2500.01', name: '7.5GB - 30 days', dataSize: '7.5GB', validity: '30 days', amount: 2387.50, category: 'monthly', active: true, popular: false },
-    { id: '3000.01', name: '10GB - 30 days', dataSize: '10GB', validity: '30 days', amount: 2865, category: 'monthly', active: true, popular: false },
-    { id: '4000.01', name: '12.5GB - 30 days', dataSize: '12.5GB', validity: '30 days', amount: 3820, category: 'monthly', active: true, popular: false },
-    { id: '5000.01', name: '16GB - 30 days', dataSize: '16GB', validity: '30 days', amount: 4775, category: 'monthly', active: true, popular: false },
-    { id: '8000.01', name: '28GB - 30 days', dataSize: '28GB', validity: '30 days', amount: 7640, category: 'monthly', active: true, popular: false },
-    { id: '10000.01', name: '38GB - 30 days', dataSize: '38GB', validity: '30 days', amount: 9550, category: 'monthly', active: true, popular: false },
-    { id: '15000.01', name: '64GB - 30 days', dataSize: '64GB', validity: '30 days', amount: 14325, category: 'monthly', active: true, popular: false },
-    { id: '20000.01', name: '107GB - 30 days', dataSize: '107GB', validity: '30 days', amount: 19100, category: 'monthly', active: true, popular: false },
-    
-    // Weekend Plans
-    { id: '500.03', name: '2.5GB - Weekend Plan', dataSize: '2.5GB', validity: 'Sat & Sun', amount: 477.50, category: 'weekly', active: true, popular: false },
-    { id: '200.02', name: '875MB - Weekend Plan', dataSize: '875MB', validity: 'Sunday', amount: 191, category: 'weekly', active: true, popular: false },
-    
-    // Large Plans
-    { id: '30000.01', name: '165GB - 30 days', dataSize: '165GB', validity: '30 days', amount: 28650, category: 'monthly', active: true, popular: false },
-    { id: '36000.01', name: '220GB - 30 days', dataSize: '220GB', validity: '30 days', amount: 34380, category: 'monthly', active: true, popular: false },
-    { id: '50000.01', name: '320GB - 30 days', dataSize: '320GB', validity: '30 days', amount: 47750, category: 'monthly', active: true, popular: false },
-    { id: '60000.01', name: '380GB - 30 days', dataSize: '380GB', validity: '30 days', amount: 57300, category: 'monthly', active: true, popular: false },
-    { id: '75000.01', name: '475GB - 30 days', dataSize: '475GB', validity: '30 days', amount: 71625, category: 'monthly', active: true, popular: false }
+    // Monthly Plans
+    { id: '200', name: '200MB - 14 days (SME)', dataSize: '200MB', validity: '14 days', providerCost: 94, category: 'weekly', active: true, popular: false },
+    { id: '500', name: '500MB - 30 days (SME)', dataSize: '500MB', validity: '30 days', providerCost: 235, category: 'monthly', active: true, popular: true },
+    { id: '1000', name: '1GB - 30 days (SME)', dataSize: '1GB', validity: '30 days', providerCost: 470, category: 'monthly', active: true, popular: true },
+    { id: '2000', name: '2GB - 30 days (SME)', dataSize: '2GB', validity: '30 days', providerCost: 940, category: 'monthly', active: true, popular: true },
+    { id: '3000', name: '3GB - 30 days (SME)', dataSize: '3GB', validity: '30 days', providerCost: 1410, category: 'monthly', active: true, popular: false },
+    { id: '5000', name: '5GB - 30 days (SME)', dataSize: '5GB', validity: '30 days', providerCost: 2350, category: 'monthly', active: true, popular: true },
+    { id: '10000', name: '10GB - 30 days (SME)', dataSize: '10GB', validity: '30 days', providerCost: 4700, category: 'monthly', active: true, popular: false }
   ],
 
   '9mobile': [
-    // Awoof Data
-    { id: '100.01', name: '100MB - 1 day', dataSize: '100MB', validity: '1 day', amount: 93, category: 'daily', active: true, popular: false },
-    { id: '150.01', name: '180MB - 1 days', dataSize: '180MB', validity: '1 day', amount: 139.50, category: 'daily', active: true, popular: false },
-    { id: '200.01', name: '250MB - 1 days', dataSize: '250MB', validity: '1 day', amount: 186, category: 'daily', active: true, popular: true },
-    { id: '350.01', name: '450MB - 1 day', dataSize: '450MB', validity: '1 day', amount: 325.50, category: 'daily', active: true, popular: false },
-    { id: '500.01', name: '650MB - 3 days', dataSize: '650MB', validity: '3 days', amount: 465, category: 'daily', active: true, popular: false },
+    // Daily Plans
+    { id: '100.01', name: '100MB - 1 day', dataSize: '100MB', validity: '1 day', providerCost: 93, category: 'daily', active: true, popular: false },
+    { id: '150.01', name: '180MB - 1 day', dataSize: '180MB', validity: '1 day', providerCost: 139.50, category: 'daily', active: true, popular: false },
+    { id: '200.01', name: '250MB - 1 day', dataSize: '250MB', validity: '1 day', providerCost: 186, category: 'daily', active: true, popular: true },
+    { id: '350.01', name: '450MB - 1 day', dataSize: '450MB', validity: '1 day', providerCost: 325.50, category: 'daily', active: true, popular: false },
+    { id: '500.01', name: '650MB - 3 days', dataSize: '650MB', validity: '3 days', providerCost: 465, category: 'daily', active: true, popular: false },
     
-    // Direct Data Plans
-    { id: '1500.01', name: '1.75GB - 7 days', dataSize: '1.75GB', validity: '7 days', amount: 1395, category: 'weekly', active: true, popular: true },
-    { id: '600.01', name: '650MB - 14 days', dataSize: '650MB', validity: '14 days', amount: 558, category: 'weekly', active: true, popular: false },
-    { id: '1000.01', name: '1.1GB - 30 days', dataSize: '1.1GB', validity: '30 days', amount: 930, category: 'monthly', active: true, popular: true },
-    { id: '1200.01', name: '1.4GB - 30 days', dataSize: '1.4GB', validity: '30 days', amount: 1116, category: 'monthly', active: true, popular: false },
-    { id: '2000.01', name: '2.44GB - 30 days', dataSize: '2.44GB', validity: '30 days', amount: 1860, category: 'monthly', active: true, popular: true },
-    { id: '2500.01', name: '3.17GB - 30 days', dataSize: '3.17GB', validity: '30 days', amount: 2325, category: 'monthly', active: true, popular: false },
-    { id: '3000.01', name: '3.91GB - 30 days', dataSize: '3.91GB', validity: '30 days', amount: 2790, category: 'monthly', active: true, popular: false },
-    { id: '4000.01', name: '5.10GB - 30 days', dataSize: '5.10GB', validity: '30 days', amount: 3720, category: 'monthly', active: true, popular: false },
-    { id: '5000.01', name: '6.5GB - 30 days', dataSize: '6.5GB', validity: '30 days', amount: 4650, category: 'monthly', active: true, popular: false },
-    { id: '12000.01', name: '16GB - 30 days', dataSize: '16GB', validity: '30 days', amount: 11160, category: 'monthly', active: true, popular: false },
-    { id: '18500.01', name: '24.3GB - 30 days', dataSize: '24.3GB', validity: '30 days', amount: 17205, category: 'monthly', active: true, popular: false },
-    { id: '20000.01', name: '26.5GB - 30 days', dataSize: '26.5GB', validity: '30 days', amount: 18600, category: 'monthly', active: true, popular: false },
-    
-    // Long-term Plans
-    { id: '30000.01', name: '39GB - 60 days', dataSize: '39GB', validity: '60 days', amount: 27900, category: 'monthly', active: true, popular: false },
-    { id: '60000.01', name: '78GB - 90 days', dataSize: '78GB', validity: '90 days', amount: 55800, category: 'monthly', active: true, popular: false },
-    { id: '150000.01', name: '190GB - 180 days', dataSize: '190GB', validity: '180 days', amount: 139500, category: 'monthly', active: true, popular: false }
+    // Weekly & Monthly Plans
+    { id: '1500.01', name: '1.75GB - 7 days', dataSize: '1.75GB', validity: '7 days', providerCost: 1395, category: 'weekly', active: true, popular: true },
+    { id: '600.01', name: '650MB - 14 days', dataSize: '650MB', validity: '14 days', providerCost: 558, category: 'weekly', active: true, popular: false },
+    { id: '1000.01', name: '1.1GB - 30 days', dataSize: '1.1GB', validity: '30 days', providerCost: 930, category: 'monthly', active: true, popular: true },
+    { id: '1200.01', name: '1.4GB - 30 days', dataSize: '1.4GB', validity: '30 days', providerCost: 1116, category: 'monthly', active: true, popular: false },
+    { id: '2000.01', name: '2.44GB - 30 days', dataSize: '2.44GB', validity: '30 days', providerCost: 1860, category: 'monthly', active: true, popular: true }
   ],
 
   airtel: [
-    // Awoof Data (1-2 days)
-    { id: '499.91', name: '1GB - 1 day', dataSize: '1GB', validity: '1 day', amount: 483.91, category: 'daily', active: true, popular: true },
-    { id: '599.91', name: '1.5GB - 2 days', dataSize: '1.5GB', validity: '2 days', amount: 580.71, category: 'daily', active: true, popular: false },
-    { id: '749.91', name: '2GB - 2 days', dataSize: '2GB', validity: '2 days', amount: 725.91, category: 'daily', active: true, popular: true },
-    { id: '999.91', name: '3GB - 2 days', dataSize: '3GB', validity: '2 days', amount: 967.91, category: 'daily', active: true, popular: false },
-    { id: '1499.91', name: '5GB - 2 days', dataSize: '5GB', validity: '2 days', amount: 1451.91, category: 'daily', active: true, popular: false },
+    // Daily Plans
+    { id: '499.91', name: '1GB - 1 day', dataSize: '1GB', validity: '1 day', providerCost: 483.91, category: 'daily', active: true, popular: true },
+    { id: '599.91', name: '1.5GB - 2 days', dataSize: '1.5GB', validity: '2 days', providerCost: 580.71, category: 'daily', active: true, popular: false },
+    { id: '749.91', name: '2GB - 2 days', dataSize: '2GB', validity: '2 days', providerCost: 725.91, category: 'daily', active: true, popular: true },
     
     // Weekly Plans
-    { id: '499.92', name: '500MB - 7 days', dataSize: '500MB', validity: '7 days', amount: 483.92, category: 'weekly', active: true, popular: false },
-    { id: '799.91', name: '1GB - 7 days', dataSize: '1GB', validity: '7 days', amount: 774.31, category: 'weekly', active: true, popular: true },
-    { id: '999.92', name: '1.5GB - 7 days', dataSize: '1.5GB', validity: '7 days', amount: 967.92, category: 'weekly', active: true, popular: false },
-    { id: '1499.92', name: '3.5GB - 7 days', dataSize: '3.5GB', validity: '7 days', amount: 1451.92, category: 'weekly', active: true, popular: false },
-    { id: '2499.91', name: '6GB - 7 days', dataSize: '6GB', validity: '7 days', amount: 2419.91, category: 'weekly', active: true, popular: true },
-    { id: '2999.91', name: '10GB - 7 days', dataSize: '10GB', validity: '7 days', amount: 2903.91, category: 'weekly', active: true, popular: false },
-    { id: '4999.91', name: '18GB - 7 days', dataSize: '18GB', validity: '7 days', amount: 4839.91, category: 'weekly', active: true, popular: false },
+    { id: '499.92', name: '500MB - 7 days', dataSize: '500MB', validity: '7 days', providerCost: 483.92, category: 'weekly', active: true, popular: false },
+    { id: '799.91', name: '1GB - 7 days', dataSize: '1GB', validity: '7 days', providerCost: 774.31, category: 'weekly', active: true, popular: true },
+    { id: '2499.91', name: '6GB - 7 days', dataSize: '6GB', validity: '7 days', providerCost: 2419.91, category: 'weekly', active: true, popular: true },
     
     // Monthly Plans
-    { id: '1499.93', name: '2GB - 30 days', dataSize: '2GB', validity: '30 days', amount: 1451.93, category: 'monthly', active: true, popular: true },
-    { id: '1999.91', name: '3GB - 30 days', dataSize: '3GB', validity: '30 days', amount: 1935.91, category: 'monthly', active: true, popular: false },
-    { id: '2499.92', name: '4GB - 30 days', dataSize: '4GB', validity: '30 days', amount: 2419.92, category: 'monthly', active: true, popular: false },
-    { id: '2999.92', name: '8GB - 30 days', dataSize: '8GB', validity: '30 days', amount: 2903.92, category: 'monthly', active: true, popular: false },
-    { id: '3999.91', name: '10GB - 30 days', dataSize: '10GB', validity: '30 days', amount: 3871.91, category: 'monthly', active: true, popular: true },
-    { id: '4999.92', name: '13GB - 30 days', dataSize: '13GB', validity: '30 days', amount: 4839.92, category: 'monthly', active: true, popular: false },
-    { id: '5999.91', name: '18GB - 30 days', dataSize: '18GB', validity: '30 days', amount: 5807.91, category: 'monthly', active: true, popular: false },
-    { id: '7999.91', name: '25GB - 30 days', dataSize: '25GB', validity: '30 days', amount: 7743.91, category: 'monthly', active: true, popular: false },
-    { id: '9999.91', name: '35GB - 30 days', dataSize: '35GB', validity: '30 days', amount: 9679.91, category: 'monthly', active: true, popular: false },
-    { id: '14999.91', name: '60GB - 30 days', dataSize: '60GB', validity: '30 days', amount: 14519.91, category: 'monthly', active: true, popular: false },
-    { id: '19999.91', name: '100GB - 30 days', dataSize: '100GB', validity: '30 days', amount: 19359.91, category: 'monthly', active: true, popular: false },
-    { id: '29999.91', name: '160GB - 30 days', dataSize: '160GB', validity: '30 days', amount: 29039.91, category: 'monthly', active: true, popular: false },
-    { id: '39999.91', name: '210GB - 30 days', dataSize: '210GB', validity: '30 days', amount: 38719.91, category: 'monthly', active: true, popular: false },
-    
-    // Long-term Plans
-    { id: '49999.91', name: '300GB - 90 days', dataSize: '300GB', validity: '90 days', amount: 48399.91, category: 'monthly', active: true, popular: false },
-    { id: '59999.91', name: '350GB - 90 days', dataSize: '350GB', validity: '90 days', amount: 58079.91, category: 'monthly', active: true, popular: false }
+    { id: '1499.93', name: '2GB - 30 days', dataSize: '2GB', validity: '30 days', providerCost: 1451.93, category: 'monthly', active: true, popular: true },
+    { id: '1999.91', name: '3GB - 30 days', dataSize: '3GB', validity: '30 days', providerCost: 1935.91, category: 'monthly', active: true, popular: false },
+    { id: '3999.91', name: '10GB - 30 days', dataSize: '10GB', validity: '30 days', providerCost: 3871.91, category: 'monthly', active: true, popular: true }
   ]
 };
 
-// Network information
 const NETWORK_INFO = {
-  mtn: {
-    name: 'MTN',
-    logo: '🟡',
-    color: '#FFCC00',
-    description: 'MTN Nigeria - Everywhere you go'
-  },
-  glo: {
-    name: 'Glo',
-    logo: '🟢',
-    color: '#00A859',
-    description: 'Glo Mobile - Unlimited possibilities'
-  },
-  '9mobile': {
-    name: '9mobile',
-    logo: '🟢',
-    color: '#006838',
-    description: '9mobile - More than you expect'
-  },
-  airtel: {
-    name: 'Airtel',
-    logo: '🔴',
-    color: '#ED1C24',
-    description: 'Airtel Nigeria - The smartphone network'
-  }
+  mtn: { name: 'MTN', logo: '🟡', color: '#FFCC00', description: 'MTN Nigeria - Everywhere you go' },
+  glo: { name: 'Glo', logo: '🟢', color: '#00A859', description: 'Glo Mobile - Unlimited possibilities' },
+  '9mobile': { name: '9mobile', logo: '🟢', color: '#006838', description: '9mobile - More than you expect' },
+  airtel: { name: 'Airtel', logo: '🔴', color: '#ED1C24', description: 'Airtel Nigeria - The smartphone network' }
 };
 
-// Last modified timestamp
-const LAST_MODIFIED = new Date();
+// Import pricing calculator
+const { calculateCustomerPrice } = require('./pricing');
 
-// Helper functions
-const getActiveNetworks = () => {
-  return Object.keys(DATA_PLANS).map(code => ({
-    code,
-    ...NETWORK_INFO[code]
-  }));
+// Get single plan with dynamic pricing
+const getPlanWithPricing = (network, planId) => {
+  const plans = DATA_PLANS[network] || [];
+  const plan = plans.find(p => p.id === planId);
+  
+  if (!plan) return null;
+  
+  const pricing = calculateCustomerPrice(plan.providerCost, 'data');
+  
+  return {
+    ...plan,
+    customerPrice: pricing.customerPrice,
+    profit: pricing.profit
+  };
 };
 
+// Get all active plans with dynamic pricing
 const getActivePlansForNetwork = (network) => {
   const plans = DATA_PLANS[network] || [];
-  return plans.filter(plan => plan.active !== false);
+  
+  return plans
+    .filter(plan => plan.active !== false)
+    .map(plan => {
+      const pricing = calculateCustomerPrice(plan.providerCost, 'data');
+      return {
+        ...plan,
+        customerPrice: pricing.customerPrice,
+        profit: pricing.profit
+      };
+    });
 };
 
+// Get popular plans with dynamic pricing
 const getPopularPlansForNetwork = (network) => {
-  const plans = getActivePlansForNetwork(network);
-  return plans.filter(plan => plan.popular === true);
+  return getActivePlansForNetwork(network).filter(plan => plan.popular === true);
 };
 
+// Get plans by category with dynamic pricing
 const getPlansByCategory = (network, category) => {
-  const plans = getActivePlansForNetwork(network);
-  return plans.filter(plan => plan.category === category);
+  return getActivePlansForNetwork(network).filter(plan => plan.category === category);
 };
 
-const searchPlans = (network, filters = {}) => {
-  let plans = getActivePlansForNetwork(network);
-  
-  if (filters.minAmount) {
-    plans = plans.filter(p => p.amount >= filters.minAmount);
-  }
-  
-  if (filters.maxAmount) {
-    plans = plans.filter(p => p.amount <= filters.maxAmount);
-  }
-  
-  if (filters.category) {
-    plans = plans.filter(p => p.category === filters.category);
-  }
-  
-  if (filters.popular !== undefined) {
-    plans = plans.filter(p => p.popular === filters.popular);
-  }
-  
-  return plans;
-};
-
-const getLastModified = () => {
-  return LAST_MODIFIED;
+const getActiveNetworks = () => {
+  return Object.keys(DATA_PLANS).map(code => ({ 
+    code, 
+    ...NETWORK_INFO[code] 
+  }));
 };
 
 module.exports = {
   DATA_PLANS,
   NETWORK_INFO,
   getActiveNetworks,
+  getPlanWithPricing,
   getActivePlansForNetwork,
   getPopularPlansForNetwork,
-  getPlansByCategory,
-  searchPlans,
-  getLastModified
+  getPlansByCategory
 };

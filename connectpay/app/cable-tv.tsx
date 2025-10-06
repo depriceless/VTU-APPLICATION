@@ -196,6 +196,20 @@ const canProceed =
     saveFormState();
   }, [phone, selectedOperator, selectedPackage, smartCardNumber]);
 
+
+  // Add this with your other useEffects
+useEffect(() => {
+  // Auto-validate when smart card is 10+ digits and operator is selected
+  if (selectedOperator && smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber)) {
+    // Debounce the validation
+    const timer = setTimeout(() => {
+      validateSmartCard();
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }
+}, [smartCardNumber, selectedOperator]);
+
   // ========== SIMPLIFIED API FUNCTIONS (matching airtime) ==========
   
   // FIXED: Simple token getter using AuthContext
@@ -431,7 +445,10 @@ const canProceed =
 
   // ========== CABLE TV SPECIFIC FUNCTIONS ==========
   
-  const fetchCablePackages = async (operator: string) => {
+  // Find the fetchCablePackages function and replace it with this:
+// CABLE TV ONLY - Replace your fetchCablePackages function with this:
+
+const fetchCablePackages = async (operator: string) => {
   setIsLoadingPackages(true);
   setCablePackages([]);
   setSelectedPackage(null);
@@ -441,115 +458,109 @@ const canProceed =
     const response = await makeApiRequest(`/cable/packages/${operator}`);
 
     if (response.success && response.data) {
-      // Filter and validate packages
       const validPackages = response.data
-        .map(pkg => ({
-          id: pkg.variation_id || pkg.id,
-          name: pkg.name || pkg.package_name,
-          amount: parseFloat(pkg.amount || pkg.price),
-          duration: pkg.duration || '30 days',
-          operator: operator,
-          description: pkg.description || pkg.details
-        }))
-        // Filter out packages with invalid amounts
+        .map(pkg => {
+          // FOR CABLE TV: Use ClubKonnect price directly (no markup)
+          const clubKonnectPrice = parseFloat(pkg.PRODUCT_DISCOUNT_AMOUNT || pkg.amount || pkg.price);
+          
+          const packageData = {
+            id: pkg.variation_id || pkg.id,
+            name: pkg.name || pkg.package_name,
+            providerCost: clubKonnectPrice,
+            amount: clubKonnectPrice,  // NO MARKUP for Cable TV
+            customerPrice: clubKonnectPrice,  // Same as provider cost
+            profit: 0,  // Zero profit for Cable TV
+            duration: pkg.duration || '30 days',
+            operator: operator,
+            description: pkg.description || pkg.details
+          };
+          
+          console.log('CABLE TV PACKAGE (NO MARKUP):', {
+            name: packageData.name,
+            clubKonnectPrice: clubKonnectPrice,
+            customerPays: packageData.amount,
+            profit: packageData.profit
+          });
+          
+          return packageData;
+        })
         .filter(pkg => {
-          if (!pkg.amount || pkg.amount <= 0) {
-            console.warn(`Skipping package with invalid amount:`, pkg.name, pkg.amount);
+          if (!pkg.providerCost || pkg.providerCost <= 0) {
+            console.warn(`Skipping package with invalid cost:`, pkg.name);
             return false;
           }
-          if (pkg.amount < 500 || pkg.amount > 50000) {
-            console.warn(`Skipping package outside allowed range:`, pkg.name, pkg.amount);
+          if (pkg.customerPrice < 500 || pkg.customerPrice > 50000) {
+            console.warn(`Skipping package outside range:`, pkg.name, pkg.customerPrice);
             return false;
           }
           return true;
         })
-        // Sort by amount (lowest to highest)
-        .sort((a, b) => a.amount - b.amount);
+        .sort((a, b) => a.customerPrice - b.customerPrice);
 
       if (validPackages.length === 0) {
         throw new Error('No valid packages available for this operator');
       }
 
       setCablePackages(validPackages);
-      console.log(`Loaded ${validPackages.length} valid packages for ${operator}`);
-      
-      // Log sample for debugging
-      if (validPackages.length > 0) {
-        console.log('Sample package:', validPackages[0]);
-      }
+      console.log(`Loaded ${validPackages.length} Cable TV packages (NO MARKUP)`);
     } else {
       throw new Error(response.message || 'Failed to fetch cable packages');
     }
   } catch (error) {
     console.error('Error fetching cable packages:', error);
     setCablePackages([]);
-    
-    if (error.message.includes('login again')) {
-      Alert.alert('Session Expired', 'Please login again to continue.');
-    } else if (error.message.includes('Network')) {
-      Alert.alert('Network Error', 'Please check your connection and try again.');
-    } else if (error.message.includes('No valid packages')) {
-      Alert.alert(
-        'No Packages Available', 
-        `Unable to load packages for ${operator.toUpperCase()}. This may be temporary. Please try again later.`
-      );
-    } else {
-      Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages. Please try again.`);
-    }
+    Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages.`);
   } finally {
     setIsLoadingPackages(false);
   }
 };
 
   // Smart Card Validation
-  const validateSmartCard = async () => {
-    if (!isSmartCardValid) {
-      setCardError('Smart card number must be at least 10 digits');
-      return;
-    }
+ const validateSmartCard = async () => {
+  if (!isSmartCardValid) {
+    setCardError('Smart card number must be at least 10 digits');
+    return;
+  }
 
-    if (!selectedOperator) {
-      setCardError('Please select an operator first');
-      return;
-    }
+  if (!selectedOperator) {
+    setCardError('Please select an operator first');
+    return;
+  }
 
-    setIsValidatingCard(true);
-    setCardError('');
+  setIsValidatingCard(true);
+  setCardError('');
+  setCustomerName('');
+
+  try {
+    console.log('Validating smart card:', { operator: selectedOperator, smartCardNumber });
+    
+    const response = await makeApiRequest('/cable/validate-smartcard', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        smartCardNumber, 
+        operator: selectedOperator 
+      }),
+    });
+
+    console.log('Validation response:', response);
+
+    if (response && response.success) {
+      setCustomerName(response.customerName || 'Verified Customer');
+      setCardError('');
+      console.log('Smart card validated successfully');
+    } else {
+      setCardError(response?.message || 'Smart card validation failed');
+      setCustomerName('');
+      console.log('Smart card validation failed:', response?.message);
+    }
+  } catch (error: any) {
+    console.error('Smart card validation error:', error);
+    setCardError(error.message || 'Unable to validate smart card');
     setCustomerName('');
-
-    try {
-      console.log('Validating smart card...');
-      const response = await makeApiRequest('/cable/validate-smartcard', {
-        method: 'POST',
-        body: JSON.stringify({ 
-          smartCardNumber, 
-          operator: selectedOperator 
-        }),
-      });
-
-      if (response && response.success) {
-        setCustomerName(response.customerName || 'Verified Customer');
-        console.log('Smart card validated successfully');
-      } else {
-        setCardError(response?.message || 'Smart card validation failed');
-        console.log('Smart card validation failed:', response?.message);
-      }
-    } catch (error: any) {
-      console.error('Smart card validation error:', error);
-
-      if (error.message.includes('login again')) {
-        return;
-      }
-
-      if (error.message.includes('Invalid smart card')) {
-        setCardError(error.message);
-      } else if (error.message.includes('Smart card not found')) {
-        setCardError('Smart card number not found for this operator');
-      }
-    } finally {
-      setIsValidatingCard(false);
-    }
-  };
+  } finally {
+    setIsValidatingCard(false);
+  }
+};
 
   const loadRecentNumbers = async () => {
     try {
@@ -627,30 +638,46 @@ const canProceed =
 
   // ========== UNIFIED PAYMENT PROCESSING (same as airtime) ==========
   
-  const validatePinAndPurchase = async () => {
-    console.log('=== CABLE TV PAYMENT START ===');
-    
-    if (!isPinValid) {
-      console.log('PIN invalid:', pin);
-      setPinError('PIN must be exactly 4 digits');
-      return;
+ const validatePinAndPurchase = async () => {
+  console.log('=== CABLE TV PAYMENT START ===');
+  
+  if (!isPinValid) {
+    console.log('PIN invalid:', pin);
+    setPinError('PIN must be exactly 4 digits');
+    return;
+  }
+
+  // ADD THIS DEBUG LOG
+  console.log('🔍 PURCHASE DATA CHECK:', {
+    selectedPackage: {
+      id: selectedPackage?.id,
+      name: selectedPackage?.name,
+      amount: selectedPackage?.amount,
+      customerPrice: selectedPackage?.customerPrice,
+      providerCost: selectedPackage?.providerCost
+    },
+    whatWillBeSent: {
+      amount: selectedPackage?.amount
     }
+  });
 
-    console.log('Starting cable TV payment process...');
-    setIsValidatingPin(true);
-    setIsProcessingPayment(true);
-    setPinError('');
+  console.log('Starting cable TV payment process...');
+  setIsValidatingPin(true);
+  setIsProcessingPayment(true);
+  setPinError('');
 
-    try {
-      console.log('Cable TV payment payload:', {
-        type: 'cable_tv',
-        operator: selectedOperator,
-        packageId: selectedPackage?.id,
-        smartCardNumber: smartCardNumber,
-        phone: phone,
-        amount: selectedPackage?.amount,
-        pinProvided: !!pin
-      });
+  try {
+    console.log('Cable TV payment payload:', {
+      type: 'cable_tv',
+      operator: selectedOperator,
+      packageId: selectedPackage?.id,
+      smartCardNumber: smartCardNumber,
+      phone: phone,
+      amount: selectedPackage?.amount,
+      pinProvided: !!pin
+    });
+
+  
 
       // Use the same /purchase route as airtime
       const response = await makeApiRequest('/purchase', {
@@ -878,38 +905,39 @@ const canProceed =
             </View>
           )}
 
-          {/* Smart Card Number */}
-          {selectedOperator && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Smart Card Number</Text>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={[styles.input, cardError ? styles.inputError : customerName ? styles.inputSuccess : {}]}
-                  keyboardType="numeric"
-                  placeholder="Enter your smart card number"
-                  value={smartCardNumber}
-                  onChangeText={setSmartCardNumber}
-                  maxLength={15}
-                />
-                {isValidatingCard && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color="#ff3b30" 
-                    style={styles.inputLoader}
-                  />
-                )}
-              </View>
-              {cardError && (
-                <Text style={styles.error}>{cardError}</Text>
-              )}
-              {customerName && !cardError && (
-                <Text style={styles.success}>✓ Card verified for: {customerName}</Text>
-              )}
-              {!isSmartCardValid && smartCardNumber.length > 0 && (
-                <Text style={styles.error}>Smart card number must be at least 10 digits</Text>
-              )}
-            </View>
-          )}
+         {/* Smart Card Number */}
+{selectedOperator && (
+  <View style={styles.section}>
+    <Text style={styles.label}>Smart Card Number</Text>
+    <View style={styles.inputContainer}>
+      <TextInput
+        style={[styles.input, cardError ? styles.inputError : customerName ? styles.inputSuccess : {}]}
+        keyboardType="numeric"
+        placeholder="Enter your smart card number"
+        value={smartCardNumber}
+        onChangeText={setSmartCardNumber}
+        onBlur={validateSmartCard}  // ADD THIS LINE
+        maxLength={15}
+      />
+      {isValidatingCard && (
+        <ActivityIndicator 
+          size="small" 
+          color="#ff3b30" 
+          style={styles.inputLoader}
+        />
+      )}
+    </View>
+    {cardError && (
+      <Text style={styles.error}>{cardError}</Text>
+    )}
+    {customerName && !cardError && (
+      <Text style={styles.success}>✓ Card verified for: {customerName}</Text>
+    )}
+    {!isSmartCardValid && smartCardNumber.length > 0 && (
+      <Text style={styles.error}>Smart card number must be at least 10 digits</Text>
+    )}
+  </View>
+)}
 
           {/* Phone Number */}
           <View style={styles.section}>
@@ -1326,31 +1354,40 @@ const canProceed =
             </TouchableOpacity>
           </View>
           <FlatList
-            data={cablePackages}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.packageItem,
-                  selectedPackage?.id === item.id && styles.packageItemSelected
-                ]}
-                onPress={() => {
-                  setSelectedPackage(item);
-                  setShowPackageModal(false);
-                }}
-              >
-                <View style={styles.packageInfo}>
-                  <Text style={styles.packageName}>{item.name}</Text>
-                  <Text style={styles.packageDescription}>{item.description}</Text>
-                  <Text style={styles.packageDuration}>Duration: {item.duration}</Text>
-                </View>
-                <Text style={styles.packagePrice}>₦{item.amount.toLocaleString()}</Text>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <Text style={styles.emptyText}>No packages available</Text>
-            }
-          />
+  data={cablePackages}
+  keyExtractor={(item) => item.id}
+  renderItem={({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.packageItem,
+        selectedPackage?.id === item.id && styles.packageItemSelected
+      ]}
+      onPress={() => {
+        // ADD THIS DEBUG LOG
+        console.log('✅ PACKAGE SELECTED:', {
+          id: item.id,
+          name: item.name,
+          amount: item.amount,
+          customerPrice: item.customerPrice,
+          providerCost: item.providerCost
+        });
+        
+        setSelectedPackage(item);
+        setShowPackageModal(false);
+      }}
+    >
+      <View style={styles.packageInfo}>
+        <Text style={styles.packageName}>{item.name}</Text>
+        <Text style={styles.packageDescription}>{item.description}</Text>
+        <Text style={styles.packageDuration}>Duration: {item.duration}</Text>
+      </View>
+      <Text style={styles.packagePrice}>₦{item.amount.toLocaleString()}</Text>
+    </TouchableOpacity>
+  )}
+  ListEmptyComponent={
+    <Text style={styles.emptyText}>No packages available</Text>
+  }
+/>
         </View>
       </Modal>
 
