@@ -1,18 +1,18 @@
 // routes/admin.js - UPDATED VERSION
 const express = require('express');
-const adminAuth = require('../middleware/adminAuth'); // Fixed import
+const adminAuth = require('../middleware/adminAuth');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 const ServiceConfig = require('../models/ServiceConfig');
 const ServiceProvider = require('../models/ServiceProvider');
 const Transaction = require('../models/Transaction');
 const os = require('os');
+const axios = require('axios'); // ← ADD THIS LINE
 const ApiProvider = require('../models/ApiProvider');
 const SystemHealth = require('../models/SystemHealth');
 const SystemLog = require('../models/SystemLog');
 const MaintenanceMode = require('../models/MaintenanceMode');
 const router = express.Router();
-
 // ==================== EXISTING USER MANAGEMENT ====================
 
 // Get all users (admin only)
@@ -2473,9 +2473,6 @@ router.put('/logs/:id/resolve', adminAuth, async (req, res) => {
   }
 });
 
-// ===========================================
-// 4. MAINTENANCE MODE
-// ===========================================
 
 // Get maintenance mode
 router.get('/maintenance', adminAuth, async (req, res) => {
@@ -2538,32 +2535,6 @@ router.put('/maintenance', adminAuth, async (req, res) => {
     });
   }
 });
-
-module.exports = router;
-Register the Route
-In your main app.js or server.js, add:
-javascriptconst systemManagementRoutes = require('./routes/admin/systemManagement');
-app.use('/api/admin/system', systemManagementRoutes);
-Now you have:
-
-✅ All 4 models created
-✅ Seed script ready
-✅ Backend API routes complete
-
-Next: Update your React frontend to call these real APIs instead of using mock data. Ready?RetryClaude does not have the ability to run the code it generates yet.MRi dont have admin file differntly eveythin is inside adminEditGot it - everything is in the single routes/admin.js file. Let me add the system management routes directly to your existing admin.js file.
-Add to your routes/admin.js
-Add these routes at the end of your existing admin.js file (before module.exports = router;):
-javascript// ==================== SYSTEM MANAGEMENT ENDPOINTS ====================
-
-const os = require('os');
-const ApiProvider = require('../models/ApiProvider');
-const SystemHealth = require('../models/SystemHealth');
-const SystemLog = require('../models/SystemLog');
-const MaintenanceMode = require('../models/MaintenanceMode');
-
-// ===========================================
-// API PROVIDERS
-// ===========================================
 
 // GET /api/admin/system/providers - Get all API providers
 router.get('/system/providers', adminAuth, async (req, res) => {
@@ -2981,9 +2952,111 @@ router.put('/system/logs/:id/resolve', adminAuth, async (req, res) => {
   }
 });
 
-// ===========================================
-// MAINTENANCE MODE
-// ===========================================
+// ==================== SYSTEM OVERVIEW & ANALYTICS ====================
+
+// Get system overview (admin only)
+router.get('/overview', adminAuth, async (req, res) => {
+  try {
+    const totalUsers = await User.countDocuments();
+    const totalTransactions = await Transaction.countDocuments();
+    const pendingTransactions = await Transaction.countDocuments({ status: 'pending' });
+    
+    // Get today's transactions
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayTransactions = await Transaction.countDocuments({ 
+      createdAt: { $gte: todayStart } 
+    });
+
+    // Get revenue stats
+    const revenueResult = await Transaction.aggregate([
+      { $match: { status: 'completed' } },
+      { $group: { _id: null, totalRevenue: { $sum: '$amount' } } }
+    ]);
+    const totalRevenue = revenueResult[0]?.totalRevenue || 0;
+
+    res.json({
+      success: true,
+      overview: {
+        totalUsers,
+        totalAdmins: await Admin.countDocuments(),
+        totalTransactions,
+        pendingTransactions,
+        todayTransactions,
+        totalRevenue,
+        services: await ServiceConfig.countDocuments(),
+        activeProviders: await ServiceProvider.countDocuments({ isActive: true })
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error'
+    });
+  }
+});
+
+// GET /api/services/stats - Get service statistics for dashboard
+
+router.get('/services/stats', adminAuth, async (req, res) => {
+  console.log('🚨 STATS ROUTE HIT - Admin ID:', req.admin?.id);
+  
+  try {
+    console.log('📊 Fetching service stats...');
+    
+    // Test ServiceConfig model
+    console.log('ServiceConfig model:', ServiceConfig ? 'exists' : 'missing');
+    
+    console.log('Counting total services...');
+    const totalServices = await ServiceConfig.countDocuments();
+    console.log('✅ Total services:', totalServices);
+    
+    console.log('Counting active services...');
+    const activeServices = await ServiceConfig.countDocuments({ 
+      isActive: true, 
+      maintenanceMode: false 
+    });
+    console.log('✅ Active services:', activeServices);
+    
+    console.log('Counting maintenance services...');
+    const maintenanceServices = await ServiceConfig.countDocuments({ 
+      maintenanceMode: true 
+    });
+    console.log('✅ Maintenance services:', maintenanceServices);
+    
+    console.log('Counting inactive services...');
+    const inactiveServices = await ServiceConfig.countDocuments({ 
+      isActive: false 
+    });
+    console.log('✅ Inactive services:', inactiveServices);
+
+    const responseData = {
+      success: true,
+      data: {
+        services: totalServices,
+        activeProviders: activeServices,
+        maintenanceServices: maintenanceServices,
+        inactiveServices: inactiveServices
+      }
+    };
+    
+    console.log('📊 Sending response:', responseData);
+    res.json(responseData);
+    
+  } catch (error) {
+    console.error('❌❌❌ STATS ROUTE ERROR:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Error name:', error.name);
+    
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch service statistics',
+      error: error.message
+    });
+  }
+});
+
 
 // GET /api/admin/system/maintenance - Get maintenance mode
 router.get('/system/maintenance', adminAuth, async (req, res) => {
