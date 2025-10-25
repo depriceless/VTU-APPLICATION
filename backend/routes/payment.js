@@ -6,7 +6,7 @@ const PaystackAccount = require('../models/PaystackAccount');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const { authenticate } = require('../middleware/auth');
 
-const ACTIVE_GATEWAY = process.env.ACTIVE_PAYMENT_GATEWAY || 'paystack';
+const ACTIVE_GATEWAY = process.env.ACTIVE_PAYMENT_GATEWAY || 'monnify';
 
 const PAYSTACK_CONFIG = {
   secretKey: process.env.PAYSTACK_SECRET_KEY,
