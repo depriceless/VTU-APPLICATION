@@ -1,10 +1,9 @@
-// ✅ DEBUGGING GUIDE: Why Transactions Aren't Showing After Airtime Purchase
 
-// 1. ENHANCED DASHBOARD WITH BETTER DEBUGGING
 import React, { useContext, useEffect, useState } from 'react';
 import FundWallet from './fund-wallet'; 
 import TransactionDetails from './TransactionDetails';
 import { Share } from 'react-native';
+import { ActivityIndicator } from 'react-native';
 import {
   View,
   Text,
@@ -711,7 +710,7 @@ export default function Dashboard() {
         <View style={styles.transactionsContainer}>
           <View style={styles.transactionsHeader}>
             <Text style={styles.transactionsTitle}>Recent Transactions</Text>
-            {transactions.length > 3 && (
+            {transactions.length > 4 && (
               <TouchableOpacity 
                 style={styles.viewAllButton}
                 onPress={() => router.push('/transaction-history')}
@@ -734,7 +733,7 @@ export default function Dashboard() {
             </View>
           ) : (
             <View style={styles.transactionsList}>
-              {transactions.slice(0, showAllTransactions ? transactions.length : 5).map((tx) => (
+             {transactions.slice(0, showAllTransactions ? transactions.length : 3).map((tx) => (
                 <TouchableOpacity
                   key={tx._id}
                   style={styles.transactionItem}
@@ -1387,43 +1386,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 
-  transactionsContainer: { 
+   transactionsContainer: { 
     backgroundColor: '#fff',
     borderRadius: 16,
-    padding: 15,
-     marginHorizontal: 5,
+    marginHorizontal: 16,
+    marginBottom: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
+    overflow: 'hidden',
   },
 
-  transactionsHeader: {
+   transactionsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
   },
 
-  transactionsTitle: { 
+   transactionsTitle: { 
     fontSize: 18, 
     fontWeight: '700', 
-    color: '#1f2937' 
+    color: '#1f2937',
+    letterSpacing: -0.3,
   },
 
+  
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
+    backgroundColor: '#fff5f5',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ffe5e5',
   },
 
-  viewAllText: {
+    viewAllText: {
     color: '#ff2b2b',
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    marginRight: 4,
+    marginRight: 2,
   },
 
   noTransactionsContainer: {
@@ -1431,105 +1441,119 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
 
-  noTransactions: { 
+   noTransactions: { 
     color: '#6b7280', 
-    fontSize: 16,
-    marginTop: 15,
-    fontWeight: '500',
+    fontSize: 17,
+    marginTop: 20,
+    fontWeight: '600',
+    textAlign: 'center',
   },
-
-  noTransactionsSubtext: {
+ noTransactionsSubtext: {
     color: '#9ca3af',
     fontSize: 14,
-    marginTop: 5,
+    marginTop: 8,
+    textAlign: 'center',
+    lineHeight: 20,
   },
-
+  
   transactionsList: {
-    marginTop: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
 
-  transactionItem: {
+  
+   transactionItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 0,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    marginBottom: 6,
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
-
-  transactionLeft: {
+ transactionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
-    marginRight: 10,
+    marginRight: 8,
   },
-
   transactionIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-
   transactionInfo: {
     flex: 1,
     minWidth: 0,
   },
 
+  
   transactionDescription: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1f2937',
-    marginBottom: 4,
+    marginBottom: 3,
     flexShrink: 1,
+    lineHeight: 18,
   },
-
-  transactionDate: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginBottom: 6,
+   transactionDate: {
+    fontSize: 11,
+    color: '#9ca3af',
+    marginBottom: 4,
+    fontWeight: '500',
   },
-
-  transactionMeta: {
+   transactionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
   },
 
   statusBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 10,
-    marginRight: 8,
+    marginRight: 6,
   },
-
-  statusText: {
+   statusText: {
     color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'uppercase',
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+    letterSpacing: 0.3,
   },
 
   transactionReference: {
     fontSize: 10,
     color: '#9ca3af',
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontWeight: '500',
+    letterSpacing: 0.5,
   },
 
   transactionRight: {
     alignItems: 'flex-end',
     justifyContent: 'center',
-    minWidth: 80,
+    minWidth: 75,
   },
 
+  
   transactionAmount: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
     marginBottom: 4,
+    letterSpacing: -0.3,
   },
-
   confirmationOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

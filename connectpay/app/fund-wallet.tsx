@@ -49,12 +49,10 @@ interface PaymentMethod {
 const API_CONFIG = {
   BASE_URL: process.env.EXPO_PUBLIC_API_URL 
     ? `${process.env.EXPO_PUBLIC_API_URL}/api`
-    : 'http://10.157.13.7:5000/api',
+    : 'https://vtu-application.onrender.com/api',  // ✅ Changed fallback to Render
   ENDPOINTS: {
-    // Unified endpoint - automatically uses active gateway
     GET_VIRTUAL_ACCOUNT: '/payment/virtual-account',
     CARD_PAYMENT: '/card/pay',
-    // Gateway check
     ACTIVE_GATEWAY: '/payment/active-gateway'
   }
 };
