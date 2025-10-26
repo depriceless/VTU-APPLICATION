@@ -15,7 +15,7 @@
     "axios": "^1.12.2",
     "expo": "^54.0.0",
     "expo-asset": "~12.0.9",
-    "expo-constants": "~18.0.9",
+    "expo-constants": "~18.0.10",
     "expo-contacts": "~15.0.8",
     "expo-dev-client": "^6.0.12",
     "expo-haptics": "~15.0.7",

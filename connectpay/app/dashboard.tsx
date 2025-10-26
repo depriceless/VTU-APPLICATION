@@ -4,6 +4,7 @@ import FundWallet from './fund-wallet';
 import TransactionDetails from './TransactionDetails';
 import { Share } from 'react-native';
 import { ActivityIndicator } from 'react-native';
+import Constants from 'expo-constants';
 import {
   View,
   Text,
@@ -23,7 +24,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
 import { useRouter } from 'expo-router';
-import Constants from 'expo-constants';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const API_CONFIG = {
