@@ -10,7 +10,7 @@ export default {
     ios: {
       supportsTablet: true,
       runtimeVersion: {
-        policy: "appVersion", // EAS Update runtime version
+        policy: "appVersion",
       },
     },
     android: {
@@ -20,7 +20,7 @@ export default {
       edgeToEdgeEnabled: true,
       package: "com.anonymous.connectpay",
       usesCleartextTraffic: true,
-      runtimeVersion: "1.0.0", // EAS Update runtime version
+      runtimeVersion: "1.0.0",
     },
     web: {
       bundler: "metro",
@@ -44,13 +44,13 @@ export default {
       typedRoutes: true,
     },
     updates: {
-      url: "https://u.expo.dev/f853cd0a-cdb5-4197-855e-4a1207a7f5c9", // Your EAS URL
+      url: "https://u.expo.dev/f853cd0a-cdb5-4197-855e-4a1207a7f5c9",
     },
     extra: {
       EXPO_PUBLIC_API_URL:
-        process.env.EXPO_PUBLIC_API_URL || "http://10.157.13.7:5000",
+        process.env.EXPO_PUBLIC_API_URL || "https://vtu-application.onrender.com",
       EXPO_PUBLIC_API_URL_WEB:
-        process.env.EXPO_PUBLIC_API_URL_WEB || "http://10.157.13.7:5000",
+        process.env.EXPO_PUBLIC_API_URL_WEB || "https://vtu-application.onrender.com",
       router: {},
       eas: {
         projectId: "f853cd0a-cdb5-4197-855e-4a1207a7f5c9",

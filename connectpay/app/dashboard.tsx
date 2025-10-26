@@ -23,13 +23,13 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
 import { useRouter } from 'expo-router';
-
+import Constants from 'expo-constants';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
-    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
-    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+    ? `${Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL}/api`,
   ENDPOINTS: {
     PROFILE: '/auth/profile',
     BALANCE: '/balance',

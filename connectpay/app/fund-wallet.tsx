@@ -10,6 +10,7 @@ import {
   Alert 
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 
 // Types
 interface FundWalletProps {
@@ -47,16 +48,15 @@ interface PaymentMethod {
 
 // API Configuration
 const API_CONFIG = {
-  BASE_URL: process.env.EXPO_PUBLIC_API_URL 
-    ? `${process.env.EXPO_PUBLIC_API_URL}/api`
-    : 'https://vtu-application.onrender.com/api',  // ✅ Changed fallback to Render
+  BASE_URL: Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL 
+    ? `${Constants.expoConfig.extra.EXPO_PUBLIC_API_URL}/api`
+    : 'https://vtu-application.onrender.com/api',
   ENDPOINTS: {
     GET_VIRTUAL_ACCOUNT: '/payment/virtual-account',
     CARD_PAYMENT: '/card/pay',
     ACTIVE_GATEWAY: '/payment/active-gateway'
   }
 };
-
 console.log('🔧 FundWallet API URL:', API_CONFIG.BASE_URL);
 
 const PAYMENT_METHODS: PaymentMethod[] = [
