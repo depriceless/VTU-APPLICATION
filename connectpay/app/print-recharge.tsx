@@ -384,18 +384,18 @@ export default function PrintRecharge() {
     setPinError('');
 
     try {
-      const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'recharge',
-          network: selectedNetwork,
-          cardType: cardType,
-          denomination,
-          quantity: qty,
-          pin,
-        }),
-      });
-
+     const response = await makeApiRequest('/purchase', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'recharge',
+    network: selectedNetwork,
+    cardType: cardType,
+    denomination,
+    quantity: qty,
+    amount: totalAmount,  // ✅ ADD THIS
+    pin,
+  }),
+});
       if (response.success === true) {
         console.log('PIN generation successful!');
         
