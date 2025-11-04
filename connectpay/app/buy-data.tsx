@@ -66,7 +66,8 @@ type PlanCategory = 'daily' | 'short' | 'weekly' | 'monthly';
 export default function BuyData() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
   
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<DataPlan | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<PlanCategory>('daily');
@@ -83,6 +84,7 @@ export default function BuyData() {
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
+  const pinInputRef = React.useRef<TextInput>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
@@ -216,12 +218,16 @@ export default function BuyData() {
   }, [currentStep]);
 
   useEffect(() => {
-    if (currentStep === 3) {
+    if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
+      
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 100);
     }
-  }, [currentStep]);
+  }, [showPinEntry]);
 
   useEffect(() => {
     saveFormState();
@@ -306,33 +312,33 @@ export default function BuyData() {
       throw new Error(error.message || 'Request failed');
     }
   };
-const fetchDataPlans = async (network: string) => {
-  setIsLoadingPlans(true);
-  try {
-    const timestamp = Date.now();
-    const response = await makeApiRequest(`/data/plans/${network}?t=${timestamp}`);
-    
-    console.log('Fetched plans:', response.plans?.slice(0, 2));
-    
-    if (response.success) {
-      // Ensure all plans have customerPrice
-      const plansWithPrice = (response.plans || []).map(plan => ({
-        ...plan,
-        customerPrice: plan.customerPrice || plan.providerCost || plan.amount || 0,
-        amount: plan.providerCost || plan.amount || 0
-      }));
-      setDataPlans(plansWithPrice);
-    } else {
-      throw new Error(response.message || 'Failed to fetch data plans');
+
+  const fetchDataPlans = async (network: string) => {
+    setIsLoadingPlans(true);
+    try {
+      const timestamp = Date.now();
+      const response = await makeApiRequest(`/data/plans/${network}?t=${timestamp}`);
+      
+      console.log('Fetched plans:', response.plans?.slice(0, 2));
+      
+      if (response.success) {
+        const plansWithPrice = (response.plans || []).map(plan => ({
+          ...plan,
+          customerPrice: plan.customerPrice || plan.providerCost || plan.amount || 0,
+          amount: plan.providerCost || plan.amount || 0
+        }));
+        setDataPlans(plansWithPrice);
+      } else {
+        throw new Error(response.message || 'Failed to fetch data plans');
+      }
+    } catch (error) {
+      console.error('Error fetching data plans:', error);
+      Alert.alert('Error', 'Could not load data plans. Please try again.');
+      setDataPlans([]);
+    } finally {
+      setIsLoadingPlans(false);
     }
-  } catch (error) {
-    console.error('Error fetching data plans:', error);
-    Alert.alert('Error', 'Could not load data plans. Please try again.');
-    setDataPlans([]);
-  } finally {
-    setIsLoadingPlans(false);
-  }
-};
+  };
 
   const checkPinStatus = async () => {
     try {
@@ -529,12 +535,20 @@ const fetchDataPlans = async (network: string) => {
     setShowRecentsModal(false);
   };
 
-  const handleBuyForSelf = () => {
-    Alert.alert('Info', 'This would use your registered phone number. For demo, please enter a number manually.');
-  };
-
   const handleQuickPlanSelect = (plan: DataPlan) => {
     setSelectedPlan(plan);
+  };
+
+  const handleProceedToPayment = () => {
+    if (!pinStatus?.isPinSet) {
+      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      return;
+    }
+    if (pinStatus?.isLocked) {
+      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      return;
+    }
+    setShowPinEntry(true);
   };
 
   const validatePinAndPurchase = async () => {
@@ -598,6 +612,7 @@ const fetchDataPlans = async (network: string) => {
           newBalance: response.newBalance
         });
 
+        setShowPinEntry(false);
         setTimeout(() => {
           setShowSuccessModal(true);
         }, 300);
@@ -653,91 +668,111 @@ const fetchDataPlans = async (network: string) => {
     setSelectedPlan(null);
     setPin('');
     setPinError('');
+    setShowPinEntry(false);
   };
 
   return (
     <View style={styles.container}>
+      {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.section}>
-            <Text style={styles.label}>Beneficiary</Text>
-            <View style={styles.buttonRow}>
+          {/* Quick Actions */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Select Recipient</Text>
+            <View style={styles.quickActions}>
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={selectContact}
                 disabled={isLoadingContacts}
               >
                 {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#555" />
+                  <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.actionBtnText}>📞 Contacts</Text>
+                  <>
+                    <Text style={styles.quickActionIcon}>📱</Text>
+                    <Text style={styles.quickActionText}>Contacts</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginHorizontal: 8 }]} 
-                onPress={handleBuyForSelf}
-              >
-                <Text style={styles.actionBtnText}>👤 Self</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={showRecentNumbers}
               >
-                <Text style={styles.actionBtnText}>🕐 Recent ({recentNumbers.length})</Text>
+                <Text style={styles.quickActionIcon}>🕐</Text>
+                <Text style={styles.quickActionText}>Recent</Text>
+                {recentNumbers.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{recentNumbers.length}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.label}>Phone Number</Text>
+          {/* Phone Number Input */}
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Phone Number</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               keyboardType="phone-pad"
-              placeholder="Enter phone number (e.g., 08012345678)"
+              placeholder="08012345678"
+              placeholderTextColor="#999"
               maxLength={11}
               value={phone}
               onChangeText={setPhone}
             />
             {phone !== '' && !isPhoneValid && (
-              <Text style={styles.error}>{getNetworkSpecificValidation(phone)}</Text>
+              <Text style={styles.validationError}>{getNetworkSpecificValidation(phone)}</Text>
             )}
             {phone !== '' && isPhoneValid && detectNetwork(phone) && (
-              <Text style={styles.success}>
-                ✓ {networks.find(n => n.id === detectNetwork(phone))?.label} number detected
-              </Text>
+              <View style={styles.validationSuccess}>
+                <Text style={styles.validationSuccessText}>
+                  {networks.find(n => n.id === detectNetwork(phone))?.label} number detected
+                </Text>
+              </View>
             )}
           </View>
 
-          <View style={styles.section}>
-            <Text style={styles.label}>
-              Select Network{selectedNetwork ? ' (Auto-detected)' : ''}
-            </Text>
-            <View style={styles.networkRow}>
+          {/* Network Selection */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Network Provider</Text>
+            <View style={styles.networkGrid}>
               {networks.map((net) => (
                 <TouchableOpacity
                   key={net.id}
                   style={[
-                    styles.networkCard,
-                    selectedNetwork === net.id && styles.networkSelected,
+                    styles.networkItem,
+                    selectedNetwork === net.id && styles.networkItemSelected,
                   ]}
                   onPress={() => setSelectedNetwork(net.id)}
+                  activeOpacity={0.7}
                 >
                   <Image source={net.logo} style={styles.networkLogo} />
-                  <Text style={styles.networkLabel}>{net.label}</Text>
+                  <Text style={[
+                    styles.networkName,
+                    selectedNetwork === net.id && styles.networkNameSelected
+                  ]}>
+                    {net.label}
+                  </Text>
+                  {selectedNetwork === net.id && (
+                    <View style={styles.checkmark}>
+                      <Text style={styles.checkmarkText}>✓</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
+          {/* Data Plans */}
           {showPlans && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Select Data Plan</Text>
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Select Data Plan</Text>
               
               {isLoadingPlans ? (
                 <View style={styles.loadingContainer}>
@@ -747,65 +782,28 @@ const fetchDataPlans = async (network: string) => {
               ) : dataPlans.length > 0 ? (
                 <>
                   <View style={styles.categoryTabs}>
-                    <TouchableOpacity
-                      style={[
-                        styles.categoryTab,
-                        selectedCategory === 'daily' && styles.categoryTabActive
-                      ]}
-                      onPress={() => setSelectedCategory('daily')}
-                    >
-                      <Text style={[
-                        styles.categoryTabText,
-                        selectedCategory === 'daily' && styles.categoryTabTextActive
-                      ]}>
-                        Daily
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.categoryTab,
-                        selectedCategory === 'short' && styles.categoryTabActive
-                      ]}
-                      onPress={() => setSelectedCategory('short')}
-                    >
-                      <Text style={[
-                        styles.categoryTabText,
-                        selectedCategory === 'short' && styles.categoryTabTextActive
-                      ]}>
-                        2-3 Days
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.categoryTab,
-                        selectedCategory === 'weekly' && styles.categoryTabActive
-                      ]}
-                      onPress={() => setSelectedCategory('weekly')}
-                    >
-                      <Text style={[
-                        styles.categoryTabText,
-                        selectedCategory === 'weekly' && styles.categoryTabTextActive
-                      ]}>
-                        Weekly
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.categoryTab,
-                        selectedCategory === 'monthly' && styles.categoryTabActive
-                      ]}
-                      onPress={() => setSelectedCategory('monthly')}
-                    >
-                      <Text style={[
-                        styles.categoryTabText,
-                        selectedCategory === 'monthly' && styles.categoryTabTextActive
-                      ]}>
-                        Monthly
-                      </Text>
-                    </TouchableOpacity>
+                    {[
+                      { key: 'daily', label: 'Daily' },
+                      { key: 'short', label: '2-3 Days' },
+                      { key: 'weekly', label: 'Weekly' },
+                      { key: 'monthly', label: 'Monthly' }
+                    ].map(({ key, label }) => (
+                      <TouchableOpacity
+                        key={key}
+                        style={[
+                          styles.categoryTab,
+                          selectedCategory === key && styles.categoryTabActive
+                        ]}
+                        onPress={() => setSelectedCategory(key as PlanCategory)}
+                      >
+                        <Text style={[
+                          styles.categoryTabText,
+                          selectedCategory === key && styles.categoryTabTextActive
+                        ]}>
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </View>
 
                   {displayPlans.length > 0 ? (
@@ -818,403 +816,331 @@ const fetchDataPlans = async (network: string) => {
                         <TouchableOpacity
                           key={`${plan.network}-${plan.id}-${index}`}
                           style={[
-                            styles.planRow,
-                            selectedPlan?.id === plan.id && styles.planRowSelected
+                            styles.planCard,
+                            selectedPlan?.id === plan.id && styles.planCardSelected
                           ]}
                           onPress={() => handleQuickPlanSelect(plan)}
+                          activeOpacity={0.7}
                         >
-                          <View style={styles.planRowLeft}>
-                            <Text style={styles.planRowName}>{plan.name}</Text>
-                            <Text style={styles.planRowData}>{plan.dataSize}</Text>
-                            <Text style={styles.planRowValidity}>{plan.validity}</Text>
+                          <View style={styles.planCardContent}>
+                            <View style={styles.planInfo}>
+                              <Text style={styles.planDataSize}>{plan.dataSize}</Text>
+                              <Text style={styles.planName}>{plan.name}</Text>
+                              <Text style={styles.planValidity}>⏱ {plan.validity}</Text>
+                            </View>
+                            <View style={styles.planPriceContainer}>
+                              <Text style={styles.planPrice}>₦{plan.customerPrice.toLocaleString()}</Text>
+                            </View>
                           </View>
-                          <View style={styles.planRowRight}>
-                            <Text style={styles.planRowAmount}>₦{plan.customerPrice.toLocaleString()}</Text>
-                          </View>
+                          {selectedPlan?.id === plan.id && (
+                            <View style={styles.planCheckmark}>
+                              <Text style={styles.planCheckmarkText}>✓</Text>
+                            </View>
+                          )}
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
                   ) : (
-                    <View style={styles.emptyCategory}>
-                      <Text style={styles.emptyCategoryText}>
+                    <View style={styles.emptyState}>
+                      <Text style={styles.emptyStateText}>
                         No {selectedCategory} plans available
-                      </Text>
-                      <TouchableOpacity 
-                        style={styles.showAllBtn}
-                        onPress={() => {
-                          const counts = {
-                            daily: categorizedPlans.daily.length,
-                            weekly: categorizedPlans.weekly.length,
-                            monthly: categorizedPlans.monthly.length
-                          };
-                          const maxCategory = Object.keys(counts).reduce((a, b) => 
-                            counts[a] > counts[b] ? a : b
-                          ) as PlanCategory;
-                          setSelectedCategory(maxCategory);
-                        }}
-                      >
-                        <Text style={styles.showAllBtnText}>View Available Plans</Text>
-                      </TouchableOpacity>
-                    </View>
-                  )}
-
-                  {selectedPlan && (
-                    <View style={styles.selectedPlanSummary}>
-                      <Text style={styles.success}>
-                        ✓ {selectedPlan.name}: {selectedPlan.dataSize} for {selectedPlan.validity} - ₦{selectedPlan.customerPrice.toLocaleString()}
                       </Text>
                     </View>
                   )}
                 </>
               ) : (
-                <Text style={styles.error}>No data plans available for this network</Text>
+                <Text style={styles.validationError}>No data plans available for this network</Text>
               )}
             </View>
           )}
 
+          {/* Proceed Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
+            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
+            <Text style={styles.primaryButtonText}>
               {canProceed && selectedPlan 
-                ? `Review Purchase • ₦${selectedPlan.customerPrice.toLocaleString()}`
-                : 'Review Purchase'}
+                ? `Review purchase • ₦${selectedPlan.customerPrice.toLocaleString()}`
+                : 'Complete Form to Continue'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
+      {/* STEP 2: REVIEW */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
         >
-          <View style={styles.balanceCard}>
+          {/* Balance Overview */}
+          <View style={styles.balanceOverview}>
             <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <Text style={styles.balanceLabel}>Available Balance</Text>
               <TouchableOpacity 
-                style={styles.refreshBtn} 
+                style={styles.refreshButton} 
                 onPress={fetchUserBalance}
                 disabled={isLoadingBalance}
               >
                 {isLoadingBalance ? (
                   <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.refreshText}>🔄</Text>
+                  <Text style={styles.refreshIcon}>↻</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {userBalance ? (
               <>
-                <Text style={styles.totalBalance}>
+                <Text style={styles.balanceAmount}>
                   ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
                 </Text>
 
-                <Text style={styles.lastUpdated}>
-                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-                </Text>
-
                 {selectedPlan && (
-                  <View style={styles.transactionPreview}>
-                    <Text style={styles.previewLabel}>After purchase:</Text>
-                    <Text style={[
-                      styles.previewAmount,
-                      (userBalance.total - selectedPlan.customerPrice) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-                    ]}>
-                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
-                    </Text>
+                  <View style={styles.balanceCalculation}>
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                      <Text style={styles.balanceRowValue}>-₦{selectedPlan.customerPrice.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.balanceDivider} />
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                      <Text style={[
+                        styles.balanceRowValueBold,
+                        (userBalance.total - selectedPlan.customerPrice) < 0 && styles.negativeAmount
+                      ]}>
+                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
+                      </Text>
+                    </View>
                   </View>
                 )}
 
                 {selectedPlan && selectedPlan.customerPrice > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientBalanceWarning}>
-                    <Text style={styles.warningText}>
-                      ⚠️ Insufficient balance for this transaction
+                  <View style={styles.insufficientWarning}>
+                    <Text style={styles.insufficientWarningText}>
+                      Insufficient balance for this transaction
                     </Text>
-                    <TouchableOpacity 
-                      style={styles.topUpBtn}
-                      onPress={() => {}}
-                    >
-                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </>
             ) : (
-              <View style={styles.loadingBalance}>
-                <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+              <View style={styles.balanceLoading}>
+                <Text style={styles.balanceLoadingText}>
+                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
-                {!isLoadingBalance && (
-                  <TouchableOpacity 
-                    style={styles.retryBtn}
-                    onPress={fetchUserBalance}
-                  >
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
           </View>
+          
+          {/* Transaction Summary */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Purchase Summary</Text>
-
-            {selectedNetwork && (
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryLeft}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Network</Text>
+              <View style={styles.summaryValueContainer}>
+                {selectedNetwork && (
                   <Image
                     source={networks.find((n) => n.id === selectedNetwork)?.logo}
-                    style={styles.summaryLogo}
+                    style={styles.summaryNetworkLogo}
                   />
-                  <Text style={styles.summaryText}>
-                    {networks.find((n) => n.id === selectedNetwork)?.label} Data
-                  </Text>
-                </View>
+                )}
+                <Text style={styles.summaryValue}>
+                  {networks.find((n) => n.id === selectedNetwork)?.label}
+                </Text>
               </View>
-            )}
-
-            {selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Plan:</Text>
-                <Text style={styles.summaryValue}>{selectedPlan.name}</Text>
-              </View>
-            )}
-
-            {selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Data:</Text>
-                <Text style={styles.summaryValue}>{selectedPlan.dataSize}</Text>
-              </View>
-            )}
-
-            {selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Validity:</Text>
-                <Text style={styles.summaryValue}>{selectedPlan.validity}</Text>
-              </View>
-            )}
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Recipient:</Text>
-              <Text style={styles.summaryValue}>{phone}</Text>
             </View>
 
             {selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Amount:</Text>
-                <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                  ₦{selectedPlan.customerPrice.toLocaleString()}
-                </Text>
-              </View>
+              <>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Data Plan</Text>
+                  <Text style={styles.summaryValue}>{selectedPlan.name}</Text>
+                </View>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Data Size</Text>
+                  <Text style={styles.summaryValue}>{selectedPlan.dataSize}</Text>
+                </View>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Validity</Text>
+                  <Text style={styles.summaryValue}>{selectedPlan.validity}</Text>
+                </View>
+              </>
             )}
+
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Recipient</Text>
+              <Text style={styles.summaryValue}>{phone}</Text>
+            </View>
 
             <View style={styles.summaryDivider} />
 
             {selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total:</Text>
-                <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                  ₦{selectedPlan.customerPrice.toLocaleString()}
-                </Text>
-              </View>
-            )}
-
-            {userBalance && selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Balance After:</Text>
-                <Text style={[
-                  styles.summaryValue, 
-                  styles.summaryBalance,
-                  (userBalance.total - selectedPlan.customerPrice) < 0 ? styles.negativeBalance : {}
-                ]}>
-                  ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
-                </Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabelTotal}>Total Amount</Text>
+                <Text style={styles.summaryValueTotal}>₦{selectedPlan.customerPrice.toLocaleString()}</Text>
               </View>
             )}
           </View>
 
+          {/* Action Buttons */}
           <TouchableOpacity
             style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
+              styles.primaryButton, 
+              !hasEnoughBalance && styles.primaryButtonDisabled
             ]}
             disabled={!hasEnoughBalance}
-            onPress={() => setCurrentStep(3)}
+            onPress={handleProceedToPayment}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+            <Text style={styles.primaryButtonText}>
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
+            style={styles.secondaryButton}
             onPress={() => setCurrentStep(1)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Edit Details</Text>
+            <Text style={styles.secondaryButtonText}>Edit Details</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {currentStep === 3 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+      {/* PIN Entry Modal - Bottom Sheet (Like Airtime) */}
+      <Modal 
+        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+        animationType="slide"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.pinModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isValidatingPin && !isProcessingPayment) {
+              setShowPinEntry(false);
+              setPin('');
+              setPinError('');
+            }
+          }}
         >
-          {pinStatus?.isLocked && (
-            <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
-              <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn}
-                onPress={checkPinStatus}
-              >
-                <Text style={styles.refreshText}>🔄 Check Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!pinStatus?.isPinSet && (
-            <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>📱 PIN Required</Text>
-              <Text style={styles.noPinText}>
-                You need to set up a 4-digit transaction PIN in your account settings before making purchases.
-              </Text>
-            </View>
-          )}
-
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <>
-              <View style={styles.pinSummaryCard}>
-                <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Network:</Text>
-                  <Text style={styles.summaryValue}>
-                    {networks.find((n) => n.id === selectedNetwork)?.label}
-                  </Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Plan:</Text>
-                  <Text style={styles.summaryValue}>{selectedPlan?.name}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Data:</Text>
-                  <Text style={styles.summaryValue}>{selectedPlan?.dataSize}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Phone:</Text>
-                  <Text style={styles.summaryValue}>{phone}</Text>
-                </View>
-
-                {selectedPlan && (
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Amount:</Text>
-                    <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                      ₦{selectedPlan.customerPrice.toLocaleString()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
-
-                {pinStatus?.attemptsRemaining < 3 && (
-                  <Text style={styles.attemptsWarning}>
-                    ⚠️ {pinStatus.attemptsRemaining} attempts remaining
-                  </Text>
-                )}
-
-                <View style={styles.pinInputContainer}>
-                  <TextInput
-                    style={[styles.pinInput, pinError ? styles.pinInputError : {}]}
-                    value={pin}
-                    onChangeText={(text) => {
-                      setPin(text.replace(/\D/g, '').substring(0, 4));
-                      setPinError('');
-                    }}
-                    keyboardType="numeric"
-                    secureTextEntry={true}
-                    placeholder="****"
-                    maxLength={4}
-                    autoFocus={true}
-                  />
-                </View>
-
-                {pinError ? (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                ) : (
-                  <Text style={styles.pinHelp}>
-                    Enter your 4-digit transaction PIN to complete this purchase
-                  </Text>
-                )}
-
-                <View style={styles.pinDotsContainer}>
-                  {[0, 1, 2, 3].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.pinDot,
-                        pin.length > index && styles.pinDotFilled,
-                        pinError && styles.pinDotError
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.proceedBtn,
-                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
-                ]}
-                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-                onPress={validatePinAndPurchase}
-              >
-                {isValidatingPin || isProcessingPayment ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{selectedPlan?.customerPrice.toLocaleString()}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(2)}
-            disabled={isValidatingPin || isProcessingPayment}
+          <TouchableOpacity 
+            style={styles.pinBottomSheet}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
+            {/* Drag Handle */}
+            <View style={styles.dragHandle} />
 
+            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+            {pinStatus?.attemptsRemaining < 3 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsWarningText}>
+                  {pinStatus.attemptsRemaining} attempts remaining
+                </Text>
+              </View>
+            )}
+
+            {/* PIN Input Area - Pressable */}
+            <TouchableOpacity 
+              style={styles.pinInputArea}
+              activeOpacity={0.7}
+              onPress={() => {
+                pinInputRef.current?.focus();
+              }}
+            >
+              <View style={styles.pinDotsContainer}>
+                {[0, 1, 2, 3].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.pinDot,
+                      pin.length > index && styles.pinDotFilled,
+                      pinError && styles.pinDotError
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              ref={pinInputRef}
+              style={styles.hiddenPinInput}
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, '').substring(0, 4));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              secureTextEntry={true}
+              maxLength={4}
+              caretHidden={true}
+            />
+
+            {pinError && (
+              <Text style={styles.pinErrorText}>{pinError}</Text>
+            )}
+
+            {/* Confirm Payment Button */}
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+              ]}
+              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+              onPress={validatePinAndPurchase}
+              activeOpacity={0.8}
+            >
+              {isValidatingPin || isProcessingPayment ? (
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  Confirm Payment
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Cancel PIN Entry */}
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setShowPinEntry(false);
+                setPin('');
+                setPinError('');
+              }}
+              disabled={isValidatingPin || isProcessingPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Contacts Modal */}
       <Modal visible={showContactsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Contact</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowContactsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1222,12 +1148,18 @@ const fetchDataPlans = async (network: string) => {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactNumber}>{item.phoneNumbers[0].number}</Text>
+                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -1235,15 +1167,16 @@ const fetchDataPlans = async (network: string) => {
         </View>
       </Modal>
 
+      {/* Recent Numbers Modal */}
       <Modal visible={showRecentsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Recent Numbers</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowRecentsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1251,27 +1184,36 @@ const fetchDataPlans = async (network: string) => {
             keyExtractor={(item) => item.number + item.timestamp}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '📱'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>
                     {item.name || 'Unknown'}
                   </Text>
-                  <Text style={styles.contactNumber}>{item.number}</Text>
+                  <Text style={styles.contactPhone}>{item.number}</Text>
                 </View>
-                <Text style={styles.recentTime}>
+                <Text style={styles.dateText}>
                   {new Date(item.timestamp).toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>No recent numbers found</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No recent numbers found</Text>
+              </View>
             }
           />
         </View>
       </Modal>
 
+      {/* Success Modal */}
       {showSuccessModal && successData && (
         <DataSuccessModal
           visible={showSuccessModal}
@@ -1290,110 +1232,717 @@ const fetchDataPlans = async (network: string) => {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
-  scrollContent: { flex: 1 },
-  section: { marginHorizontal: 16, marginTop: 20, marginBottom: 8 },
-  label: { fontSize: 16, fontWeight: '600', marginBottom: 12, color: '#333' },
-  buttonRow: { flexDirection: 'row' },
-  actionBtn: { borderWidth: 1, borderColor: '#ddd', padding: 14, borderRadius: 12, alignItems: 'center', backgroundColor: '#fff' },
-  actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
-  networkRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  networkCard: { borderWidth: 1, borderColor: '#ddd', padding: 12, borderRadius: 12, alignItems: 'center', flex: 1, backgroundColor: '#fff', minHeight: 80 },
-  networkSelected: { borderColor: '#ff3b30', backgroundColor: '#fff5f5', borderWidth: 2 },
-  networkLogo: { width: 40, height: 40, resizeMode: 'contain', marginBottom: 4 },
-  networkLabel: { fontSize: 10, fontWeight: '600', color: '#666' },
-  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 12, padding: 14, fontSize: 16, backgroundColor: '#fff' },
-  error: { color: '#ff3b30', fontSize: 12, marginTop: 6, fontWeight: '500' },
-  success: { color: '#28a745', fontSize: 12, marginTop: 6, fontWeight: '500' },
-  proceedBtn: { margin: 16, padding: 16, borderRadius: 12, backgroundColor: '#ff3b30', alignItems: 'center', shadowColor: '#ff3b30', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-  proceedDisabled: { backgroundColor: '#ccc', shadowOpacity: 0, elevation: 0 },
-  proceedText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  backBtn: { backgroundColor: '#6c757d', marginTop: 8, shadowColor: '#6c757d' },
-  backBtnText: { color: '#fff' },
-  loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center' },
-  categoryTabs: { flexDirection: 'row', marginBottom: 16, backgroundColor: '#f0f0f0', borderRadius: 12, padding: 4, gap: 8 },
-  categoryTab: { flex: 1, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 8, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
-  categoryTabActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
-  categoryTabText: { fontSize: 11, fontWeight: '500', color: '#666' },
-  categoryTabTextActive: { color: '#ff3b30', fontWeight: '700' },
-  plansScrollView: { maxHeight: 300 },
-  planRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, marginBottom: 8, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#ddd' },
-  planRowSelected: { borderColor: '#ff3b30', backgroundColor: '#fff5f5', borderWidth: 2 },
-  planRowLeft: { flex: 1 },
-  planRowName: { fontSize: 14, fontWeight: 'bold', color: '#ff3b30', marginBottom: 4 },
-  planRowData: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 2 },
-  planRowValidity: { fontSize: 12, color: '#666' },
-  planRowRight: { alignItems: 'flex-end' },
-  planRowAmount: { fontSize: 18, fontWeight: '700', color: '#28a745' },
-  emptyCategory: { padding: 40, alignItems: 'center' },
-  emptyCategoryText: { color: '#999', fontSize: 14, marginBottom: 12 },
-  showAllBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
-  showAllBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  selectedPlanSummary: { marginTop: 12, padding: 12, backgroundColor: '#f0f9ff', borderRadius: 8, borderLeftWidth: 3, borderLeftColor: '#28a745' },
-  summaryCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3 },
-  summaryTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16, textAlign: 'center', color: '#333' },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  summaryLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  summaryLogo: { width: 30, height: 30, resizeMode: 'contain', marginRight: 8 },
-  summaryLabel: { fontWeight: '600', fontSize: 14, color: '#666', flex: 1 },
-  summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
-  summaryValue: { fontSize: 14, color: '#333', fontWeight: '600', textAlign: 'right' },
-  summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: { height: 1, backgroundColor: '#eee', marginVertical: 12 },
-  summaryTotal: { fontSize: 18, color: '#ff3b30', fontWeight: '700' },
-  balanceCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#ff3b30' },
-  balanceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  balanceTitle: { fontSize: 16, fontWeight: '600', color: '#333' },
-  refreshBtn: { padding: 4 },
-  refreshText: { fontSize: 16 },
-  totalBalance: { fontSize: 32, fontWeight: '700', color: '#28a745', textAlign: 'center', marginBottom: 16 },
-  lastUpdated: { fontSize: 11, color: '#999', textAlign: 'center', marginTop: 8 },
-  insufficientBalanceWarning: { marginTop: 16, padding: 12, backgroundColor: '#fff3cd', borderRadius: 8, borderWidth: 1, borderColor: '#ffeaa7' },
-  warningText: { color: '#856404', fontSize: 14, fontWeight: '500', textAlign: 'center', marginBottom: 8 },
-  topUpBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, alignSelf: 'center' },
-  topUpBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  loadingBalance: { alignItems: 'center', paddingVertical: 20 },
-  noBalanceText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 12 },
-  retryBtn: { backgroundColor: '#ff3b30', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
-  retryBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  summaryBalance: { fontSize: 16, fontWeight: '600', color: '#28a745' },
-  negativeBalance: { color: '#dc3545' },
-  pinCard: { margin: 16, padding: 24, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, alignItems: 'center' },
-  pinTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 16, textAlign: 'center' },
-  pinInputContainer: { width: '100%', alignItems: 'center', marginBottom: 16 },
-  pinInput: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', letterSpacing: 8, borderWidth: 2, borderColor: '#ddd', borderRadius: 12, paddingVertical: 16, paddingHorizontal: 20, backgroundColor: '#f8f9fa', width: 150 },
-  pinInputError: { borderColor: '#ff3b30', backgroundColor: '#fff5f5' },
-  pinError: { color: '#ff3b30', fontSize: 14, textAlign: 'center', marginBottom: 16, fontWeight: '500' },
-  pinHelp: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16 },
-  pinDotsContainer: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 20 },
-  pinDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#e0e0e0', borderWidth: 2, borderColor: '#ddd' },
-  pinDotFilled: { backgroundColor: '#ff3b30', borderColor: '#ff3b30' },
-  pinDotError: { backgroundColor: '#ff6b6b', borderColor: '#ff3b30' },
-  pinSummaryCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderTopWidth: 4, borderTopColor: '#ff3b30' },
-  pinSummaryTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginBottom: 16, textAlign: 'center' },
-  attemptsWarning: { color: '#ff8c00', fontSize: 14, fontWeight: '500', textAlign: 'center', marginBottom: 16, backgroundColor: '#fff3cd', padding: 8, borderRadius: 8 },
-  lockedCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#dc3545' },
-  lockedTitle: { fontSize: 18, fontWeight: '700', color: '#dc3545', textAlign: 'center', marginBottom: 12 },
-  lockedText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
-  noPinCard: { margin: 16, padding: 20, borderRadius: 16, backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 3, borderLeftWidth: 4, borderLeftColor: '#ff8c00' },
-  noPinTitle: { fontSize: 18, fontWeight: '700', color: '#ff8c00', textAlign: 'center', marginBottom: 12 },
-  noPinText: { color: '#666', fontSize: 14, textAlign: 'center', marginBottom: 16, lineHeight: 20 },
-  modalContainer: { flex: 1, backgroundColor: '#fff', paddingTop: Platform.OS === 'ios' ? 50 : 20 },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  modalCloseBtn: { padding: 8 },
-  modalCloseBtnText: { fontSize: 18, color: '#666', fontWeight: 'bold' },
-  contactItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
-  contactInfo: { flex: 1 },
-  contactName: { fontSize: 16, fontWeight: '500', color: '#333', marginBottom: 2 },
-  contactNumber: { color: '#666', fontSize: 14 },
-  recentTime: { fontSize: 12, color: '#999' },
-  transactionPreview: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' },
-  previewLabel: { fontSize: 14, color: '#666', fontWeight: '500' },
-  previewAmount: { fontSize: 16, fontWeight: '600' },
-  sufficientPreview: { color: '#28a745' },
-  insufficientPreview: { color: '#dc3545' },
-  emptyText: { textAlign: 'center', color: '#999', fontSize: 16, marginTop: 40 },
-  loadingContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, backgroundColor: '#f8f9fa', borderRadius: 12 },
-  loadingText: { marginLeft: 8, color: '#666' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f5f5f5' 
+  },
+
+  scrollContent: { 
+    flex: 1 
+  },
+
+  scrollContentContainer: {
+    padding: 16,
+    paddingBottom: 40,
+  },
+
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  quickActionBtn: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    position: 'relative',
+  },
+
+  quickActionIcon: {
+    fontSize: 20,
+    marginBottom: 2,
+  },
+
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#333',
+  },
+
+  badge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ff3b30',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+  },
+
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
+  },
+
+  validationError: {
+    color: '#ff3b30',
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+
+  validationSuccess: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+
+  validationSuccessText: {
+    color: '#2e7d32',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  networkGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  networkItem: {
+    flex: 1,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    position: 'relative',
+    padding: 8,
+  },
+
+  networkItemSelected: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  networkLogo: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+    marginBottom: 6,
+  },
+
+  networkName: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  networkNameSelected: {
+    color: '#ff3b30',
+  },
+
+  checkmark: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  checkmarkText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+
+  categoryTabs: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    padding: 4,
+  },
+
+  categoryTab: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+
+  categoryTabActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+
+  categoryTabText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#666',
+  },
+
+  categoryTabTextActive: {
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+
+  plansScrollView: {
+    maxHeight: 320,
+  },
+
+  planCard: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    position: 'relative',
+  },
+
+  planCardSelected: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  planCardContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  planInfo: {
+    flex: 1,
+  },
+
+  planDataSize: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+
+  planName: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 4,
+  },
+
+  planValidity: {
+    fontSize: 11,
+    color: '#999',
+  },
+
+  planPriceContainer: {
+    alignItems: 'flex-end',
+  },
+
+  planPrice: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2e7d32',
+  },
+
+  planCheckmark: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  planCheckmarkText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
+  loadingText: {
+    marginLeft: 8,
+    color: '#666',
+    fontSize: 14,
+  },
+
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+  },
+
+  emptyStateText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  primaryButton: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  primaryButtonDisabled: {
+    backgroundColor: '#d0d0d0',
+  },
+
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  secondaryButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  buttonLoadingText: {
+    marginLeft: 0,
+  },
+
+  balanceOverview: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  balanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  refreshButton: {
+    padding: 4,
+  },
+
+  refreshIcon: {
+    fontSize: 18,
+    color: '#ff3b30',
+  },
+
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+
+  balanceCalculation: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
+  },
+
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  balanceRowLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  balanceRowValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  balanceRowLabelBold: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  balanceRowValueBold: {
+    fontSize: 15,
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
+
+  negativeAmount: {
+    color: '#ff3b30',
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  insufficientWarning: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+  },
+
+  insufficientWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  balanceLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  balanceLoadingText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  summaryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  summaryValue: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  summaryNetworkLogo: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e8e8e8',
+    marginVertical: 12,
+  },
+
+  summaryLabelTotal: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueTotal: {
+    fontSize: 20,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+
+  pinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  pinBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d0d0d0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  pinSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  attemptsWarning: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+
+  attemptsWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  pinInputArea: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+
+  pinDotsContainer: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  pinInputHint: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+
+  pinDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#e8e8e8',
+    borderWidth: 2,
+    borderColor: '#d0d0d0',
+  },
+
+  pinDotFilled: {
+    backgroundColor: '#ff3b30',
+    borderColor: '#ff3b30',
+  },
+
+  pinDotError: {
+    backgroundColor: '#ff6b6b',
+    borderColor: '#ff3b30',
+  },
+
+  hiddenPinInput: {
+    position: 'absolute',
+    left: -9999,
+    width: 1,
+    height: 1,
+  },
+
+  pinErrorText: {
+    color: '#ff3b30',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: -12,
+    marginBottom: 20,
+  },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8e8e8',
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalCloseText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  contactAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  contactAvatarText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  contactDetails: {
+    flex: 1,
+  },
+
+  contactName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1a1a1a',
+    marginBottom: 2,
+  },
+
+  contactPhone: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  dateText: {
+    fontSize: 11,
+    color: '#999',
+  },
 });

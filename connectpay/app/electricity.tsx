@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import SuccessModal from './SuccessModal';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
-  Image,
   StyleSheet,
   ScrollView,
   Modal,
@@ -13,16 +12,15 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
-  StatusBar,
 } from 'react-native';
 import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../contexts/AuthContext';
 
-// API Configuration
-// API Configuration - TEMPORARY HARDCODED FOR TESTING PORT 5001
 const API_CONFIG = {
-  BASE_URL: 'http://10.157.13.7:5002/api',
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
 };
 
 interface Contact {
@@ -62,7 +60,6 @@ interface ElectricityProvider {
   minAmount: number;
   maxAmount: number;
   fee: number;
-  logo?: any;
 }
 
 interface MeterType {
@@ -72,71 +69,58 @@ interface MeterType {
   description: string;
 }
 
-export default function BuyElectricity({ navigation }: { navigation?: any }) {
+export default function BuyElectricity() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
   
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedMeterType, setSelectedMeterType] = useState<string | null>(null);
   const [meterNumber, setMeterNumber] = useState('');
-  const [phone, setPhone] = useState('');
-  const [amount, setAmount] = useState('');
-  const [pin, setPin] = useState('');
-  
-  // Customer validation data
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerAccountNumber, setCustomerAccountNumber] = useState('');
-  
-  // Lists and data
+  const [phone, setPhone] = useState('');
+  const [amount, setAmount] = useState('');
+  const [pin, setPin] = useState('');
   const [contactsList, setContactsList] = useState<Contact[]>([]);
   const [recentNumbers, setRecentNumbers] = useState<RecentNumber[]>([]);
   const [userBalance, setUserBalance] = useState<UserBalance | null>(null);
   const [pinStatus, setPinStatus] = useState<PinStatus | null>(null);
   const [electricityProviders, setElectricityProviders] = useState<ElectricityProvider[]>([]);
-  
-  // Modal states
   const [showContactsModal, setShowContactsModal] = useState(false);
   const [showRecentsModal, setShowRecentsModal] = useState(false);
   const [showProvidersModal, setShowProvidersModal] = useState(false);
   const [showMeterTypeModal, setShowMeterTypeModal] = useState(false);
-  
-  // Loading states
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [isValidatingMeter, setIsValidatingMeter] = useState(false);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
-  
-  // Error states
   const [pinError, setPinError] = useState('');
   const [meterError, setMeterError] = useState('');
-  
-  // Success modal
+  const pinInputRef = useRef<TextInput>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
-  // Quick amount presets for electricity
   const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000];
 
-  // Meter Types
   const meterTypes: MeterType[] = [
     { 
       id: '01', 
       name: 'Prepaid Meter', 
       type: 'prepaid',
-      description: 'Pay before you use electricity - Buy units in advance'
+      description: 'Pay before you use - Buy units in advance'
     },
     { 
       id: '02', 
       name: 'Postpaid Meter', 
       type: 'postpaid',
-      description: 'Pay after you use electricity - Monthly billing system'
+      description: 'Pay after you use - Monthly billing'
     },
   ];
 
-  // Default electricity providers
   const defaultProviders: ElectricityProvider[] = [
     { id: '01', name: 'Eko Electric', fullName: 'Eko Electricity Distribution Company', acronym: 'EKEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
     { id: '02', name: 'Ikeja Electric', fullName: 'Ikeja Electric Distribution Company', acronym: 'IKEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
@@ -148,7 +132,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     { id: '08', name: 'Kaduna Electric', fullName: 'Kaduna Electric Distribution Company', acronym: 'KAEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
     { id: '09', name: 'Enugu Electric', fullName: 'Enugu Electricity Distribution Company', acronym: 'EEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
     { id: '10', name: 'Benin Electric', fullName: 'Benin Electricity Distribution Company', acronym: 'BEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
-    { id: '11', name: 'Yola Electric', fullName: 'Yola Electricity Distribution Company', acronym: 'YEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
   ];
 
   // Validation
@@ -158,17 +141,30 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
   const isAmountValid = amountNum >= 100 && amountNum <= 100000;
   const hasEnoughBalance = userBalance ? amountNum <= (userBalance.total || userBalance.amount || 0) : true;
   const canProceed = isPhoneValid && selectedProvider && selectedMeterType && 
-                    isMeterNumberValid && isAmountValid && hasEnoughBalance && 
-                    customerName.trim() !== '';
+                    isMeterNumberValid && isAmountValid && customerName.trim() !== '';
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Load data on mount
+  // Auto-validate meter
+  useEffect(() => {
+    if (isMeterNumberValid && selectedProvider && selectedMeterType && meterNumber.length >= 10) {
+      const timer = setTimeout(() => {
+        validateMeter();
+      }, 1500);
+      return () => clearTimeout(timer);
+    } else {
+      setCustomerName('');
+      setCustomerAddress('');
+      setCustomerAccountNumber('');
+      setMeterError('');
+    }
+  }, [meterNumber, selectedProvider, selectedMeterType]);
+
+  // Initialize on mount
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
     fetchElectricityProviders();
     
-    // Initialize balance from AuthContext
     if (balance) {
       const balanceAmount = parseFloat(balance.amount) || 0;
       setUserBalance({
@@ -180,51 +176,37 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
       });
     }
     
-    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
     }, 1000);
   }, []);
 
-  // Refresh balance when stepping to review page
+  // Refresh balance on step 2
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
+  // Clear PIN when modal opens
   useEffect(() => {
-    if (currentStep === 3) {
+    if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
+      
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 100);
     }
-  }, [currentStep]);
+  }, [showPinEntry]);
 
-  // Save form state whenever it changes
+  // Save form state
   useEffect(() => {
     saveFormState();
   }, [phone, amount, selectedProvider, selectedMeterType, meterNumber]);
 
-  // Meter validation when meter number changes
-  useEffect(() => {
-    if (isMeterNumberValid && selectedProvider && selectedMeterType && meterNumber.length >= 10) {
-      const timeoutId = setTimeout(() => {
-        validateMeter();
-      }, 1500);
-
-      return () => clearTimeout(timeoutId);
-    } else {
-      setCustomerName('');
-      setCustomerAddress('');
-      setCustomerAccountNumber('');
-      setMeterError('');
-    }
-  }, [meterNumber, selectedProvider, selectedMeterType]);
-
-  // Auth token getter using AuthContext
   const getAuthToken = async () => {
     if (!token) {
       throw new Error('Authentication required');
@@ -232,7 +214,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     return token;
   };
 
-  // API request function
   const makeApiRequest = async (endpoint: string, options: any = {}) => {
     try {
       const authToken = await getAuthToken();
@@ -267,7 +248,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
         }
       }
 
-      // Handle authentication errors
       if (response.status === 401) {
         throw new Error('Session expired. Please login again.');
       }
@@ -291,17 +271,14 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
-
       throw error;
     }
   };
 
-  // Data fetching functions
   const fetchElectricityProviders = async () => {
     setIsLoadingProviders(true);
     try {
       const response = await makeApiRequest('/electricity/providers');
-
       if (response.success && Array.isArray(response.data)) {
         setElectricityProviders(response.data);
       } else {
@@ -314,78 +291,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     }
   };
 
-  const fetchUserBalance = async () => {
-    setIsLoadingBalance(true);
-    try {
-      // Use AuthContext's refresh function
-      if (refreshBalance) {
-        await refreshBalance();
-      }
-      
-      // Update local balance state from AuthContext
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
-        
-        const realBalance = {
-          main: balanceAmount,
-          bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          lastUpdated: balance.lastUpdated || Date.now(),
-        };
-
-        setUserBalance(realBalance);
-        await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-      } else {
-        // Fallback: try direct API call
-        const balanceData = await makeApiRequest("/balance");
-        
-        if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
-          
-          const realBalance = {
-            main: balanceAmount,
-            bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            lastUpdated: balanceData.balance.lastUpdated || Date.now(),
-          };
-
-          setUserBalance(realBalance);
-          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        }
-      }
-    } catch (error) {
-      // Try to use cached balance as fallback
-      try {
-        const cachedBalance = await AsyncStorage.getItem("userBalance");
-        if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
-        } else {
-          setUserBalance(null);
-        }
-      } catch (cacheError) {
-        setUserBalance(null);
-      }
-    } finally {
-      setIsLoadingBalance(false);
-    }
-  };
-
-  const checkPinStatus = async () => {
-    try {
-      const response = await makeApiRequest('/purchase/pin-status');
-      
-      if (response.success) {
-        setPinStatus(response);
-      }
-    } catch (error) {
-      console.error('Error checking PIN status:', error);
-    }
-  };
-
-  // Meter validation
   const validateMeter = async () => {
     if (!isMeterNumberValid || !selectedProvider || !selectedMeterType) {
       setMeterError('Please enter valid meter details');
@@ -399,23 +304,24 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     setCustomerAccountNumber('');
 
     try {
-     const response = await makeApiRequest('/purchase/electricity/validate-meter', {
-  method: 'POST',
-  body: JSON.stringify({ 
-    meterNumber, 
-    provider: selectedProvider,
-    meterType: selectedMeterType
-  }),
-});
+      const response = await makeApiRequest('/purchase/electricity/validate-meter', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          meterNumber, 
+          provider: selectedProvider,
+          meterType: selectedMeterType
+        }),
+      });
+
       if (response?.success) {
         setCustomerName(response.data?.customerName || 'Verified Customer');
         setCustomerAddress(response.data?.customerAddress || '');
         setCustomerAccountNumber(response.data?.accountNumber || '');
       } else {
-        setMeterError(response?.message || 'Meter validation failed. Please check your meter number.');
+        setMeterError(response?.message || 'Meter validation failed');
       }
     } catch (error) {
-      setMeterError(error.message || 'Unable to validate meter. Please check your details and try again.');
+      setMeterError(error.message || 'Unable to validate meter');
       setCustomerName('');
       setCustomerAddress('');
       setCustomerAccountNumber('');
@@ -424,16 +330,69 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     }
   };
 
-  // Storage functions
+  const checkPinStatus = async () => {
+    try {
+      const response = await makeApiRequest('/purchase/pin-status');
+      if (response.success) {
+        setPinStatus(response);
+      }
+    } catch (error) {
+      console.error('Error checking PIN status:', error);
+    }
+  };
+
+  const fetchUserBalance = async () => {
+    setIsLoadingBalance(true);
+    try {
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+      
+      if (balance) {
+        const balanceAmount = parseFloat(balance.amount) || 0;
+        const realBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          lastUpdated: balance.lastUpdated || Date.now(),
+        };
+        setUserBalance(realBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+      } else {
+        const balanceData = await makeApiRequest("/balance");
+        if (balanceData.success && balanceData.balance) {
+          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const realBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            lastUpdated: balanceData.balance.lastUpdated || Date.now(),
+          };
+          setUserBalance(realBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        }
+      }
+    } catch (error) {
+      try {
+        const cachedBalance = await AsyncStorage.getItem("userBalance");
+        if (cachedBalance) {
+          setUserBalance(JSON.parse(cachedBalance));
+        } else {
+          setUserBalance(null);
+        }
+      } catch (cacheError) {
+        setUserBalance(null);
+      }
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  };
+
   const saveFormState = async () => {
     try {
-      const formState = { 
-        phone, 
-        selectedProvider, 
-        selectedMeterType, 
-        meterNumber, 
-        amount 
-      };
+      const formState = { phone, selectedProvider, selectedMeterType, meterNumber, amount };
       await AsyncStorage.setItem('electricityFormState', JSON.stringify(formState));
     } catch (error) {
       console.log('Error saving form state:', error);
@@ -444,19 +403,12 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     try {
       const savedState = await AsyncStorage.getItem('electricityFormState');
       if (savedState) {
-        const { 
-          phone: savedPhone, 
-          selectedProvider: savedProvider, 
-          selectedMeterType: savedMeterType, 
-          meterNumber: savedMeter, 
-          amount: savedAmount 
-        } = JSON.parse(savedState);
-
-        setPhone(savedPhone || '');
-        setSelectedProvider(savedProvider || null);
-        setSelectedMeterType(savedMeterType || null);
-        setMeterNumber(savedMeter || '');
-        setAmount(savedAmount || '');
+        const formData = JSON.parse(savedState);
+        if (formData.phone) setPhone(formData.phone);
+        if (formData.selectedProvider) setSelectedProvider(formData.selectedProvider);
+        if (formData.selectedMeterType) setSelectedMeterType(formData.selectedMeterType);
+        if (formData.meterNumber) setMeterNumber(formData.meterNumber);
+        if (formData.amount) setAmount(formData.amount);
       }
     } catch (error) {
       console.log('Error loading form state:', error);
@@ -467,15 +419,9 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     try {
       const recent = await AsyncStorage.getItem('recentNumbers');
       let recentList: RecentNumber[] = recent ? JSON.parse(recent) : [];
-
       recentList = recentList.filter(item => item.number !== number);
-      recentList.unshift({
-        number,
-        name,
-        timestamp: Date.now()
-      });
-      recentList = recentList.slice(0, 20);
-
+      recentList.unshift({ number, name, timestamp: Date.now() });
+      recentList = recentList.slice(0, 10);
       await AsyncStorage.setItem('recentNumbers', JSON.stringify(recentList));
       setRecentNumbers(recentList);
     } catch (error) {
@@ -494,7 +440,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     }
   };
 
-  // Contact functions
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -505,9 +450,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
           pageSize: 100,
           sort: Contacts.SortTypes.FirstName,
         });
-        const validContacts = data.filter(
-          c => c.phoneNumbers && c.phoneNumbers.length > 0
-        );
+        const validContacts = data.filter(c => c.phoneNumbers && c.phoneNumbers.length > 0);
         if (validContacts.length > 0) {
           setContactsList(validContacts);
           setShowContactsModal(true);
@@ -558,7 +501,18 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     setAmount(quickAmount.toString());
   };
 
-  // Payment processing
+  const handleProceedToPayment = () => {
+    if (!pinStatus?.isPinSet) {
+      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      return;
+    }
+    if (pinStatus?.isLocked) {
+      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      return;
+    }
+    setShowPinEntry(true);
+  };
+
   const validatePinAndPurchase = async () => {
     if (!isPinValid) {
       setPinError('PIN must be exactly 4 digits');
@@ -585,10 +539,8 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
       });
 
       if (response.success === true) {
-        // Save recent number
         await saveRecentNumber(phone, customerName);
         
-        // Update balance
         if (response.newBalance) {
           const balanceAmount = response.newBalance.amount || 
                                response.newBalance.totalBalance || 
@@ -606,10 +558,8 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
         }
 
-        // Clear form
         await AsyncStorage.removeItem('electricityFormState');
 
-        // Prepare success data
         const providerName = electricityProviders.find(p => p.id === selectedProvider)?.name || selectedProvider?.toUpperCase();
         const meterTypeName = meterTypes.find(m => m.id === selectedMeterType)?.name || selectedMeterType;
         
@@ -625,6 +575,7 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
           newBalance: response.newBalance
         });
 
+        setShowPinEntry(false);
         setTimeout(() => {
           setShowSuccessModal(true);
         }, 300);
@@ -633,7 +584,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
         }
-        
         Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
 
@@ -652,18 +602,15 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     }
   };
 
-  const getPhoneValidation = (number: string): string => {
-    if (!isPhoneValid) return 'Enter valid 11-digit number starting with 070, 080, 081, or 090';
-    return '';
-  };
-
   const handleCloseSuccessModal = () => {
     setShowSuccessModal(false);
     setSuccessData(null);
-    // Reset form to initial state
+  };
+
+  const handleBuyMoreElectricity = () => {
+    setShowSuccessModal(false);
+    setSuccessData(null);
     setCurrentStep(1);
-    setSelectedProvider(null);
-    setSelectedMeterType(null);
     setMeterNumber('');
     setAmount('');
     setPhone('');
@@ -673,120 +620,118 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
     setCustomerAccountNumber('');
     setPinError('');
     setMeterError('');
-  };
-
-  const handleBuyMoreElectricity = () => {
-    setShowSuccessModal(false);
-    setSuccessData(null);
-    setCurrentStep(1);
-    setMeterNumber('');
-    setAmount('');
-    setPin('');
-    setCustomerName('');
-    setCustomerAddress('');
-    setCustomerAccountNumber('');
-    setPinError('');
-    setMeterError('');
+    setShowPinEntry(false);
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#ff3b30" />
-
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* Beneficiary Section */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Select Beneficiary</Text>
-            <View style={styles.buttonRow}>
+          {/* Quick Actions */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Select Recipient</Text>
+            <View style={styles.quickActions}>
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={selectContact}
                 disabled={isLoadingContacts}
               >
                 {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#555" />
+                  <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.actionBtnText}>Contacts</Text>
+                  <>
+                    <Text style={styles.quickActionIcon}>📱</Text>
+                    <Text style={styles.quickActionText}>Contacts</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={showRecentNumbers}
               >
-                <Text style={styles.actionBtnText}>Recent ({recentNumbers.length})</Text>
+                <Text style={styles.quickActionIcon}>🕐</Text>
+                <Text style={styles.quickActionText}>Recent</Text>
+                {recentNumbers.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{recentNumbers.length}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
 
           {/* Phone Number */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Phone Number</Text>
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Phone Number</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               keyboardType="phone-pad"
               placeholder="08012345678"
+              placeholderTextColor="#999"
               maxLength={11}
               value={phone}
               onChangeText={setPhone}
             />
             {phone !== '' && !isPhoneValid && (
-              <Text style={styles.error}>{getPhoneValidation(phone)}</Text>
+              <Text style={styles.validationError}>Enter valid 11-digit number starting with 070, 080, 081, or 090</Text>
             )}
             {phone !== '' && isPhoneValid && (
-              <Text style={styles.success}>Valid phone number</Text>
+              <View style={styles.validationSuccess}>
+                <Text style={styles.validationSuccessText}>✓ Valid phone number</Text>
+              </View>
             )}
           </View>
 
           {/* Provider Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Electricity Provider</Text>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Electricity Provider</Text>
             <TouchableOpacity
-              style={styles.selector}
+              style={styles.packageSelector}
               onPress={() => setShowProvidersModal(true)}
               disabled={isLoadingProviders}
             >
-              <View style={styles.selectorContent}>
-                <Text style={[styles.selectorText, selectedProvider ? styles.selectorTextSelected : {}]}>
-                  {selectedProvider ? 
-                    electricityProviders.find(p => p.id === selectedProvider)?.fullName + 
-                    ` (${electricityProviders.find(p => p.id === selectedProvider)?.acronym})` 
-                    : 'Choose your DISCO'}
-                </Text>
-                {isLoadingProviders ? (
-                  <ActivityIndicator size="small" color="#999" />
-                ) : (
-                  <Text style={styles.dropdownArrow}>▼</Text>
-                )}
-              </View>
+              <Text style={[
+                styles.packageSelectorText,
+                selectedProvider && styles.packageSelectorTextSelected
+              ]}>
+                {selectedProvider ? 
+                  `${electricityProviders.find(p => p.id === selectedProvider)?.fullName} (${electricityProviders.find(p => p.id === selectedProvider)?.acronym})` 
+                  : 'Choose your DISCO'}
+              </Text>
+              {isLoadingProviders ? (
+                <ActivityIndicator size="small" color="#999" />
+              ) : (
+                <Text style={styles.dropdownArrow}>▼</Text>
+              )}
             </TouchableOpacity>
           </View>
 
-          {/* Meter Type Selection */}
+          {/* Meter Type */}
           {selectedProvider && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Meter Type</Text>
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Meter Type</Text>
               <TouchableOpacity
-                style={styles.selector}
+                style={styles.packageSelector}
                 onPress={() => setShowMeterTypeModal(true)}
               >
-                <View style={styles.selectorContent}>
-                  <Text style={[styles.selectorText, selectedMeterType ? styles.selectorTextSelected : {}]}>
-                    {selectedMeterType ? 
-                      meterTypes.find(m => m.id === selectedMeterType)?.name 
-                      : 'Choose meter type'}
-                  </Text>
-                  <Text style={styles.dropdownArrow}>▼</Text>
-                </View>
+                <Text style={[
+                  styles.packageSelectorText,
+                  selectedMeterType && styles.packageSelectorTextSelected
+                ]}>
+                  {selectedMeterType ? 
+                    meterTypes.find(m => m.id === selectedMeterType)?.name 
+                    : 'Choose meter type'}
+                </Text>
+                <Text style={styles.dropdownArrow}>▼</Text>
               </TouchableOpacity>
               {selectedMeterType && (
-                <Text style={styles.helperText}>
+                <Text style={styles.packageDescription}>
                   {meterTypes.find(m => m.id === selectedMeterType)?.description}
                 </Text>
               )}
@@ -795,17 +740,18 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
 
           {/* Meter Number */}
           {selectedProvider && selectedMeterType && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Meter Number</Text>
+            <View style={styles.card}>
+              <Text style={styles.inputLabel}>Meter Number</Text>
               <View style={styles.inputContainer}>
                 <TextInput
                   style={[
-                    styles.input, 
-                    meterError ? styles.inputError : 
-                    customerName ? styles.inputSuccess : {}
+                    styles.textInput,
+                    meterError && styles.textInputError,
+                    customerName && !meterError && styles.textInputSuccess
                   ]}
                   keyboardType="numeric"
                   placeholder="Enter meter number"
+                  placeholderTextColor="#999"
                   value={meterNumber}
                   onChangeText={setMeterNumber}
                   maxLength={15}
@@ -818,14 +764,12 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                   />
                 )}
               </View>
-
               {meterError && (
-                <Text style={styles.error}>{meterError}</Text>
+                <Text style={styles.validationError}>{meterError}</Text>
               )}
-
               {customerName && !meterError && (
                 <View style={styles.customerInfo}>
-                  <Text style={styles.success}>Meter verified</Text>
+                  <Text style={styles.validationSuccessText}>✓ Meter verified</Text>
                   <Text style={styles.customerName}>Customer: {customerName}</Text>
                   {customerAddress && (
                     <Text style={styles.customerAddress}>Address: {customerAddress}</Text>
@@ -835,424 +779,356 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                   )}
                 </View>
               )}
-
-              {!isMeterNumberValid && meterNumber.length > 0 && meterNumber.length < 10 && (
-                <Text style={styles.error}>Meter number must be at least 10 digits</Text>
-              )}
             </View>
           )}
 
           {/* Amount */}
           {selectedProvider && selectedMeterType && customerName && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Amount (₦)</Text>
+            <View style={styles.card}>
+              <Text style={styles.inputLabel}>Amount (₦)</Text>
               <TextInput
-                style={styles.input}
+                style={styles.textInput}
                 keyboardType="numeric"
                 placeholder="Enter amount (min. ₦100)"
+                placeholderTextColor="#999"
                 value={amount}
                 onChangeText={setAmount}
                 maxLength={6}
               />
               {amount !== '' && !isAmountValid && (
-                <Text style={styles.error}>Amount must be between ₦100 and ₦100,000</Text>
+                <Text style={styles.validationError}>Amount must be between ₦100 and ₦100,000</Text>
               )}
               {amount !== '' && isAmountValid && hasEnoughBalance && (
-                <Text style={styles.success}>Valid amount</Text>
+                <View style={styles.validationSuccess}>
+                  <Text style={styles.validationSuccessText}>✓ Valid amount</Text>
+                </View>
               )}
               {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
-                <Text style={styles.error}>
+                <Text style={styles.validationError}>
                   Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
                 </Text>
               )}
+
+              {/* Quick Amount Buttons */}
+              <View style={styles.quickAmountGrid}>
+                {quickAmounts.map((quickAmt) => (
+                  <TouchableOpacity
+                    key={quickAmt}
+                    style={[
+                      styles.quickAmountBtn,
+                      amount === quickAmt.toString() && styles.quickAmountBtnSelected
+                    ]}
+                    onPress={() => handleQuickAmount(quickAmt)}
+                  >
+                    <Text style={[
+                      styles.quickAmountText,
+                      amount === quickAmt.toString() && styles.quickAmountTextSelected
+                    ]}>
+                      ₦{quickAmt.toLocaleString()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
             </View>
           )}
 
           {/* Proceed Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
+            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              {!isPhoneValid ? 'Enter Valid Phone Number' :
-               !selectedProvider ? 'Select Provider' :
-               !selectedMeterType ? 'Select Meter Type' :
-               !customerName ? 'Validate Meter Number' :
-               !isAmountValid ? 'Enter Valid Amount' :
-               !hasEnoughBalance ? 'Insufficient Balance' :
-               `Review Purchase • ₦${amount ? amountNum.toLocaleString() : '0'}`}
+            <Text style={styles.primaryButtonText}>
+              {canProceed && amount 
+                ? `Review Purchase • ₦${amountNum.toLocaleString()}`
+                : 'Complete Form to Continue'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW/SUMMARY */}
+      {/* STEP 2: REVIEW */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
         >
-          {/* Balance Card */}
-          <View style={styles.balanceCard}>
+          {/* Balance Overview */}
+          <View style={styles.balanceOverview}>
             <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <Text style={styles.balanceLabel}>Available Balance</Text>
               <TouchableOpacity 
-                style={styles.refreshBtn} 
+                style={styles.refreshButton} 
                 onPress={fetchUserBalance}
                 disabled={isLoadingBalance}
               >
                 {isLoadingBalance ? (
                   <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.refreshText}>🔄</Text>
+                  <Text style={styles.refreshIcon}>↻</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {userBalance ? (
               <>
-                <Text style={styles.totalBalance}>
+                <Text style={styles.balanceAmount}>
                   ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
                 </Text>
 
-                <Text style={styles.lastUpdated}>
-                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-                </Text>
-
-                {/* Show balance after transaction */}
                 {amountNum > 0 && (
-                  <View style={styles.transactionPreview}>
-                    <Text style={styles.previewLabel}>After purchase:</Text>
-                    <Text style={[
-                      styles.previewAmount,
-                      ((userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)) < 0 ? 
-                        styles.insufficientPreview : styles.sufficientPreview
-                    ]}>
-                      ₦{Math.max(0, 
-                        (userBalance.total || userBalance.amount || 0) - 
-                        amountNum - 
-                        (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)
-                      ).toLocaleString()}
-                    </Text>
+                  <View style={styles.balanceCalculation}>
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                      <Text style={styles.balanceRowValue}>-₦{amountNum.toLocaleString()}</Text>
+                    </View>
+                    {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
+                      <View style={styles.balanceRow}>
+                        <Text style={styles.balanceRowLabel}>Service Fee</Text>
+                        <Text style={styles.balanceRowValue}>
+                          -₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.balanceDivider} />
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                      <Text style={[
+                        styles.balanceRowValueBold,
+                        ((userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)) < 0 && styles.negativeAmount
+                      ]}>
+                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
+                      </Text>
+                    </View>
                   </View>
                 )}
 
-                {/* Insufficient balance warning */}
                 {amountNum > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientBalanceWarning}>
-                    <Text style={styles.warningText}>
-                      ⚠️ Insufficient balance for this transaction
+                  <View style={styles.insufficientWarning}>
+                    <Text style={styles.insufficientWarningText}>
+                      Insufficient balance for this transaction
                     </Text>
-                    <TouchableOpacity 
-                      style={styles.topUpBtn}
-                      onPress={() => {/* Navigate to top-up */}}
-                    >
-                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </>
             ) : (
-              <View style={styles.loadingBalance}>
-                <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+              <View style={styles.balanceLoading}>
+                <Text style={styles.balanceLoadingText}>
+                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
-                {!isLoadingBalance && (
-                  <TouchableOpacity 
-                    style={styles.retryBtn}
-                    onPress={fetchUserBalance}
-                  >
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
           </View>
           
-          {/* Summary Card */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Purchase Summary</Text>
+          {/* Transaction Summary */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
-            {/* Provider */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Provider:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Provider</Text>
               <Text style={styles.summaryValue}>
                 {electricityProviders.find(p => p.id === selectedProvider)?.acronym}
               </Text>
             </View>
 
-            {/* Meter Type */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Meter Type:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Meter Type</Text>
               <Text style={styles.summaryValue}>
                 {meterTypes.find(m => m.id === selectedMeterType)?.name}
               </Text>
             </View>
 
-            {/* Meter Number */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Meter Number:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Meter Number</Text>
               <Text style={styles.summaryValue}>{meterNumber}</Text>
             </View>
 
-            {/* Customer */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Customer:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Customer</Text>
               <Text style={styles.summaryValue}>{customerName}</Text>
             </View>
 
-            {/* Phone */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Phone:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Recipient</Text>
               <Text style={styles.summaryValue}>{phone}</Text>
             </View>
 
             <View style={styles.summaryDivider} />
 
-            {/* Amount */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Amount:</Text>
-              <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                ₦{amountNum.toLocaleString()}
-              </Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Amount</Text>
+              <Text style={styles.summaryValue}>₦{amountNum.toLocaleString()}</Text>
             </View>
 
-            {/* Transaction Fee */}
-            {electricityProviders.find(p => p.id === selectedProvider)?.fee && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Transaction Fee:</Text>
+            {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Service Fee</Text>
                 <Text style={styles.summaryValue}>
                   ₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
                 </Text>
               </View>
             )}
 
-            {/* Total */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total:</Text>
-              <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                ₦{(
-                  amountNum + 
-                  (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)
-                ).toLocaleString()}
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabelTotal}>Total Amount</Text>
+              <Text style={styles.summaryValueTotal}>
+                ₦{(amountNum + (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
               </Text>
             </View>
-
-            {userBalance && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Balance After:</Text>
-                <Text style={[
-                  styles.summaryValue, 
-                  styles.summaryBalance,
-                  ((userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)) < 0 ? 
-                    styles.negativeBalance : {}
-                ]}>
-                  ₦{Math.max(0, 
-                    (userBalance.total || userBalance.amount || 0) - 
-                    amountNum - 
-                    (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)
-                  ).toLocaleString()}
-                </Text>
-              </View>
-            )}
           </View>
 
-          {/* Proceed to PIN Button */}
+          {/* Action Buttons */}
           <TouchableOpacity
             style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
+              styles.primaryButton, 
+              !hasEnoughBalance && styles.primaryButtonDisabled
             ]}
             disabled={!hasEnoughBalance}
-            onPress={() => setCurrentStep(3)}
+            onPress={handleProceedToPayment}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+            <Text style={styles.primaryButtonText}>
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
+            style={styles.secondaryButton}
             onPress={() => setCurrentStep(1)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Edit Details</Text>
+            <Text style={styles.secondaryButtonText}>Edit Details</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
-      {currentStep === 3 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+      {/* PIN Entry Modal - Bottom Sheet */}
+      <Modal 
+        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+        animationType="slide"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.pinModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isValidatingPin && !isProcessingPayment) {
+              setShowPinEntry(false);
+              setPin('');
+              setPinError('');
+            }
+          }}
         >
-          {/* PIN Status Check */}
-          {pinStatus?.isLocked && (
-            <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
-              <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn}
-                onPress={checkPinStatus}
-              >
-                <Text style={styles.refreshText}>🔄 Check Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!pinStatus?.isPinSet && (
-            <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>📱 PIN Required</Text>
-              <Text style={styles.noPinText}>
-                You need to set up a 4-digit transaction PIN in your account settings before making purchases.
-              </Text>
-            </View>
-          )}
-
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <>
-              {/* Transaction Summary */}
-              <View style={styles.pinSummaryCard}>
-                <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Provider:</Text>
-                  <Text style={styles.summaryValue}>
-                    {electricityProviders.find(p => p.id === selectedProvider)?.name}
-                  </Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Meter:</Text>
-                  <Text style={styles.summaryValue}>{meterNumber}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Customer:</Text>
-                  <Text style={styles.summaryValue}>{customerName}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Phone:</Text>
-                  <Text style={styles.summaryValue}>{phone}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Total Amount:</Text>
-                  <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                    ₦{(
-                      amountNum + 
-                      (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)
-                    ).toLocaleString()}
-                  </Text>
-                </View>
-              </View>
-
-              {/* PIN Entry */}
-              <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
-
-                {pinStatus?.attemptsRemaining < 3 && (
-                  <Text style={styles.attemptsWarning}>
-                    ⚠️ {pinStatus.attemptsRemaining} attempts remaining
-                  </Text>
-                )}
-
-                <View style={styles.pinInputContainer}>
-                  <TextInput
-                    style={[styles.pinInput, pinError ? styles.pinInputError : {}]}
-                    value={pin}
-                    onChangeText={(text) => {
-                      setPin(text.replace(/\D/g, '').substring(0, 4));
-                      setPinError('');
-                    }}
-                    keyboardType="numeric"
-                    secureTextEntry={true}
-                    placeholder="****"
-                    maxLength={4}
-                    autoFocus={true}
-                  />
-                </View>
-
-                {pinError ? (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                ) : (
-                  <Text style={styles.pinHelp}>
-                    Enter your 4-digit transaction PIN to complete this purchase
-                  </Text>
-                )}
-
-                {/* PIN Dots Display */}
-                <View style={styles.pinDotsContainer}>
-                  {[0, 1, 2, 3].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.pinDot,
-                        pin.length > index && styles.pinDotFilled,
-                        pinError && styles.pinDotError
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Confirm Payment Button */}
-              <TouchableOpacity
-                style={[
-                  styles.proceedBtn,
-                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
-                ]}
-                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-                onPress={validatePinAndPurchase}
-              >
-                {isValidatingPin || isProcessingPayment ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{(
-                      amountNum + 
-                      (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)
-                    ).toLocaleString()}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(2)}
-            disabled={isValidatingPin || isProcessingPayment}
+          <TouchableOpacity 
+            style={styles.pinBottomSheet}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
+            <View style={styles.dragHandle} />
+
+            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+            {pinStatus?.attemptsRemaining < 3 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsWarningText}>
+                  {pinStatus.attemptsRemaining} attempts remaining
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={styles.pinInputArea}
+              activeOpacity={0.7}
+              onPress={() => {
+                pinInputRef.current?.focus();
+              }}
+            >
+              <View style={styles.pinDotsContainer}>
+                {[0, 1, 2, 3].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.pinDot,
+                      pin.length > index && styles.pinDotFilled,
+                      pinError && styles.pinDotError
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              ref={pinInputRef}
+              style={styles.hiddenPinInput}
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, '').substring(0, 4));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              secureTextEntry={true}
+              maxLength={4}
+              caretHidden={true}
+            />
+
+            {pinError && (
+              <Text style={styles.pinErrorText}>{pinError}</Text>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+              ]}
+              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+              onPress={validatePinAndPurchase}
+              activeOpacity={0.8}
+            >
+              {isValidatingPin || isProcessingPayment ? (
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  Confirm Payment
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setShowPinEntry(false);
+                setPin('');
+                setPinError('');
+              }}
+              disabled={isValidatingPin || isProcessingPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </ScrollView>
-      )}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Provider Selection Modal */}
       <Modal visible={showProvidersModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Electricity Provider</Text>
+            <Text style={styles.modalTitle}>Select Provider</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowProvidersModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
-
           <FlatList
             data={electricityProviders.filter(p => p.isActive)}
             keyExtractor={(item) => item.id}
@@ -1265,7 +1141,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 onPress={() => {
                   setSelectedProvider(item.id);
                   setShowProvidersModal(false);
-                  // Reset dependent fields
                   setSelectedMeterType(null);
                   setMeterNumber('');
                   setCustomerName('');
@@ -1273,12 +1148,13 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                   setCustomerAccountNumber('');
                   setMeterError('');
                 }}
+                activeOpacity={0.7}
               >
                 <View style={styles.providerInfo}>
                   <Text style={styles.providerName}>{item.name}</Text>
                   <Text style={styles.providerFullName}>{item.fullName}</Text>
                   <Text style={styles.providerDetails}>
-                    ({item.acronym}) • Fee: ₦{item.fee} • Min: ₦{item.minAmount}
+                    {item.acronym} • Fee: ₦{item.fee} • Min: ₦{item.minAmount.toLocaleString()}
                   </Text>
                 </View>
                 {selectedProvider === item.id && (
@@ -1286,24 +1162,22 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 )}
               </TouchableOpacity>
             )}
-            showsVerticalScrollIndicator={false}
           />
         </View>
       </Modal>
 
-      {/* Meter Type Selection Modal */}
+      {/* Meter Type Modal */}
       <Modal visible={showMeterTypeModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Meter Type</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowMeterTypeModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
-
           <FlatList
             data={meterTypes}
             keyExtractor={(item) => item.id}
@@ -1316,13 +1190,13 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 onPress={() => {
                   setSelectedMeterType(item.id);
                   setShowMeterTypeModal(false);
-                  // Reset dependent fields
                   setMeterNumber('');
                   setCustomerName('');
                   setCustomerAddress('');
                   setCustomerAccountNumber('');
                   setMeterError('');
                 }}
+                activeOpacity={0.7}
               >
                 <View style={styles.meterTypeInfo}>
                   <Text style={styles.meterTypeName}>{item.name}</Text>
@@ -1333,7 +1207,6 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
                 )}
               </TouchableOpacity>
             )}
-            showsVerticalScrollIndicator={false}
           />
         </View>
       </Modal>
@@ -1344,10 +1217,10 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Contact</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowContactsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1355,12 +1228,18 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactNumber}>{item.phoneNumbers[0].number}</Text>
+                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -1374,10 +1253,10 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Recent Numbers</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowRecentsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1385,22 +1264,30 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
             keyExtractor={(item) => item.number + item.timestamp}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '📱'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>
                     {item.name || 'Unknown'}
                   </Text>
-                  <Text style={styles.contactNumber}>{item.number}</Text>
+                  <Text style={styles.contactPhone}>{item.number}</Text>
                 </View>
-                <Text style={styles.recentTime}>
+                <Text style={styles.dateText}>
                   {new Date(item.timestamp).toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>No recent numbers found</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No recent numbers found</Text>
+              </View>
             }
           />
         </View>
@@ -1428,703 +1315,714 @@ export default function BuyElectricity({ navigation }: { navigation?: any }) {
   );
 }
 
-// Complete StyleSheet with optimized spacing
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#f8f9fa' 
+    backgroundColor: '#f5f5f5' 
   },
 
-  // Content
   scrollContent: { 
     flex: 1 
   },
 
-  section: { 
-    marginHorizontal: 16, 
-    marginBottom: 16 
-  },
-  
-  label: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#2b2d42' 
-  },
-  
-  helperText: {
-    fontSize: 12,
-    color: '#6c757d',
-    marginTop: 4,
+  scrollContentContainer: {
+    padding: 16,
+    paddingBottom: 40,
   },
 
-  // Button Row
-  buttonRow: { 
-    flexDirection: 'row' 
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  
-  actionBtn: {
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    padding: 12,
-    borderRadius: 10,
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  quickActionBtn: {
+    flex: 1,
     alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  
-  actionBtnText: { 
-    color: '#495057', 
-    fontSize: 14, 
-    fontWeight: '500' 
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    position: 'relative',
   },
 
-  // Input Styles
-  input: {
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    borderRadius: 10,
-    padding: 12,
-    fontSize: 15,
-    backgroundColor: '#fff',
-    color: '#2b2d42',
+  quickActionIcon: {
+    fontSize: 20,
+    marginBottom: 2,
   },
-  
-  inputError: {
-    borderColor: '#ff6b6b',
+
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#333',
   },
-  
-  inputSuccess: {
-    borderColor: '#51cf66',
+
+  badge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ff3b30',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  
+
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+  },
+
   inputContainer: {
     position: 'relative',
   },
-  
+
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
+  },
+
+  textInputError: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  textInputSuccess: {
+    borderColor: '#2e7d32',
+    backgroundColor: '#f8fff9',
+  },
+
   inputLoader: {
     position: 'absolute',
-    right: 12,
-    top: 12,
-  },
-  
-  error: { 
-    color: '#ff6b6b', 
-    fontSize: 12, 
-    marginTop: 4,
-    fontWeight: '500' 
-  },
-  
-  success: {
-    color: '#51cf66',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '500'
+    right: 16,
+    top: 16,
   },
 
-  // Selector Styles
-  selector: {
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    borderRadius: 10,
-    padding: 14,
-  },
-  
-  selectorContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  
-  selectorText: {
-    fontSize: 15,
-    color: '#adb5bd',
-    flex: 1,
-    marginRight: 8,
-  },
-  
-  selectorTextSelected: {
-    color: '#2b2d42',
-  },
-  
-  dropdownArrow: {
-    color: '#adb5bd',
-    fontSize: 12,
+  validationError: {
+    color: '#ff3b30',
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
   },
 
-  // Customer Info
-  customerInfo: {
-    backgroundColor: '#f8f9fa',
-    borderLeftWidth: 3,
-    borderLeftColor: '#51cf66',
-    padding: 10,
+  validationSuccess: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#e8f5e9',
     borderRadius: 8,
-    marginTop: 6,
+    alignSelf: 'flex-start',
   },
-  
+
+  validationSuccessText: {
+    color: '#2e7d32',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  packageSelector: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  packageSelectorText: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+
+  packageSelectorTextSelected: {
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+
+  dropdownArrow: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  packageDescription: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 8,
+  },
+
+  customerInfo: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8,
+  },
+
   customerName: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#2b2d42',
-    marginTop: 2,
+    color: '#1a1a1a',
+    marginTop: 4,
   },
-  
+
   customerAddress: {
     fontSize: 12,
-    color: '#6c757d',
+    color: '#666',
     marginTop: 2,
   },
-  
+
   customerAccount: {
     fontSize: 12,
-    color: '#6c757d',
+    color: '#666',
     marginTop: 2,
   },
 
-  // Proceed Button
-  proceedBtn: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#ff3b30',
+  quickAmountGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 12,
+  },
+
+  quickAmountBtn: {
+    flex: 1,
+    minWidth: '30%',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
     alignItems: 'center',
   },
-  
-  proceedDisabled: { 
-    backgroundColor: '#adb5bd',
-  },
-  
-  proceedText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
+
+  quickAmountBtnSelected: {
+    backgroundColor: '#fff5f5',
+    borderColor: '#ff3b30',
+    borderWidth: 2,
   },
 
-  backBtn: {
-    backgroundColor: '#6c757d',
+  quickAmountText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
   },
-  
-  backBtnText: {
+
+  quickAmountTextSelected: {
+    color: '#ff3b30',
+  },
+
+  primaryButton: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  primaryButtonDisabled: {
+    backgroundColor: '#d0d0d0',
+  },
+
+  primaryButtonText: {
     color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
-  loadingRow: {
+  secondaryButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  buttonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 8,
   },
 
-  // Balance Card
-  balanceCard: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
+  buttonLoadingText: {
+    marginLeft: 0,
   },
-  
+
+  balanceOverview: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  
-  balanceTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2b2d42',
+
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
-  
-  refreshBtn: {
+
+  refreshButton: {
     padding: 4,
   },
-  
-  refreshText: {
-    fontSize: 16,
-  },
-  
-  totalBalance: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#28a745',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 4,
-  },
-  
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  
-  previewLabel: {
-    fontSize: 13,
-    color: '#666',
-    fontWeight: '500',
-  },
-  
-  previewAmount: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-  
-  insufficientBalanceWarning: {
-    marginTop: 12,
-    padding: 10,
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
-  },
-  
-  warningText: {
-    color: '#856404',
-    fontSize: 13,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  
-  topUpBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  
-  retryBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
-  
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+
+  refreshIcon: {
+    fontSize: 18,
+    color: '#ff3b30',
   },
 
-  // Summary Card
-  summaryCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-  },
-  
-  summaryTitle: { 
-    fontSize: 17, 
-    fontWeight: '700', 
-    marginBottom: 14, 
-    textAlign: 'center',
-    color: '#2b2d42' 
-  },
-  
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  
-  summaryLabel: { 
-    fontSize: 14,
-    color: '#6c757d',
-    fontWeight: '500',
-  },
-  
-  summaryValue: { 
-    fontSize: 14, 
-    color: '#2b2d42', 
-    fontWeight: '500',
-    textAlign: 'right',
-  },
-  
-  summaryAmount: { 
-    fontSize: 15, 
-    color: '#ff3b30',
-    fontWeight: '600',
-  },
-  
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#e9ecef',
-    marginVertical: 12,
-  },
-  
-  summaryTotal: {
-    fontSize: 17,
-    color: '#ff3b30',
+  balanceAmount: {
+    fontSize: 36,
     fontWeight: '700',
-  },
-  
-  summaryBalance: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  
-  negativeBalance: {
-    color: '#dc3545',
-  },
-
-  // PIN Entry Styles
-  pinCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-    padding: 20,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-  },
-  
-  pinTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#2b2d42',
-    marginBottom: 14,
-    textAlign: 'center',
-  },
-  
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  
-  pinInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    letterSpacing: 8,
-    borderWidth: 2,
-    borderColor: '#dee2e6',
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    backgroundColor: '#f8f9fa',
-    width: 150,
-    color: '#2b2d42',
-  },
-  
-  pinInputError: {
-    borderColor: '#ff6b6b',
-    backgroundColor: '#fff5f5',
-  },
-  
-  pinError: {
-    color: '#ff6b6b',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 12,
-    fontWeight: '500',
-  },
-  
-  pinHelp: {
-    color: '#6c757d',
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  
-  pinDotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+    color: '#1a1a1a',
     marginBottom: 16,
   },
-  
-  pinDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#e9ecef',
-    borderWidth: 2,
-    borderColor: '#dee2e6',
+
+  balanceCalculation: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
   },
-  
+
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  balanceRowLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  balanceRowValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  balanceRowLabelBold: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  balanceRowValueBold: {
+    fontSize: 15,
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
+
+  negativeAmount: {
+    color: '#ff3b30',
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  insufficientWarning: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+  },
+
+  insufficientWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  balanceLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  balanceLoadingText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  summaryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  summaryValue: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e8e8e8',
+    marginVertical: 12,
+  },
+
+  summaryLabelTotal: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueTotal: {
+    fontSize: 20,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+
+  pinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  pinBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d0d0d0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  pinSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  attemptsWarning: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+
+  attemptsWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  pinInputArea: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+
+  pinDotsContainer: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  pinInputHint: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+
+  pinDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#e8e8e8',
+    borderWidth: 2,
+    borderColor: '#d0d0d0',
+  },
+
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-  
+
   pinDotError: {
     backgroundColor: '#ff6b6b',
-    borderColor: '#ff6b6b',
+    borderColor: '#ff3b30',
   },
 
-  pinSummaryCard: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 12,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderTopWidth: 4,
-    borderTopColor: '#ff3b30',
-  },
-  
-  pinSummaryTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#2b2d42',
-    marginBottom: 12,
-    textAlign: 'center',
+  hiddenPinInput: {
+    position: 'absolute',
+    left: -9999,
+    width: 1,
+    height: 1,
   },
 
-  attemptsWarning: {
-    color: '#ff922b',
+  pinErrorText: {
+    color: '#ff3b30',
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 12,
-    backgroundColor: '#fff3cd',
-    padding: 8,
-    borderRadius: 8,
+    marginTop: -12,
+    marginBottom: 20,
   },
 
-  // Account Status Cards
-  lockedCard: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
+  modalContainer: {
+    flex: 1,
     backgroundColor: '#fff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#dc3545',
-  },
-  
-  lockedTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  
-  lockedText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-    lineHeight: 20,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
 
-  noPinCard: {
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderLeftWidth: 4,
-    borderLeftColor: '#339af0',
-  },
-  
-  noPinTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#1971c2',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  
-  noPinText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-
-  // Modal Styles
-  modalContainer: { 
-    flex: 1, 
-    backgroundColor: '#f8f9fa',
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-  },
-  
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    backgroundColor: '#fff',
-  },
-  
-  modalTitle: { 
-    fontSize: 17, 
-    fontWeight: '600', 
-    color: '#2b2d42' 
-  },
-  
-  modalCloseBtn: {
-    padding: 4,
-  },
-  
-  modalCloseBtnText: {
-    fontSize: 20,
-    color: '#6c757d',
+    borderBottomColor: '#e8e8e8',
   },
 
-  // Provider Items
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalCloseText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '600',
+  },
+
   providerItem: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 16,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    backgroundColor: '#fff',
+    borderBottomColor: '#f5f5f5',
   },
-  
+
   providerItemSelected: {
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff5f5',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff3b30',
   },
-  
+
   providerInfo: {
     flex: 1,
-    marginRight: 12,
+    paddingRight: 12,
   },
-  
+
   providerName: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#2b2d42',
+    color: '#1a1a1a',
     marginBottom: 2,
   },
-  
+
   providerFullName: {
     fontSize: 13,
-    color: '#6c757d',
+    color: '#666',
     marginBottom: 2,
   },
-  
+
   providerDetails: {
     fontSize: 12,
-    color: '#adb5bd',
-  },
-
-  // Meter Type Items
-  meterTypeItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    backgroundColor: '#fff',
-  },
-  
-  meterTypeItemSelected: {
-    backgroundColor: '#f8f9fa',
-  },
-  
-  meterTypeInfo: {
-    flex: 1,
-    marginRight: 12,
-  },
-  
-  meterTypeName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2b2d42',
-    marginBottom: 4,
-  },
-  
-  meterTypeDescription: {
-    fontSize: 13,
-    color: '#6c757d',
-  },
-
-  // Contact Items
-  contactItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    backgroundColor: '#fff',
-  },
-  
-  contactInfo: {
-    flex: 1,
-  },
-  
-  contactName: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    color: '#2b2d42',
-    marginBottom: 2,
-  },
-  
-  contactNumber: { 
-    color: '#6c757d', 
-    fontSize: 13 
-  },
-  
-  recentTime: {
-    fontSize: 12,
-    color: '#adb5bd',
+    color: '#999',
   },
 
   selectedIcon: {
-    color: '#51cf66',
+    color: '#2e7d32',
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 
-  emptyText: {
-    textAlign: 'center',
-    color: '#adb5bd',
+  meterTypeItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  meterTypeItemSelected: {
+    backgroundColor: '#fff5f5',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff3b30',
+  },
+
+  meterTypeInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  meterTypeName: {
     fontSize: 15,
-    marginTop: 40,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+
+  meterTypeDescription: {
+    fontSize: 13,
+    color: '#666',
+  },
+
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  contactAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  contactAvatarText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  contactDetails: {
+    flex: 1,
+  },
+
+  contactName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1a1a1a',
+    marginBottom: 2,
+  },
+
+  contactPhone: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  dateText: {
+    fontSize: 11,
+    color: '#999',
+  },
+
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+  },
+
+  emptyStateText: {
+    color: '#999',
+    fontSize: 14,
   },
 });

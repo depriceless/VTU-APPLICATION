@@ -268,6 +268,21 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/api/get-server-ip', (req, res) => {
+  const https = require('https');
+  
+  https.get('https://api.ipify.org?format=json', (resp) => {
+    let data = '';
+    resp.on('data', (chunk) => { data += chunk; });
+    resp.on('end', () => {
+      const ipData = JSON.parse(data);
+      console.log('YOUR IP IS:', ipData.ip);
+      res.json({ ip: ipData.ip });
+    });
+  });
+});
+
+
 // === DIRECT TEST ROUTE FOR ADMIN AUTH ===
 app.get('/api/admin/auth/direct-test', (req, res) => {
   console.log('📍 Direct admin auth test hit');

@@ -626,18 +626,18 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: serviceValidation.reason });
     }
 
-    const amountLimits = {
-      airtime: { min: 50, max: 200000 },
-      data: { min: 50, max: 500000 },
-      electricity: { min: 100, max: 100000 },
-      education: { min: 500, max: 1000000 },
-      print_recharge: { min: 100, max: 50000 },
-      transfer: { min: 100, max: 1000000 },
-      internet: { min: 500, max: 200000 },
-      fund_betting: { min: 100, max: 500000 },
-      cable_tv: { min: 500, max: 50000 }
-    };
-
+   const amountLimits = {
+  airtime: { min: 50, max: 200000 },
+  data: { min: 50, max: 500000 },
+  electricity: { min: 100, max: 100000 },
+  education: { min: 500, max: 1000000 },
+  print_recharge: { min: 100, max: 50000 },
+  recharge: { min: 100, max: 50000 },  // ← ADD THIS LINE
+  transfer: { min: 100, max: 1000000 },
+  internet: { min: 500, max: 200000 },
+  fund_betting: { min: 100, max: 500000 },
+  cable_tv: { min: 500, max: 50000 }
+};
     const limits = amountLimits[type];
     if (amount < limits.min || amount > limits.max) {
       return res.status(400).json({
@@ -703,30 +703,34 @@ router.post('/', authenticate, async (req, res) => {
     let purchaseResult;
     
     switch (type) {
-      case 'airtime':
-        purchaseResult = await processAirtimePurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'data':
-        purchaseResult = await processDataPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'electricity':
-        purchaseResult = await processElectricityPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'cable_tv':
-        purchaseResult = await processCableTVPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'fund_betting':
-        purchaseResult = await processFundBettingPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'education':
-        purchaseResult = await processEducationPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      case 'internet':
-        purchaseResult = await processInternetPurchase({ ...serviceData, amount, userId: req.user.userId });
-        break;
-      default:
-        return res.status(400).json({ success: false, message: 'Unsupported service type' });
-    }
+  case 'airtime':
+    purchaseResult = await processAirtimePurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'data':
+    purchaseResult = await processDataPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'electricity':
+    purchaseResult = await processElectricityPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'cable_tv':
+    purchaseResult = await processCableTVPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'fund_betting':
+    purchaseResult = await processFundBettingPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'education':
+    purchaseResult = await processEducationPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'internet':
+    purchaseResult = await processInternetPurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  case 'recharge':
+  case 'print_recharge':
+    purchaseResult = await processPrintRechargePurchase({ ...serviceData, amount, userId: req.user.userId });
+    break;
+  default:
+    return res.status(400).json({ success: false, message: 'Unsupported service type' });
+}
 
     if (purchaseResult.success) {
       const transactionResult = await wallet.debit(amount, purchaseResult.description, purchaseResult.reference);
@@ -841,7 +845,7 @@ async function processPrintRechargePurchase({ network, denomination, quantity, a
           denomination: value,
           type: cardType || 'airtime',
           pins: pins,
-          providerCost,
+          providerCost: totalProviderCost,  // ← CHANGE THIS
           customerPrice: amount,
           profit,
           serviceType: 'print_recharge',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import BetFundingSuccessModal from './BetFundingSuccessModal';
 
 import {
@@ -19,12 +19,12 @@ import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../contexts/AuthContext';
 
-// API configuration - unified approach
+// API configuration
 const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
     : `${process.env.EXPO_PUBLIC_API_URL}/api`,
-  FALLBACK_URL: 'https://vtu-application.onrender.com/api', // fallback for development
+  FALLBACK_URL: 'https://vtu-application.onrender.com/api',
 };
 
 interface Contact {
@@ -66,11 +66,12 @@ interface BettingProvider {
 }
 
 export default function FundBetting() {
-  // Use AuthContext when available, fallback to local storage
   const authContext = useContext(AuthContext);
   const { token, user, balance, refreshBalance } = authContext || {};
+  const pinInputRef = useRef<TextInput>(null);
 
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -90,10 +91,8 @@ export default function FundBetting() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState<any>(null);
 
-  // Quick amount presets - similar to airtime
   const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
 
-  // Betting providers with metadata
   const providers: BettingProvider[] = [
     { 
       id: 'bet9ja', 
@@ -139,39 +138,67 @@ export default function FundBetting() {
     },
   ];
 
-  // Validation logic
-  const selectedProviderData = providers.find(p => p.id === selectedProvider);
-  const isCustomerIdValid = customerId.trim().length >= 3;
-  const amountNum = parseInt(amount) || 0;
-  const isAmountValid = selectedProviderData 
-    ? amountNum >= (selectedProviderData.minAmount || 100) && amountNum <= (selectedProviderData.maxAmount || 500000)
-    : amountNum >= 100 && amountNum <= 500000;
-  const hasEnoughBalance = userBalance ? amountNum <= userBalance.total : true;
-  const canProceed = isCustomerIdValid && isAmountValid && selectedProvider && hasEnoughBalance;
-  const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
+  const selectedProviderData = useMemo(() => 
+    providers.find(p => p.id === selectedProvider),
+    [selectedProvider]
+  );
 
-  // Initialize data on mount
+  const isCustomerIdValid = useMemo(() => 
+    customerId.trim().length >= 3,
+    [customerId]
+  );
+
+  const amountNum = useMemo(() => 
+    parseInt(amount) || 0,
+    [amount]
+  );
+
+  const isAmountValid = useMemo(() => 
+    selectedProviderData 
+      ? amountNum >= (selectedProviderData.minAmount || 100) && amountNum <= (selectedProviderData.maxAmount || 500000)
+      : amountNum >= 100 && amountNum <= 500000,
+    [amountNum, selectedProviderData]
+  );
+
+  const hasEnoughBalance = useMemo(() => 
+    userBalance ? amountNum <= userBalance.total : true,
+    [userBalance, amountNum]
+  );
+
+  const canProceed = useMemo(() => 
+    isCustomerIdValid && isAmountValid && selectedProvider && hasEnoughBalance,
+    [isCustomerIdValid, isAmountValid, selectedProvider, hasEnoughBalance]
+  );
+
+  const isPinValid = useMemo(() => 
+    pin.length === 4 && /^\d{4}$/.test(pin),
+    [pin]
+  );
+
   useEffect(() => {
     initializeComponent();
   }, []);
 
-  // Refresh balance when stepping to review
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
   useEffect(() => {
-    if (currentStep === 3) {
+    if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
+      // Focus the PIN input after a short delay
+      setTimeout(() => {
+        if (pinInputRef.current) {
+          pinInputRef.current.focus();
+        }
+      }, 100);
     }
-  }, [currentStep]);
+  }, [showPinEntry]);
 
-  // Save form state on changes
   useEffect(() => {
     saveFormState();
   }, [customerId, customerName, amount, selectedProvider]);
@@ -184,7 +211,6 @@ export default function FundBetting() {
         initializeBalance()
       ]);
 
-      // Add small delay for better UX
       setTimeout(() => {
         fetchUserBalance();
         checkPinStatus();
@@ -195,7 +221,6 @@ export default function FundBetting() {
   };
 
   const initializeBalance = async () => {
-    // Try to use AuthContext balance first
     if (balance?.amount) {
       const balanceAmount = parseFloat(balance.amount) || 0;
       setUserBalance({
@@ -207,12 +232,10 @@ export default function FundBetting() {
         lastUpdated: balance.lastUpdated || new Date().toISOString(),
       });
     } else {
-      // Fallback to cached balance
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
+          setUserBalance(JSON.parse(cachedBalance));
         }
       } catch (error) {
         console.log('No cached balance found');
@@ -220,15 +243,11 @@ export default function FundBetting() {
     }
   };
 
-  // Enhanced token management
   const getAuthToken = async (): Promise<string> => {
-    // Try AuthContext first
     if (token && token.trim() !== '' && token !== 'undefined') {
-      console.log('Using AuthContext token');
       return token;
     }
 
-    // Fallback to AsyncStorage with multiple key attempts
     const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
     
     for (const key of tokenKeys) {
@@ -236,10 +255,8 @@ export default function FundBetting() {
         const storedToken = await AsyncStorage.getItem(key);
         if (storedToken && storedToken.trim() !== '' && storedToken !== 'undefined' && storedToken !== 'null') {
           const cleanToken = storedToken.trim();
-          // Validate JWT structure
           const tokenParts = cleanToken.split('.');
           if (tokenParts.length === 3) {
-            console.log(`Found valid token with key: ${key}`);
             return cleanToken;
           }
         }
@@ -251,109 +268,97 @@ export default function FundBetting() {
     throw new Error('No valid authentication token found');
   };
 
-  // Enhanced API request handler
-// Enhanced API request handler - REPLACE your existing makeApiRequest function
-const makeApiRequest = async (endpoint: string, options: any = {}) => {
-  console.log(`API Request: ${endpoint}`);
-  
-  try {
-    const authToken = await getAuthToken();
+  const makeApiRequest = async (endpoint: string, options: any = {}) => {
+    console.log(`API Request: ${endpoint}`);
     
-    const requestConfig = {
-      method: 'GET',
-      ...options,
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options.headers,
-      },
-    };
+    try {
+      const authToken = await getAuthToken();
+      
+      const requestConfig = {
+        method: 'GET',
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          ...options.headers,
+        },
+      };
 
-    // Try primary URL first, then fallback
-    const urls = [API_CONFIG.BASE_URL, API_CONFIG.FALLBACK_URL];
-    let lastError: Error | null = null;
+      const urls = [API_CONFIG.BASE_URL, API_CONFIG.FALLBACK_URL];
+      let lastError: Error | null = null;
 
-    for (const baseUrl of urls) {
-      try {
-        const fullUrl = `${baseUrl}${endpoint}`;
-        console.log(`Trying URL: ${fullUrl}`);
-        
-        const response = await fetch(fullUrl, requestConfig);
-        
-        let responseText = '';
+      for (const baseUrl of urls) {
         try {
-          responseText = await response.text();
-        } catch (textError) {
-          throw new Error('Unable to read server response');
-        }
-
-        let data = {};
-        if (responseText.trim()) {
-          try {
-            data = JSON.parse(responseText);
-          } catch (parseError) {
-            throw new Error(`Invalid JSON response. Status: ${response.status}`);
-          }
-        }
-
-        // Handle authentication errors
-        if (response.status === 401) {
-          await clearAuthTokens();
-          throw new Error('Session expired. Please login again.');
-        }
-
-        if (!response.ok) {
-          const errorMessage = (data as any)?.message || (data as any)?.error || `HTTP ${response.status}`;
+          const fullUrl = `${baseUrl}${endpoint}`;
+          const response = await fetch(fullUrl, requestConfig);
           
-          // IMPORTANT: For service unavailability, preserve the exact error message
-          if (endpoint === '/purchase' && data && typeof data === 'object') {
-            const error = new Error(errorMessage) as any;
-            error.responseData = data;
-            error.httpStatus = response.status;
-            error.isServiceError = errorMessage.toLowerCase().includes('unavailable') || 
-                                  errorMessage.toLowerCase().includes('service') ||
-                                  errorMessage.toLowerCase().includes('maintenance');
+          let responseText = '';
+          try {
+            responseText = await response.text();
+          } catch (textError) {
+            throw new Error('Unable to read server response');
+          }
+
+          let data = {};
+          if (responseText.trim()) {
+            try {
+              data = JSON.parse(responseText);
+            } catch (parseError) {
+              throw new Error(`Invalid JSON response. Status: ${response.status}`);
+            }
+          }
+
+          if (response.status === 401) {
+            await clearAuthTokens();
+            throw new Error('Session expired. Please login again.');
+          }
+
+          if (!response.ok) {
+            const errorMessage = (data as any)?.message || (data as any)?.error || `HTTP ${response.status}`;
+            
+            if (endpoint === '/purchase' && data && typeof data === 'object') {
+              const error = new Error(errorMessage) as any;
+              error.responseData = data;
+              error.httpStatus = response.status;
+              error.isServiceError = errorMessage.toLowerCase().includes('unavailable') || 
+                                    errorMessage.toLowerCase().includes('service') ||
+                                    errorMessage.toLowerCase().includes('maintenance');
+              throw error;
+            }
+            
+            throw new Error(errorMessage);
+          }
+
+          return data;
+          
+        } catch (error) {
+          lastError = error as Error;
+          
+          if (error.message.includes('Session expired') || 
+              error.message.includes('401') ||
+              (error as any).isServiceError) {
             throw error;
           }
-          
-          throw new Error(errorMessage);
-        }
-
-        console.log(`API request successful via ${baseUrl}`);
-        return data;
-        
-      } catch (error) {
-        console.log(`Failed with ${baseUrl}:`, error.message);
-        lastError = error as Error;
-        
-        // Don't retry for auth errors or service errors
-        if (error.message.includes('Session expired') || 
-            error.message.includes('401') ||
-            (error as any).isServiceError) {
-          throw error;
         }
       }
+
+      throw lastError || new Error('All API endpoints failed');
+
+    } catch (error) {
+      console.error(`API Error for ${endpoint}:`, error.message);
+
+      if ((error as any).isServiceError) {
+        throw error;
+      }
+
+      if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
+        throw new Error('Network connection failed. Please check your internet connection.');
+      }
+
+      throw error;
     }
-
-    // All URLs failed
-    throw lastError || new Error('All API endpoints failed');
-
-  } catch (error) {
-    console.error(`API Error for ${endpoint}:`, error.message);
-
-    // IMPORTANT: Don't mask service unavailability errors as network errors
-    if ((error as any).isServiceError) {
-      throw error; // Preserve service error messages
-    }
-
-    if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
-      throw new Error('Network connection failed. Please check your internet connection.');
-    }
-
-    throw error;
-  }
-};
+  };
 
   const clearAuthTokens = async () => {
     const tokenKeys = ['userToken', 'authToken', 'token', 'access_token'];
@@ -366,18 +371,15 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
     }
   };
 
-  const checkPinStatus = async () => {
+  const checkPinStatus = useCallback(async () => {
     try {
-      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
       
       if (response.success) {
         setPinStatus(response);
-        console.log('PIN status updated:', response);
       }
     } catch (error) {
       console.error('Error checking PIN status:', error);
-      // Set default PIN status to allow form to continue
       setPinStatus({
         isPinSet: true,
         hasPinSet: true,
@@ -386,14 +388,11 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
         attemptsRemaining: 3,
       });
     }
-  };
+  }, []);
 
-  const fetchUserBalance = async () => {
+  const fetchUserBalance = useCallback(async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Fetching balance...");
-      
-      // Try AuthContext refresh first
       if (refreshBalance) {
         try {
           await refreshBalance();
@@ -411,7 +410,6 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
 
             setUserBalance(updatedBalance);
             await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-            console.log("Balance updated from AuthContext:", updatedBalance);
             return;
           }
         } catch (contextError) {
@@ -419,7 +417,6 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
         }
       }
 
-      // Fallback to direct API call
       const balanceData = await makeApiRequest("/balance");
       
       if (balanceData.success && balanceData.balance) {
@@ -436,29 +433,24 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
 
         setUserBalance(updatedBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-        console.log("Balance fetched from API:", updatedBalance);
       } else {
         throw new Error(balanceData.message || "Balance fetch failed");
       }
     } catch (error) {
       console.error("Balance fetch error:", error);
       
-      // Use cached balance as ultimate fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
-          console.log("Using cached balance:", parsedBalance);
+          setUserBalance(JSON.parse(cachedBalance));
         }
       } catch (cacheError) {
-        console.error("Cache read error:", cacheError);
         setUserBalance(null);
       }
     } finally {
       setIsLoadingBalance(false);
     }
-  };
+  }, [refreshBalance, balance]);
 
   const saveFormState = async () => {
     try {
@@ -495,12 +487,10 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
       const recent = await AsyncStorage.getItem('recentBetting');
       let recentList: RecentBetting[] = recent ? JSON.parse(recent) : [];
 
-      // Remove existing entry for same customer/provider
       recentList = recentList.filter(item => 
         item.customerId !== customerId || item.provider !== provider
       );
       
-      // Add new entry at beginning
       recentList.unshift({
         customerId,
         provider,
@@ -508,7 +498,6 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
         timestamp: Date.now()
       });
       
-      // Keep only last 10 entries
       recentList = recentList.slice(0, 10);
 
       await AsyncStorage.setItem('recentBetting', JSON.stringify(recentList));
@@ -529,7 +518,6 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
     }
   };
 
-  // Contact selection functions
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -586,155 +574,141 @@ const makeApiRequest = async (endpoint: string, options: any = {}) => {
     setAmount(quickAmount.toString());
   };
 
-  // Main payment processing function
-  // REPLACE your existing validatePinAndPurchase function with this:
-const validatePinAndPurchase = async () => {
-  console.log('=== BETTING PAYMENT START ===');
-  
-  if (!isPinValid) {
-    console.log('PIN invalid:', pin);
-    setPinError('PIN must be exactly 4 digits');
-    return;
-  }
+  const handleProceedToPayment = () => {
+    if (!pinStatus?.isPinSet) {
+      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      return;
+    }
+    if (pinStatus?.isLocked) {
+      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      return;
+    }
+    setShowPinEntry(true);
+  };
 
-  console.log('Starting betting fund process...');
-  setIsValidatingPin(true);
-  setIsProcessingPayment(true);
-  setPinError('');
+  const validatePinAndPurchase = useCallback(async () => {
+    console.log('=== BETTING PAYMENT START ===');
+    
+    if (!isPinValid) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
+    }
 
-  try {
-    const payload = {
-      type: 'fund_betting',
-      provider: selectedProvider,
-      customerId: customerId.trim(),
-      customerName: customerName.trim(),
-      amount: amountNum,
-      pin: pin,
-    };
+    setIsValidatingPin(true);
+    setIsProcessingPayment(true);
+    setPinError('');
 
-    console.log('Betting fund payload:', payload);
+    try {
+      const payload = {
+        type: 'fund_betting',
+        provider: selectedProvider,
+        customerId: customerId.trim(),
+        customerName: customerName.trim(),
+        amount: amountNum,
+        pin: pin,
+      };
 
-    const response = await makeApiRequest('/purchase', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+      const response = await makeApiRequest('/purchase', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
 
-    console.log('Betting fund response:', response);
-
-    if (response.success === true) {
-      console.log('Betting fund successful!');
-      
-      // Save to recent betting
-      await saveRecentBetting(customerId, selectedProvider!, customerName);
-      
-      // Update balance
-      if (response.newBalance) {
-        const balanceAmount = response.newBalance.amount || 
-                             response.newBalance.totalBalance || 
-                             response.newBalance.mainBalance || 0;
+      if (response.success === true) {
+        await saveRecentBetting(customerId, selectedProvider!, customerName);
         
-        const updatedBalance: UserBalance = {
-          main: balanceAmount,
-          bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          currency: response.newBalance.currency || "NGN",
-          lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-        };
+        if (response.newBalance) {
+          const balanceAmount = response.newBalance.amount || 
+                               response.newBalance.totalBalance || 
+                               response.newBalance.mainBalance || 0;
+          
+          const updatedBalance: UserBalance = {
+            main: balanceAmount,
+            bonus: 0,
+            total: balanceAmount,
+            amount: balanceAmount,
+            currency: response.newBalance.currency || "NGN",
+            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+          };
 
-        setUserBalance(updatedBalance);
-        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-        console.log('Balance updated after transaction:', updatedBalance);
+          setUserBalance(updatedBalance);
+          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
 
-        // Update AuthContext if available
-        if (refreshBalance) {
-          try {
-            await refreshBalance();
-          } catch (error) {
-            console.log('AuthContext refresh failed:', error);
+          if (refreshBalance) {
+            try {
+              await refreshBalance();
+            } catch (error) {
+              console.log('AuthContext refresh failed:', error);
+            }
           }
+        }
+
+        await AsyncStorage.removeItem('bettingFormState');
+
+        const providerName = providers.find(p => p.id === selectedProvider)?.label || selectedProvider?.toUpperCase();
+        setSuccessData({
+          transaction: response.transaction || {},
+          providerName,
+          customerId,
+          customerName,
+          amount: response.transaction?.amount || amountNum,
+          newBalance: response.newBalance
+        });
+
+        setShowPinEntry(false);
+        setTimeout(() => {
+          setShowSuccessModal(true);
+        }, 300);
+
+      } else {
+        if (response.message && response.message.toLowerCase().includes('pin')) {
+          setPinError(response.message);
+        } else {
+          Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
         }
       }
 
-      // Clear form state
-      await AsyncStorage.removeItem('bettingFormState');
-
-      // Prepare success data
-      const providerName = providers.find(p => p.id === selectedProvider)?.label || selectedProvider?.toUpperCase();
-      setSuccessData({
-        transaction: response.transaction || {},
-        providerName,
-        customerId,
-        customerName,
-        amount: response.transaction?.amount || amountNum,
-        newBalance: response.newBalance
-      });
-
-      // Show success modal after brief delay
-      setTimeout(() => {
-        setShowSuccessModal(true);
-      }, 300);
-
-    } else {
-      console.log('Betting fund failed:', response.message);
+    } catch (error: any) {
+      console.error('Betting fund error:', error);
       
-      if (response.message && response.message.toLowerCase().includes('pin')) {
-        setPinError(response.message);
-      } else {
-        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
+      if (error.message && (
+          error.message.includes('Fund Betting Account service is currently unavailable') ||
+          error.message.includes('service is currently unavailable') ||
+          error.message.includes('maintenance') ||
+          error.message.includes('unavailable')
+      )) {
+        Alert.alert('Service Unavailable', error.message);
+        return;
       }
-    }
+      
+      if (error.message.includes('locked') || error.message.includes('attempts')) {
+        setPinError(error.message);
+      } else if (error.message.includes('PIN') || error.message.includes('pin')) {
+        setPinError(error.message);
+      } else if (error.message.includes('Session expired')) {
+        Alert.alert('Session Expired', 'Please login again to continue.');
+      } else {
+        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+      }
 
-  } catch (error: any) {
-    console.error('Betting fund error:', error);
-    
-    // IMPROVED ERROR HANDLING - Check for service errors first
-    if (error.message && (
-        error.message.includes('Fund Betting Account service is currently unavailable') ||
-        error.message.includes('service is currently unavailable') ||
-        error.message.includes('maintenance') ||
-        error.message.includes('unavailable')
-    )) {
-      Alert.alert('Service Unavailable', error.message);
-      return;
+    } finally {
+      setIsValidatingPin(false);
+      setIsProcessingPayment(false);
+      console.log('=== BETTING PAYMENT END ===');
     }
-    
-    if (error.message.includes('locked') || error.message.includes('attempts')) {
-      setPinError(error.message);
-    } else if (error.message.includes('PIN') || error.message.includes('pin')) {
-      setPinError(error.message);
-    } else if (error.message.includes('Session expired')) {
-      Alert.alert('Session Expired', 'Please login again to continue.');
-    } else {
-      Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
-    }
-
-  } finally {
-    setIsValidatingPin(false);
-    setIsProcessingPayment(false);
-    console.log('=== BETTING PAYMENT END ===');
-  }
-};
-
-  // Success modal handlers
-  const handlePlaceBet = () => {
-    console.log('User selected: Place a Bet');
-    setShowSuccessModal(false);
-    setSuccessData(null);
-    // Navigate to betting screen if needed
-  };
+  }, [isPinValid, pin, selectedProvider, customerId, customerName, amountNum]);
 
   const handleCloseBettingModal = () => {
-    console.log('User closed betting success modal');
     setShowSuccessModal(false);
     setSuccessData(null);
-    // Reset to step 1 for new transaction
-    setCurrentStep(1);
     resetForm();
   };
 
+  const handlePlaceBet = () => {
+    setShowSuccessModal(false);
+    setSuccessData(null);
+  };
+
   const handleFundMore = () => {
-    console.log('User selected: Fund More');
     setShowSuccessModal(false);
     setSuccessData(null);
     resetForm();
@@ -750,459 +724,317 @@ const validatePinAndPurchase = async () => {
     setPinError('');
   };
 
+  const renderFormStep = () => (
+    <ScrollView
+      style={styles.scrollContent}
+      contentContainerStyle={styles.scrollContentContainer}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Quick Options */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Quick Options</Text>
+        <View style={styles.buttonRow}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
+            onPress={selectContact}
+            disabled={isLoadingContacts}
+            activeOpacity={0.7}
+          >
+            {isLoadingContacts ? (
+              <ActivityIndicator size="small" color="#ff3b30" />
+            ) : (
+              <Text style={styles.actionBtnText}>Contacts</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
+            onPress={showRecentBettingList}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.actionBtnText}>Recent ({recentBetting.length})</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Provider Selection */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Select Betting Platform</Text>
+        <View style={styles.providersContainer}>
+          {providers.map((provider) => (
+            <TouchableOpacity
+              key={provider.id}
+              style={[
+                styles.providerCard,
+                selectedProvider === provider.id && styles.providerSelected,
+              ]}
+              onPress={() => setSelectedProvider(provider.id)}
+              activeOpacity={0.7}
+            >
+              <Image source={provider.logo} style={styles.providerLogo} />
+              <Text style={[
+                styles.providerLabel,
+                selectedProvider === provider.id && styles.providerLabelSelected
+              ]}>
+                {provider.label}
+              </Text>
+              {selectedProvider === provider.id && (
+                <View style={styles.checkmark}>
+                  <Text style={styles.checkmarkText}>✓</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Customer Details */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Account Details</Text>
+        <TextInput
+          style={[styles.input, !isCustomerIdValid && customerId !== '' && styles.inputError]}
+          placeholder="Enter betting account ID/username"
+          value={customerId}
+          onChangeText={setCustomerId}
+          autoCapitalize="none"
+          placeholderTextColor="#999"
+        />
+        {customerId !== '' && !isCustomerIdValid && (
+          <Text style={styles.validationError}>Account ID must be at least 3 characters</Text>
+        )}
+        {customerId !== '' && isCustomerIdValid && (
+          <Text style={styles.validationSuccess}>✓ Valid account ID</Text>
+        )}
+        
+        <TextInput
+          style={[styles.input, { marginTop: 12 }]}
+          placeholder="Account holder name (optional)"
+          value={customerName}
+          onChangeText={setCustomerName}
+          placeholderTextColor="#999"
+        />
+      </View>
+
+      {/* Quick Amount Selection */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Quick Amount Selection</Text>
+        <View style={styles.quickAmountGrid}>
+          {quickAmounts.map((quickAmount) => (
+            <TouchableOpacity
+              key={quickAmount}
+              style={[
+                styles.quickAmountBtn,
+                amount === quickAmount.toString() && styles.quickAmountSelected
+              ]}
+              onPress={() => handleQuickAmount(quickAmount)}
+              activeOpacity={0.7}
+            >
+              <Text style={[
+                styles.quickAmountText,
+                amount === quickAmount.toString() && styles.quickAmountTextSelected
+              ]}>
+                ₦{quickAmount.toLocaleString()}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+
+      {/* Custom Amount */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Custom Amount</Text>
+        <TextInput
+          style={[styles.input, amount !== '' && !isAmountValid && styles.inputError]}
+          keyboardType="numeric"
+          placeholder={`Enter amount (₦${selectedProviderData?.minAmount || 100} - ₦${selectedProviderData?.maxAmount?.toLocaleString() || '500,000'})`}
+          value={amount}
+          onChangeText={setAmount}
+          placeholderTextColor="#999"
+        />
+        {amount !== '' && !isAmountValid && (
+          <Text style={styles.validationError}>
+            Amount must be between ₦{selectedProviderData?.minAmount || 100} and ₦{selectedProviderData?.maxAmount?.toLocaleString() || '500,000'}
+          </Text>
+        )}
+        {amount !== '' && isAmountValid && hasEnoughBalance && (
+          <Text style={styles.validationSuccess}>✓ Valid amount</Text>
+        )}
+        {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
+          <Text style={styles.validationError}>
+            Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
+          </Text>
+        )}
+      </View>
+
+      {/* Continue Button */}
+      <TouchableOpacity
+        style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
+        disabled={!canProceed}
+        onPress={() => setCurrentStep(2)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.primaryButtonText}>
+          {canProceed 
+            ? `Continue • ₦${amountNum.toLocaleString()}` 
+            : 'Complete Form to Continue'
+          }
+        </Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderSummaryStep = () => (
+    <ScrollView
+      style={styles.scrollContent}
+      contentContainerStyle={styles.scrollContentContainer}
+      showsVerticalScrollIndicator={false}
+    >
+      {/* Balance Overview */}
+      <View style={styles.balanceOverview}>
+        <View style={styles.balanceHeader}>
+          <Text style={styles.balanceLabel}>Available Balance</Text>
+          <TouchableOpacity 
+            style={styles.refreshButton} 
+            onPress={fetchUserBalance}
+            disabled={isLoadingBalance}
+          >
+            {isLoadingBalance ? (
+              <ActivityIndicator size="small" color="#ff3b30" />
+            ) : (
+              <Text style={styles.refreshIcon}>↻</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {userBalance ? (
+          <>
+            <Text style={styles.balanceAmount}>
+              ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+            </Text>
+
+            {amountNum > 0 && (
+              <View style={styles.balanceCalculation}>
+                <View style={styles.balanceRow}>
+                  <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                  <Text style={styles.balanceRowValue}>-₦{amountNum.toLocaleString()}</Text>
+                </View>
+                <View style={styles.balanceDivider} />
+                <View style={styles.balanceRow}>
+                  <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                  <Text style={[
+                    styles.balanceRowValueBold,
+                    ((userBalance.total || userBalance.amount || 0) - amountNum) < 0 && styles.negativeAmount
+                  ]}>
+                    ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum).toLocaleString()}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {amountNum > (userBalance.total || userBalance.amount || 0) && (
+              <View style={styles.insufficientWarning}>
+                <Text style={styles.insufficientWarningText}>
+                  Insufficient balance for this transaction
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.balanceLoading}>
+            <Text style={styles.balanceLoadingText}>
+              {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
+            </Text>
+          </View>
+        )}
+      </View>
+      
+      {/* Transaction Summary */}
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Transaction Summary</Text>
+
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Platform</Text>
+          <View style={styles.summaryValueContainer}>
+            {selectedProvider && (
+              <Image
+                source={providers.find((p) => p.id === selectedProvider)?.logo}
+                style={styles.summaryNetworkLogo}
+              />
+            )}
+            <Text style={styles.summaryValue}>
+              {providers.find((p) => p.id === selectedProvider)?.label}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Account ID</Text>
+          <Text style={styles.summaryValue}>{customerId}</Text>
+        </View>
+
+        {customerName && (
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Account Name</Text>
+            <Text style={styles.summaryValue}>{customerName}</Text>
+          </View>
+        )}
+
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabel}>Amount</Text>
+          <Text style={[styles.summaryValue, styles.summaryAmountValue]}>
+            ₦{amountNum.toLocaleString()}
+          </Text>
+        </View>
+
+        <View style={styles.summaryDivider} />
+
+        <View style={styles.summaryItem}>
+          <Text style={styles.summaryLabelTotal}>Total Charge</Text>
+          <Text style={styles.summaryValueTotal}>₦{amountNum.toLocaleString()}</Text>
+        </View>
+
+        {userBalance && (
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Remaining Balance</Text>
+            <Text style={[
+              styles.summaryValue, 
+              styles.summaryBalance,
+              (userBalance.total - amountNum) < 0 ? styles.negativeAmount : {}
+            ]}>
+              ₦{Math.max(0, userBalance.total - amountNum).toLocaleString()}
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Action Buttons */}
+      <TouchableOpacity
+        style={[
+          styles.primaryButton, 
+          !hasEnoughBalance && styles.primaryButtonDisabled
+        ]}
+        disabled={!hasEnoughBalance}
+        onPress={handleProceedToPayment}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.primaryButtonText}>
+          {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.secondaryButton}
+        onPress={() => setCurrentStep(1)}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.secondaryButtonText}>Edit Details</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
   return (
     <View style={styles.container}>
-      {/* STEP 1: FORM INPUT */}
-      {currentStep === 1 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Quick Options */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Quick Options</Text>
-            <View style={styles.buttonRow}>
-              <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
-                onPress={selectContact}
-                disabled={isLoadingContacts}
-              >
-                {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#555" />
-                ) : (
-                  <Text style={styles.actionBtnText}>Contacts</Text>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
-                onPress={showRecentBettingList}
-              >
-                <Text style={styles.actionBtnText}>Recent ({recentBetting.length})</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Provider Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Select Betting Platform</Text>
-            <View style={styles.providersContainer}>
-              {providers.map((provider) => (
-                <TouchableOpacity
-                  key={provider.id}
-                  style={[
-                    styles.providerCard,
-                    selectedProvider === provider.id && styles.providerSelected,
-                  ]}
-                  onPress={() => setSelectedProvider(provider.id)}
-                >
-                  <Image source={provider.logo} style={styles.providerLogo} />
-                  <Text style={styles.providerLabel}>{provider.label}</Text>
-                  {selectedProvider === provider.id && (
-                    <View style={styles.selectedIndicator}>
-                      <Text style={styles.selectedIndicatorText}>✓</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Customer Details */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Account Details</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter betting account ID/username"
-              value={customerId}
-              onChangeText={setCustomerId}
-              autoCapitalize="none"
-              placeholderTextColor="#999"
-            />
-            {customerId !== '' && !isCustomerIdValid && (
-              <Text style={styles.error}>Account ID must be at least 3 characters</Text>
-            )}
-            {customerId !== '' && isCustomerIdValid && (
-              <Text style={styles.success}>✓ Valid account ID</Text>
-            )}
-            
-            <TextInput
-              style={[styles.input, { marginTop: 12 }]}
-              placeholder="Account holder name (optional)"
-              value={customerName}
-              onChangeText={setCustomerName}
-              placeholderTextColor="#999"
-            />
-          </View>
-
-          {/* Quick Amount Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Quick Amount Selection</Text>
-            <View style={styles.quickAmountGrid}>
-              {quickAmounts.map((quickAmount) => (
-                <TouchableOpacity
-                  key={quickAmount}
-                  style={[
-                    styles.quickAmountBtn,
-                    amount === quickAmount.toString() && styles.quickAmountSelected
-                  ]}
-                  onPress={() => handleQuickAmount(quickAmount)}
-                >
-                  <Text style={[
-                    styles.quickAmountText,
-                    amount === quickAmount.toString() && styles.quickAmountSelectedText
-                  ]}>
-                    ₦{quickAmount.toLocaleString()}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-
-          {/* Custom Amount */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Custom Amount</Text>
-            <TextInput
-              style={styles.input}
-              keyboardType="numeric"
-              placeholder={`Enter amount (₦${selectedProviderData?.minAmount || 100} - ₦${selectedProviderData?.maxAmount?.toLocaleString() || '500,000'})`}
-              value={amount}
-              onChangeText={setAmount}
-              placeholderTextColor="#999"
-            />
-            {amount !== '' && !isAmountValid && (
-              <Text style={styles.error}>
-                Amount must be between ₦{selectedProviderData?.minAmount || 100} and ₦{selectedProviderData?.maxAmount?.toLocaleString() || '500,000'}
-              </Text>
-            )}
-            {amount !== '' && isAmountValid && hasEnoughBalance && (
-              <Text style={styles.success}>✓ Valid amount</Text>
-            )}
-            {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
-              <Text style={styles.error}>
-                Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
-              </Text>
-            )}
-          </View>
-
-          {/* Continue Button */}
-          <TouchableOpacity
-            style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
-            disabled={!canProceed}
-            onPress={() => setCurrentStep(2)}
-          >
-            <Text style={styles.proceedText}>
-              {canProceed 
-                ? `Continue • ₦${amountNum.toLocaleString()}` 
-                : 'review purchase'
-              }
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
-
-      {/* STEP 2: REVIEW & CONFIRMATION */}
-      {currentStep === 2 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          {/* Balance Display */}
-          <View style={styles.balanceCard}>
-            <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn} 
-                onPress={fetchUserBalance}
-                disabled={isLoadingBalance}
-              >
-                {isLoadingBalance ? (
-                  <ActivityIndicator size="small" color="#ff3b30" />
-                ) : (
-                  <Text style={styles.refreshText}>Refresh</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-
-            {userBalance ? (
-              <>
-                <Text style={styles.totalBalance}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
-                </Text>
-
-                <Text style={styles.lastUpdated}>
-                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-                </Text>
-
-                {amountNum > 0 && (
-                  <View style={styles.transactionPreview}>
-                    <Text style={styles.previewLabel}>After transaction:</Text>
-                    <Text style={[
-                      styles.previewAmount,
-                      (userBalance.total - amountNum) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-                    ]}>
-                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum).toLocaleString()}
-                    </Text>
-                  </View>
-                )}
-
-                {amountNum > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientBalanceWarning}>
-                    <Text style={styles.warningText}>
-                      Insufficient balance for this transaction
-                    </Text>
-                    <TouchableOpacity 
-                      style={styles.topUpBtn}
-                      onPress={() => {/* Navigate to top-up */}}
-                    >
-                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </>
-            ) : (
-              <View style={styles.loadingBalance}>
-                <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
-                </Text>
-                {!isLoadingBalance && (
-                  <TouchableOpacity 
-                    style={styles.retryBtn}
-                    onPress={fetchUserBalance}
-                  >
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </View>
-    
-          {/* Transaction Summary */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Transaction Summary</Text>
-
-            {selectedProvider && (
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryLeft}>
-                  <Image
-                    source={providers.find((p) => p.id === selectedProvider)?.logo}
-                    style={styles.summaryLogo}
-                  />
-                  <Text style={styles.summaryText}>
-                    {providers.find((p) => p.id === selectedProvider)?.label} Funding
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Account ID:</Text>
-              <Text style={styles.summaryValue}>{customerId}</Text>
-            </View>
-
-            {customerName && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Account Name:</Text>
-                <Text style={styles.summaryValue}>{customerName}</Text>
-              </View>
-            )}
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Amount:</Text>
-              <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                ₦{amountNum.toLocaleString()}
-              </Text>
-            </View>
-
-            <View style={styles.summaryDivider} />
-
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total Charge:</Text>
-              <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                ₦{amountNum.toLocaleString()}
-              </Text>
-            </View>
-
-            {userBalance && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Remaining Balance:</Text>
-                <Text style={[
-                  styles.summaryValue, 
-                  styles.summaryBalance,
-                  (userBalance.total - amountNum) < 0 ? styles.negativeBalance : {}
-                ]}>
-                  ₦{Math.max(0, userBalance.total - amountNum).toLocaleString()}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {/* Action Buttons */}
-          <TouchableOpacity
-            style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
-            ]}
-            disabled={!hasEnoughBalance}
-            onPress={() => setCurrentStep(3)}
-          >
-            <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Confirm with PIN'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(1)}
-          >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Edit Details</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
-
-      {/* STEP 3: PIN VERIFICATION */}
-      {currentStep === 3 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
-        >
-          {/* PIN Status Checks */}
-          {pinStatus?.isLocked && (
-            <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>Account Locked</Text>
-              <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please wait {pinStatus.lockTimeRemaining} minutes before trying again.
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn}
-                onPress={checkPinStatus}
-              >
-                <Text style={styles.refreshText}>Check Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>PIN Required</Text>
-              <Text style={styles.noPinText}>
-                You need to set up a 4-digit transaction PIN in your account settings before making transactions.
-              </Text>
-            </View>
-          )}
-
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <>
-              {/* Final Transaction Summary */}
-              <View style={styles.pinSummaryCard}>
-                <Text style={styles.pinSummaryTitle}>Confirm Transaction</Text>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Platform:</Text>
-                  <Text style={styles.summaryValue}>
-                    {providers.find((p) => p.id === selectedProvider)?.label}
-                  </Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Account:</Text>
-                  <Text style={styles.summaryValue}>{customerId}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Amount:</Text>
-                  <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                    ₦{amountNum.toLocaleString()}
-                  </Text>
-                </View>
-              </View>
-
-              {/* PIN Input */}
-              <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your Transaction PIN</Text>
-
-                {pinStatus?.attemptsRemaining < 3 && (
-                  <Text style={styles.attemptsWarning}>
-                    Warning: {pinStatus.attemptsRemaining} attempts remaining
-                  </Text>
-                )}
-
-                <View style={styles.pinInputContainer}>
-                  <TextInput
-                    style={[styles.pinInput, pinError ? styles.pinInputError : {}]}
-                    value={pin}
-                    onChangeText={(text) => {
-                      setPin(text.replace(/\D/g, '').substring(0, 4));
-                      setPinError('');
-                    }}
-                    keyboardType="numeric"
-                    secureTextEntry={true}
-                    placeholder="••••"
-                    maxLength={4}
-                    autoFocus={true}
-                    placeholderTextColor="#999"
-                  />
-                </View>
-
-                {pinError ? (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                ) : (
-                  <Text style={styles.pinHelp}>
-                    Enter your 4-digit PIN to authorize this betting fund transaction
-                  </Text>
-                )}
-
-                {/* PIN Dots Indicator */}
-                <View style={styles.pinDotsContainer}>
-                  {[0, 1, 2, 3].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.pinDot,
-                        pin.length > index && styles.pinDotFilled,
-                        pinError && styles.pinDotError
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Confirm Transaction Button */}
-              <TouchableOpacity
-                style={[
-                  styles.proceedBtn,
-                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
-                ]}
-                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-                onPress={validatePinAndPurchase}
-              >
-                {isValidatingPin || isProcessingPayment ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Transaction...' : 'Validating PIN...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.proceedText}>
-                    Fund Account • ₦{amountNum.toLocaleString()}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* Back to Review Button */}
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(2)}
-            disabled={isValidatingPin || isProcessingPayment}
-          >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Review</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
+      {currentStep === 1 ? renderFormStep() : renderSummaryStep()}
 
       {/* Contacts Selection Modal */}
       <Modal visible={showContactsModal} animationType="slide">
@@ -1277,6 +1109,120 @@ const validatePinAndPurchase = async () => {
         </View>
       </Modal>
 
+      {/* PIN Entry Modal */}
+      <Modal 
+        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+        animationType="slide"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.pinModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isValidatingPin && !isProcessingPayment) {
+              setShowPinEntry(false);
+              setPin('');
+              setPinError('');
+            }
+          }}
+        >
+          <TouchableOpacity 
+            style={styles.pinBottomSheet}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.dragHandle} />
+
+            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+            {pinStatus?.attemptsRemaining < 3 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsWarningText}>
+                  {pinStatus.attemptsRemaining} attempts remaining
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={styles.pinInputArea}
+              activeOpacity={0.7}
+              onPress={() => {
+                pinInputRef.current?.focus();
+              }}
+            >
+              <View style={styles.pinDotsContainer}>
+                {[0, 1, 2, 3].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.pinDot,
+                      pin.length > index && styles.pinDotFilled,
+                      pinError && styles.pinDotError
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              ref={pinInputRef}
+              style={styles.hiddenPinInput}
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, '').substring(0, 4));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              secureTextEntry={true}
+              maxLength={4}
+              caretHidden={true}
+            />
+
+            {pinError && (
+              <Text style={styles.pinErrorText}>{pinError}</Text>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+              ]}
+              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+              onPress={validatePinAndPurchase}
+              activeOpacity={0.8}
+            >
+              {isValidatingPin || isProcessingPayment ? (
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  Confirm Payment
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setShowPinEntry(false);
+                setPin('');
+                setPinError('');
+              }}
+              disabled={isValidatingPin || isProcessingPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Success Modal */}
       {showSuccessModal && successData && (
         <BetFundingSuccessModal
@@ -1295,28 +1241,38 @@ const validatePinAndPurchase = async () => {
   );
 }
 
-// Styles
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: '#f8f9fa' 
+    backgroundColor: '#f5f5f5' 
   },
 
   scrollContent: { 
-    flex: 1,
-    paddingTop: 8,
+    flex: 1 
   },
 
-  section: { 
-    margin: 16, 
-    marginBottom: 24 
+  scrollContentContainer: {
+    padding: 16,
+    paddingBottom: 40,
   },
-  
-  label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 12, 
-    color: '#1a1a1a' 
+
+  card: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
   },
 
   buttonRow: { 
@@ -1326,21 +1282,16 @@ const styles = StyleSheet.create({
   
   actionBtn: {
     borderWidth: 1,
-    borderColor: '#e1e5e9',
+    borderColor: '#e8e8e8',
     padding: 16,
     borderRadius: 12,
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#fafafa',
     flex: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
   },
   
   actionBtnText: { 
-    color: '#495057', 
+    color: '#666', 
     fontSize: 14, 
     fontWeight: '600' 
   },
@@ -1348,63 +1299,62 @@ const styles = StyleSheet.create({
   providersContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
   },
   
   providerCard: {
-    borderWidth: 1.5,
-    borderColor: '#e1e5e9',
-    padding: 16,
-    borderRadius: 16,
+    flex: 1,
+    minWidth: '30%',
+    maxWidth: '31%',
+    aspectRatio: 1,
     alignItems: 'center',
-    backgroundColor: '#fff',
-    minHeight: 100,
-    width: '30%',
+    justifyContent: 'center',
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
     position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    padding: 8,
   },
   
   providerSelected: { 
-    borderColor: '#ff3b30', 
+    borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
-    borderWidth: 2,
-    transform: [{ scale: 1.02 }],
   },
   
   providerLogo: { 
-    width: 48, 
-    height: 48, 
+    width: 40, 
+    height: 40, 
     resizeMode: 'contain', 
-    marginBottom: 8 
+    marginBottom: 6 
   },
   
   providerLabel: { 
-    fontSize: 11, 
-    fontWeight: '700', 
-    color: '#495057', 
+    fontSize: 10, 
+    fontWeight: '600', 
+    color: '#666', 
     textAlign: 'center',
-    lineHeight: 14,
   },
 
-  selectedIndicator: {
+  providerLabelSelected: {
+    color: '#ff3b30',
+  },
+
+  checkmark: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: '#ff3b30',
-    borderRadius: 12,
-    width: 24,
-    height: 24,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  selectedIndicatorText: {
+  checkmarkText: {
     color: '#fff',
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: 'bold',
   },
 
@@ -1415,521 +1365,274 @@ const styles = StyleSheet.create({
   },
   
   quickAmountBtn: {
-    borderWidth: 1,
-    borderColor: '#e1e5e9',
     paddingVertical: 12,
     paddingHorizontal: 18,
-    borderRadius: 24,
-    backgroundColor: '#fff',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    backgroundColor: '#fafafa',
     minWidth: '22%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   
   quickAmountSelected: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
-    transform: [{ scale: 1.05 }],
   },
   
   quickAmountText: {
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '600',
-    color: '#495057',
+    color: '#666',
   },
   
-  quickAmountSelectedText: {
+  quickAmountTextSelected: {
     color: '#fff',
   },
 
   input: {
-    borderWidth: 1.5,
-    borderColor: '#e1e5e9',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
     borderRadius: 12,
     padding: 16,
     fontSize: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
+  },
+
+  inputError: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
   },
   
-  error: { 
-    color: '#dc3545', 
+  validationError: { 
+    color: '#ff3b30', 
     fontSize: 13, 
     marginTop: 8,
     fontWeight: '500',
-    lineHeight: 18,
   },
   
-  success: {
+  validationSuccess: {
     color: '#28a745',
     fontSize: 13,
     marginTop: 8,
     fontWeight: '600',
   },
 
-  proceedBtn: {
-    margin: 16,
-    padding: 18,
-    borderRadius: 14,
+  primaryButton: {
     backgroundColor: '#ff3b30',
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    marginBottom: 12,
   },
   
-  proceedDisabled: { 
-    backgroundColor: '#adb5bd',
-    shadowOpacity: 0,
-    elevation: 0,
+  primaryButtonDisabled: { 
+    backgroundColor: '#d0d0d0',
   },
   
-  proceedText: { 
+  primaryButtonText: { 
     color: '#fff', 
-    fontSize: 17, 
-    fontWeight: '700' 
-  },
-
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  
-  backBtnText: {
-    color: '#fff',
-  },
-
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  summaryCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  
-  summaryTitle: { 
-    fontSize: 20, 
-    fontWeight: '700', 
-    marginBottom: 20, 
-    textAlign: 'center',
-    color: '#1a1a1a' 
-  },
-  
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  
-  summaryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  
-  summaryLogo: { 
-    width: 32, 
-    height: 32, 
-    resizeMode: 'contain', 
-    marginRight: 12 
-  },
-  
-  summaryLabel: { 
-    fontWeight: '600', 
-    fontSize: 15, 
-    color: '#6c757d',
-    flex: 1,
-  },
-  
-  summaryText: { 
-    fontSize: 15, 
-    color: '#1a1a1a', 
+    fontSize: 16, 
     fontWeight: '600' 
   },
-  
-  summaryValue: { 
-    fontSize: 15, 
-    color: '#1a1a1a', 
-    fontWeight: '700',
-    textAlign: 'right',
-    maxWidth: '50%',
+
+  secondaryButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
   },
   
-  summaryAmount: { 
-    fontSize: 17, 
-    color: '#ff3b30',
-    fontWeight: '700',
-  },
-  
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#e9ecef',
-    marginVertical: 16,
-  },
-  
-  summaryTotal: {
-    fontSize: 20,
-    color: '#ff3b30',
-    fontWeight: '800',
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
   },
 
-  balanceCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  buttonLoadingText: {
+    marginLeft: 0,
+  },
+
+  balanceOverview: {
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 4,
-    borderLeftWidth: 5,
-    borderLeftColor: '#ff3b30',
+    elevation: 2,
   },
   
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-  },
-  
-  balanceTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  
-  refreshBtn: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: '#f8f9fa',
-  },
-  
-  refreshText: {
-    fontSize: 16,
-    color: '#ff3b30',
-  },
-  
-  totalBalance: {
-    fontSize: 36,
-    fontWeight: '800',
-    color: '#28a745',
-    textAlign: 'center',
     marginBottom: 8,
   },
   
-  lastUpdated: {
-    fontSize: 12,
-    color: '#6c757d',
-    textAlign: 'center',
-    marginBottom: 16,
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
   
-  transactionPreview: {
+  refreshButton: {
+    padding: 4,
+  },
+  
+  refreshIcon: {
+    fontSize: 18,
+    color: '#ff3b30',
+  },
+  
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+
+  balanceCalculation: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
+  },
+
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  balanceRowLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  balanceRowValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  balanceRowLabelBold: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  balanceRowValueBold: {
+    fontSize: 15,
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
+
+  negativeAmount: {
+    color: '#ff3b30',
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  insufficientWarning: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+  },
+
+  insufficientWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  balanceLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  balanceLoadingText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#e9ecef',
-  },
-  
-  previewLabel: {
-    fontSize: 15,
-    color: '#6c757d',
-    fontWeight: '600',
-  },
-  
-  previewAmount: {
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-
-  insufficientBalanceWarning: {
-    marginTop: 20,
-    padding: 16,
-    backgroundColor: '#fff3cd',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
-  },
-  
-  warningText: {
-    color: '#856404',
-    fontSize: 15,
-    fontWeight: '600',
-    textAlign: 'center',
     marginBottom: 12,
   },
-  
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-    alignSelf: 'center',
-  },
-  
-  topUpBtnText: {
-    color: '#fff',
+
+  summaryLabel: {
     fontSize: 14,
-    fontWeight: '700',
-  },
-  
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  
-  noBalanceText: {
-    color: '#6c757d',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  
-  retryBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 24,
-  },
-  
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  
-  summaryBalance: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#28a745',
-  },
-  
-  negativeBalance: {
-    color: '#dc3545',
+    color: '#666',
+    fontWeight: '500',
   },
 
-  // PIN Entry Styles
-  pinCard: {
-    margin: 16,
-    padding: 28,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    alignItems: 'center',
-  },
-  
-  pinTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#1a1a1a',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  
-  pinInput: {
-    fontSize: 28,
-    fontWeight: '800',
-    textAlign: 'center',
-    letterSpacing: 12,
-    borderWidth: 2,
-    borderColor: '#e1e5e9',
-    borderRadius: 14,
-    paddingVertical: 20,
-    paddingHorizontal: 24,
-    backgroundColor: '#f8f9fa',
-    width: 180,
-  },
-  
-  pinInputError: {
-    borderColor: '#dc3545',
-    backgroundColor: '#fff5f5',
-  },
-  
-  pinError: {
-    color: '#dc3545',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 20,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-  
-  pinHelp: {
-    color: '#6c757d',
+  summaryValue: {
     fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 20,
+    color: '#1a1a1a',
+    fontWeight: '600',
   },
-  
-  pinDotsContainer: {
+
+  summaryValueContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    marginBottom: 24,
-  },
-  
-  pinDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: '#e9ecef',
-    borderWidth: 2,
-    borderColor: '#dee2e6',
-  },
-  
-  pinDotFilled: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  
-  pinDotError: {
-    backgroundColor: '#dc3545',
-    borderColor: '#dc3545',
+    alignItems: 'center',
+    gap: 8,
   },
 
-  pinSummaryCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderTopWidth: 4,
-    borderTopColor: '#ff3b30',
+  summaryNetworkLogo: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
   },
-  
-  pinSummaryTitle: {
-    fontSize: 18,
+
+  summaryAmountValue: {
+    fontSize: 15,
+    color: '#ff3b30',
     fontWeight: '700',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e8e8e8',
+    marginVertical: 12,
+  },
+
+  summaryLabelTotal: {
+    fontSize: 16,
     color: '#1a1a1a',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-
-  attemptsWarning: {
-    color: '#fd7e14',
-    fontSize: 15,
     fontWeight: '600',
-    textAlign: 'center',
-    marginBottom: 20,
-    backgroundColor: '#fff3cd',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
   },
 
-  // Account Status Cards
-  lockedCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderLeftWidth: 5,
-    borderLeftColor: '#dc3545',
-  },
-  
-  lockedTitle: {
+  summaryValueTotal: {
     fontSize: 20,
+    color: '#ff3b30',
     fontWeight: '700',
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  
-  lockedText: {
-    color: '#6c757d',
-    fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 22,
   },
 
-  noPinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-    borderLeftWidth: 5,
-    borderLeftColor: '#fd7e14',
-  },
-  
-  noPinTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fd7e14',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  
-  noPinText: {
-    color: '#6c757d',
+  summaryBalance: {
     fontSize: 15,
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 22,
+    fontWeight: '700',
+    color: '#2e7d32',
   },
 
-  // Modal Styles
   modalContainer: { 
     flex: 1, 
     backgroundColor: '#fff',
@@ -1942,8 +1645,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef',
-    backgroundColor: '#f8f9fa',
+    borderBottomColor: '#e8e8e8',
+    backgroundColor: '#f8f8f8',
   },
   
   modalTitle: { 
@@ -1956,16 +1659,11 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
     backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
   
   modalCloseBtnText: {
-    fontSize: 20,
-    color: '#6c757d',
+    fontSize: 24,
+    color: '#666',
     fontWeight: '700',
   },
 
@@ -1975,7 +1673,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f3f4',
+    borderBottomColor: '#f0f0f0',
     backgroundColor: '#fff',
   },
   
@@ -1984,30 +1682,147 @@ const styles = StyleSheet.create({
   },
   
   contactName: { 
-    fontSize: 17, 
+    fontSize: 16, 
     fontWeight: '600', 
     color: '#1a1a1a',
     marginBottom: 4,
   },
   
   contactNumber: { 
-    color: '#6c757d', 
-    fontSize: 15,
+    color: '#666', 
+    fontSize: 14,
     fontWeight: '500',
   },
   
   recentTime: {
     fontSize: 13,
-    color: '#adb5bd',
+    color: '#999',
     fontWeight: '500',
   },
 
   emptyText: {
     textAlign: 'center',
-    color: '#adb5bd',
-    fontSize: 16,
+    color: '#999',
+    fontSize: 15,
     marginTop: 60,
     fontWeight: '500',
-    lineHeight: 24,
+  },
+
+  pinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  pinBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d0d0d0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  pinSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  attemptsWarning: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+
+  attemptsWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  pinInputArea: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+
+  pinDotsContainer: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  pinInputHint: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+
+  pinDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#e8e8e8',
+    borderWidth: 2,
+    borderColor: '#d0d0d0',
+  },
+
+  pinDotFilled: {
+    backgroundColor: '#ff3b30',
+    borderColor: '#ff3b30',
+  },
+
+  pinDotError: {
+    backgroundColor: '#ff6b6b',
+    borderColor: '#ff3b30',
+  },
+
+  hiddenPinInput: {
+    position: 'absolute',
+    left: -9999,
+    width: 1,
+    height: 1,
+  },
+
+  pinErrorText: {
+    color: '#ff3b30',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: -12,
+    marginBottom: 20,
   },
 });

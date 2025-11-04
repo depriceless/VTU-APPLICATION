@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import InternetSuccessModal from './internetsucessmodal';
 
 import {
@@ -72,8 +72,10 @@ interface InternetProvider {
 
 export default function BuyInternet() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
+  const pinInputRef = useRef<TextInput>(null);
 
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<InternetPlan | null>(null);
   const [customerNumber, setCustomerNumber] = useState('');
@@ -97,21 +99,21 @@ export default function BuyInternet() {
   const [successData, setSuccessData] = useState(null);
 
   // Internet Service Providers with their plans
- const internetProviders: InternetProvider[] = [
-  {
-    id: 'smile',
-    label: 'SMILE',
-    logo: require('../assets/images/smile-logo.jpeg'),
-    plans: [
-      { id: '626', name: '1GB Weekly', dataSize: '1GB', speed: '10Mbps', validity: '7 days', amount: 750 },
-      { id: '607', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 1850 },
-      { id: '608', name: '3GB Monthly', dataSize: '3GB', speed: '10Mbps', validity: '30 days', amount: 2300 },
-      { id: '609', name: '6.5GB Monthly', dataSize: '6.5GB', speed: '15Mbps', validity: '30 days', amount: 3800 },
-      { id: '722', name: '10GB Monthly', dataSize: '10GB', speed: '15Mbps', validity: '30 days', amount: 4600 },
-      { id: '725', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 9500 },
-    ]
-  }
-];
+  const internetProviders: InternetProvider[] = [
+    {
+      id: 'smile',
+      label: 'SMILE',
+      logo: require('../assets/images/smile-logo.jpeg'),
+      plans: [
+        { id: '626', name: '1GB Weekly', dataSize: '1GB', speed: '10Mbps', validity: '7 days', amount: 750 },
+        { id: '607', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 1850 },
+        { id: '608', name: '3GB Monthly', dataSize: '3GB', speed: '10Mbps', validity: '30 days', amount: 2300 },
+        { id: '609', name: '6.5GB Monthly', dataSize: '6.5GB', speed: '15Mbps', validity: '30 days', amount: 3800 },
+        { id: '722', name: '10GB Monthly', dataSize: '10GB', speed: '15Mbps', validity: '30 days', amount: 4600 },
+        { id: '725', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 9500 },
+      ]
+    }
+  ];
 
   // ---------- Validation ----------
   const isCustomerNumberValid = customerNumber.length >= 6 && /^[A-Za-z0-9]+$/.test(customerNumber);
@@ -149,14 +151,18 @@ export default function BuyInternet() {
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
+  // Clear PIN when showing PIN entry and focus input
   useEffect(() => {
-    if (currentStep === 3) {
+    if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
+      
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 100);
     }
-  }, [currentStep]);
+  }, [showPinEntry]);
 
   // Save form state whenever it changes
   useEffect(() => {
@@ -468,6 +474,18 @@ export default function BuyInternet() {
     setShowPlansModal(false);
   };
 
+  const handleProceedToPayment = () => {
+    if (!pinStatus?.isPinSet) {
+      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      return;
+    }
+    if (pinStatus?.isLocked) {
+      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      return;
+    }
+    setShowPinEntry(true);
+  };
+
   // ---------- Purchase Processing ----------
   const validatePinAndPurchase = async () => {
     console.log('=== INTERNET PAYMENT START ===');
@@ -545,6 +563,7 @@ export default function BuyInternet() {
           newBalance: response.newBalance
         });
 
+        setShowPinEntry(false);
         setTimeout(() => {
           setShowSuccessModal(true);
         }, 300);
@@ -596,6 +615,7 @@ export default function BuyInternet() {
     setSelectedPlan(null);
     setPin('');
     setPinError('');
+    setShowPinEntry(false);
   };
 
   return (
@@ -604,67 +624,124 @@ export default function BuyInternet() {
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* Recent Numbers Section */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Quick Access</Text>
-            <View style={styles.buttonRow}>
+          {/* Quick Access */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Quick Access</Text>
+            <View style={styles.quickActions}>
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={selectContact}
                 disabled={isLoadingContacts}
+                activeOpacity={0.7}
               >
                 {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#555" />
+                  <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.actionBtnText}>Contacts</Text>
+                  <>
+                    <Text style={styles.quickActionIcon}>📱</Text>
+                    <Text style={styles.quickActionText}>Contacts</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={showRecentNumbers}
+                activeOpacity={0.7}
               >
-                <Text style={styles.actionBtnText}>Recent ({recentNumbers.length})</Text>
+                <Text style={styles.quickActionIcon}>🕐</Text>
+                <Text style={styles.quickActionText}>Recent</Text>
+                {recentNumbers.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{recentNumbers.length}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
 
+          {/* Customer Number Input */}
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Customer ID / Phone Number</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Enter customer ID or phone number"
+              placeholderTextColor="#999"
+              value={customerNumber}
+              onChangeText={setCustomerNumber}
+              autoCapitalize="none"
+            />
+            {customerNumber !== '' && !isCustomerNumberValid && (
+              <Text style={styles.validationError}>Enter valid customer ID or phone number (minimum 6 characters)</Text>
+            )}
+            {customerNumber !== '' && isCustomerNumberValid && (
+              <View style={styles.validationSuccess}>
+                <Text style={styles.validationSuccessText}>Valid customer identifier</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Customer Name (Optional) */}
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Customer Name (Optional)</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Enter customer name for reference"
+              placeholderTextColor="#999"
+              value={customerName}
+              onChangeText={setCustomerName}
+              autoCapitalize="words"
+            />
+          </View>
+
           {/* Provider Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Select Internet Provider</Text>
-            <View style={styles.providerGrid}>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Internet Provider</Text>
+            <View style={styles.networkGrid}>
               {internetProviders.map((provider) => (
                 <TouchableOpacity
                   key={provider.id}
                   style={[
-                    styles.providerCard,
-                    selectedProvider === provider.id && styles.providerSelected,
+                    styles.networkItem,
+                    selectedProvider === provider.id && styles.networkItemSelected,
                   ]}
                   onPress={() => {
                     setSelectedProvider(provider.id);
                     setSelectedPlan(null); // Reset plan when provider changes
                   }}
+                  activeOpacity={0.7}
                 >
-                  <Image source={provider.logo} style={styles.providerLogo} />
-                  <Text style={styles.providerLabel}>{provider.label}</Text>
+                  <Image source={provider.logo} style={styles.networkLogo} />
+                  <Text style={[
+                    styles.networkName,
+                    selectedProvider === provider.id && styles.networkNameSelected
+                  ]}>
+                    {provider.label}
+                  </Text>
+                  {selectedProvider === provider.id && (
+                    <View style={styles.checkmark}>
+                      <Text style={styles.checkmarkText}>✓</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
           {/* Plan Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Select Plan</Text>
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Select Plan</Text>
             {selectedProvider ? (
               <TouchableOpacity
                 style={[
                   styles.planSelector,
-                  selectedPlan && styles.planSelected
+                  selectedPlan && styles.planSelectorSelected
                 ]}
                 onPress={showPlanSelection}
+                activeOpacity={0.7}
               >
                 {selectedPlan ? (
                   <View style={styles.selectedPlanContent}>
@@ -677,7 +754,7 @@ export default function BuyInternet() {
                     </View>
                   </View>
                 ) : (
-                  <Text style={styles.planSelectorText}>Tap to select a plan</Text>
+                  <Text style={styles.planSelectorPlaceholder}>Tap to select a plan</Text>
                 )}
                 <Text style={styles.planSelectorArrow}>›</Text>
               </TouchableOpacity>
@@ -688,139 +765,100 @@ export default function BuyInternet() {
             )}
           </View>
 
-          {/* Customer Number */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Customer ID / Phone Number</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter customer ID or phone number"
-              value={customerNumber}
-              onChangeText={setCustomerNumber}
-              autoCapitalize="none"
-            />
-            {customerNumber !== '' && !isCustomerNumberValid && (
-              <Text style={styles.error}>Enter valid customer ID or phone number (minimum 6 characters)</Text>
-            )}
-            {customerNumber !== '' && isCustomerNumberValid && (
-              <Text style={styles.success}>Valid customer identifier</Text>
-            )}
-          </View>
-
-          {/* Customer Name (Optional) */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Customer Name (Optional)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter customer name for reference"
-              value={customerName}
-              onChangeText={setCustomerName}
-              autoCapitalize="words"
-            />
-          </View>
-
           {/* Proceed Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
+            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              Review Purchase {canProceed && selectedPlan && `• ₦${selectedPlan.amount.toLocaleString()}`}
+            <Text style={styles.primaryButtonText}>
+              {canProceed ? `Review purchase • ₦${amount.toLocaleString()}` : 'Complete Form to Continue'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW/SUMMARY */}
+      {/* STEP 2: REVIEW */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
         >
-          {/* Balance Card */}
-          <View style={styles.balanceCard}>
+          {/* Balance Overview */}
+          <View style={styles.balanceOverview}>
             <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <Text style={styles.balanceLabel}>Available Balance</Text>
               <TouchableOpacity 
-                style={styles.refreshBtn} 
+                style={styles.refreshButton} 
                 onPress={fetchUserBalance}
                 disabled={isLoadingBalance}
               >
                 {isLoadingBalance ? (
                   <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.refreshText}>🔄</Text>
+                  <Text style={styles.refreshIcon}>↻</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {userBalance ? (
               <>
-                <Text style={styles.totalBalance}>
+                <Text style={styles.balanceAmount}>
                   ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
                 </Text>
 
-                <Text style={styles.lastUpdated}>
-                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-                </Text>
-
-                {selectedPlan && (
-                  <View style={styles.transactionPreview}>
-                    <Text style={styles.previewLabel}>After purchase:</Text>
-                    <Text style={[
-                      styles.previewAmount,
-                      (userBalance.total - selectedPlan.amount) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-                    ]}>
-                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.amount).toLocaleString()}
-                    </Text>
+                {amount > 0 && (
+                  <View style={styles.balanceCalculation}>
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                      <Text style={styles.balanceRowValue}>-₦{amount.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.balanceDivider} />
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                      <Text style={[
+                        styles.balanceRowValueBold,
+                        (userBalance.total - amount) < 0 && styles.negativeAmount
+                      ]}>
+                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amount).toLocaleString()}
+                      </Text>
+                    </View>
                   </View>
                 )}
 
-                {selectedPlan && selectedPlan.amount > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientBalanceWarning}>
-                    <Text style={styles.warningText}>
+                {amount > (userBalance.total || userBalance.amount || 0) && (
+                  <View style={styles.insufficientWarning}>
+                    <Text style={styles.insufficientWarningText}>
                       Insufficient balance for this transaction
                     </Text>
-                    <TouchableOpacity 
-                      style={styles.topUpBtn}
-                      onPress={() => {/* Navigate to top-up */}}
-                    >
-                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </>
             ) : (
-              <View style={styles.loadingBalance}>
-                <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+              <View style={styles.balanceLoading}>
+                <Text style={styles.balanceLoadingText}>
+                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
-                {!isLoadingBalance && (
-                  <TouchableOpacity 
-                    style={styles.retryBtn}
-                    onPress={fetchUserBalance}
-                  >
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
           </View>
         
-          {/* Summary Card */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Purchase Summary</Text>
+          {/* Transaction Summary */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
             {/* Provider */}
             {selectedProvider && (
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryLeft}>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Provider</Text>
+                <View style={styles.summaryValueContainer}>
                   <Image
                     source={internetProviders.find((p) => p.id === selectedProvider)?.logo}
-                    style={styles.summaryLogo}
+                    style={styles.summaryNetworkLogo}
                   />
-                  <Text style={styles.summaryText}>
-                    {internetProviders.find((p) => p.id === selectedProvider)?.label} Internet
+                  <Text style={styles.summaryValue}>
+                    {internetProviders.find((p) => p.id === selectedProvider)?.label}
                   </Text>
                 </View>
               </View>
@@ -829,234 +867,187 @@ export default function BuyInternet() {
             {/* Plan Details */}
             {selectedPlan && (
               <>
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Plan:</Text>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Plan</Text>
                   <Text style={styles.summaryValue}>{selectedPlan.name}</Text>
                 </View>
 
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Data Size:</Text>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Data</Text>
                   <Text style={styles.summaryValue}>{selectedPlan.dataSize}</Text>
                 </View>
 
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Speed:</Text>
-                  <Text style={styles.summaryValue}>{selectedPlan.speed}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Validity:</Text>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Validity</Text>
                   <Text style={styles.summaryValue}>{selectedPlan.validity}</Text>
                 </View>
               </>
             )}
 
             {/* Customer Details */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Customer ID:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Customer ID</Text>
               <Text style={styles.summaryValue}>{customerNumber}</Text>
             </View>
 
             {customerName && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Customer Name:</Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Customer Name</Text>
                 <Text style={styles.summaryValue}>{customerName}</Text>
               </View>
             )}
 
             <View style={styles.summaryDivider} />
 
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total:</Text>
-              <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                ₦{selectedPlan?.amount.toLocaleString()}
-              </Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabelTotal}>Total Amount</Text>
+              <Text style={styles.summaryValueTotal}>₦{amount.toLocaleString()}</Text>
             </View>
-
-            {userBalance && selectedPlan && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Balance After:</Text>
-                <Text style={[
-                  styles.summaryValue, 
-                  styles.summaryBalance,
-                  (userBalance.total - selectedPlan.amount) < 0 ? styles.negativeBalance : {}
-                ]}>
-                  ₦{Math.max(0, userBalance.total - selectedPlan.amount).toLocaleString()}
-                </Text>
-              </View>
-            )}
           </View>
 
-          {/* Proceed to PIN Button */}
+          {/* Action Buttons */}
           <TouchableOpacity
             style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
+              styles.primaryButton, 
+              !hasEnoughBalance && styles.primaryButtonDisabled
             ]}
             disabled={!hasEnoughBalance}
-            onPress={() => setCurrentStep(3)}
+            onPress={handleProceedToPayment}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+            <Text style={styles.primaryButtonText}>
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
+            style={styles.secondaryButton}
             onPress={() => setCurrentStep(1)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Edit Details</Text>
+            <Text style={styles.secondaryButtonText}>Edit Details</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
-      {currentStep === 3 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+      {/* PIN Entry Modal - Bottom Sheet */}
+      <Modal 
+        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+        animationType="slide"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.pinModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isValidatingPin && !isProcessingPayment) {
+              setShowPinEntry(false);
+              setPin('');
+              setPinError('');
+            }
+          }}
         >
-          {/* PIN Status Check */}
-          {pinStatus?.isLocked && (
-            <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>Account Locked</Text>
-              <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn}
-                onPress={checkPinStatus}
-              >
-                <Text style={styles.refreshText}>Check Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!pinStatus?.isPinSet && (
-            <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>PIN Required</Text>
-              <Text style={styles.noPinText}>
-                You need to set up a 4-digit transaction PIN in your account settings before making purchases.
-              </Text>
-            </View>
-          )}
-
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <>
-              {/* Transaction Summary */}
-              <View style={styles.pinSummaryCard}>
-                <Text style={styles.pinSummaryTitle}>Confirm Internet Subscription</Text>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Provider:</Text>
-                  <Text style={styles.summaryValue}>
-                    {internetProviders.find((p) => p.id === selectedProvider)?.label}
-                  </Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Plan:</Text>
-                  <Text style={styles.summaryValue}>{selectedPlan?.name}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Customer ID:</Text>
-                  <Text style={styles.summaryValue}>{customerNumber}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Amount:</Text>
-                  <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                    ₦{selectedPlan?.amount.toLocaleString()}
-                  </Text>
-                </View>
-              </View>
-
-              {/* PIN Entry */}
-              <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
-
-                {pinStatus?.attemptsRemaining < 3 && (
-                  <Text style={styles.attemptsWarning}>
-                    {pinStatus.attemptsRemaining} attempts remaining
-                  </Text>
-                )}
-
-                <View style={styles.pinInputContainer}>
-                  <TextInput
-                    style={[styles.pinInput, pinError ? styles.pinInputError : {}]}
-                    value={pin}
-                    onChangeText={(text) => {
-                      setPin(text.replace(/\D/g, '').substring(0, 4));
-                      setPinError('');
-                    }}
-                    keyboardType="numeric"
-                    secureTextEntry={true}
-                    placeholder="****"
-                    maxLength={4}
-                    autoFocus={true}
-                  />
-                </View>
-
-                {pinError ? (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                ) : (
-                  <Text style={styles.pinHelp}>
-                    Enter your 4-digit transaction PIN to complete this purchase
-                  </Text>
-                )}
-
-                {/* PIN Dots Display */}
-                <View style={styles.pinDotsContainer}>
-                  {[0, 1, 2, 3].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.pinDot,
-                        pin.length > index && styles.pinDotFilled,
-                        pinError && styles.pinDotError
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Confirm Payment Button */}
-              <TouchableOpacity
-                style={[
-                  styles.proceedBtn,
-                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
-                ]}
-                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-                onPress={validatePinAndPurchase}
-              >
-                {isValidatingPin || isProcessingPayment ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{selectedPlan?.amount.toLocaleString()}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(2)}
-            disabled={isValidatingPin || isProcessingPayment}
+          <TouchableOpacity 
+            style={styles.pinBottomSheet}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
+            {/* Drag Handle */}
+            <View style={styles.dragHandle} />
+
+            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+            {pinStatus?.attemptsRemaining < 3 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsWarningText}>
+                  {pinStatus.attemptsRemaining} attempts remaining
+                </Text>
+              </View>
+            )}
+
+            {/* PIN Input Area - Pressable */}
+            <TouchableOpacity 
+              style={styles.pinInputArea}
+              activeOpacity={0.7}
+              onPress={() => {
+                pinInputRef.current?.focus();
+              }}
+            >
+              <View style={styles.pinDotsContainer}>
+                {[0, 1, 2, 3].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.pinDot,
+                      pin.length > index && styles.pinDotFilled,
+                      pinError && styles.pinDotError
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              ref={pinInputRef}
+              style={styles.hiddenPinInput}
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, '').substring(0, 4));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              secureTextEntry={true}
+              maxLength={4}
+              caretHidden={true}
+              autoFocus={false}
+            />
+
+            {pinError && (
+              <Text style={styles.pinErrorText}>{pinError}</Text>
+            )}
+
+            {/* Confirm Payment Button */}
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+              ]}
+              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+              onPress={validatePinAndPurchase}
+              activeOpacity={0.8}
+            >
+              {isValidatingPin || isProcessingPayment ? (
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  Confirm Payment
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Cancel PIN Entry */}
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setShowPinEntry(false);
+                setPin('');
+                setPinError('');
+              }}
+              disabled={isValidatingPin || isProcessingPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </ScrollView>
-      )}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Contacts Modal */}
       <Modal visible={showContactsModal} animationType="slide">
@@ -1064,10 +1055,10 @@ export default function BuyInternet() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Contact</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowContactsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1075,12 +1066,18 @@ export default function BuyInternet() {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactNumber}>{item.phoneNumbers[0].number}</Text>
+                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -1094,10 +1091,10 @@ export default function BuyInternet() {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Recent Customers</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowRecentsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1105,22 +1102,30 @@ export default function BuyInternet() {
             keyExtractor={(item) => item.number + item.timestamp}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '📱'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>
                     {item.name || 'Unknown'}
                   </Text>
-                  <Text style={styles.contactNumber}>{item.number}</Text>
+                  <Text style={styles.contactPhone}>{item.number}</Text>
                 </View>
-                <Text style={styles.recentTime}>
+                <Text style={styles.dateText}>
                   {new Date(item.timestamp).toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>No recent customers found</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No recent customers found</Text>
+              </View>
             }
           />
         </View>
@@ -1134,10 +1139,10 @@ export default function BuyInternet() {
               {selectedProvider && internetProviders.find(p => p.id === selectedProvider)?.label} Plans
             </Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowPlansModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1150,6 +1155,7 @@ export default function BuyInternet() {
                   selectedPlan?.id === item.id && styles.planItemSelected
                 ]}
                 onPress={() => handlePlanSelect(item)}
+                activeOpacity={0.7}
               >
                 <View style={styles.planItemContent}>
                   <View style={styles.planHeader}>
@@ -1192,625 +1198,729 @@ export default function BuyInternet() {
 
 // ---------- Styles ----------
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f5f5f5' 
+  },
 
   scrollContent: { 
     flex: 1 
   },
 
-  section: { margin: 16, marginBottom: 24 },
-  label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#333' 
+  scrollContentContainer: {
+    padding: 16,
+    paddingBottom: 40,
   },
 
-  buttonRow: { flexDirection: 'row' },
-  actionBtn: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+  // Card Styles
+  card: {
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
 
-  // Provider Grid Styles
-  providerGrid: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 8
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
   },
-  providerCard: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 12,
-    borderRadius: 12,
+
+  // Quick Actions
+  quickActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  quickActionBtn: {
+    flex: 1,
     alignItems: 'center',
-    width: '48%',
-    backgroundColor: '#fff',
-    minHeight: 80,
-  },
-  providerSelected: { 
-    borderColor: '#ff3b30', 
-    backgroundColor: '#fff5f5',
-    borderWidth: 2 
-  },
-  providerLogo: { width: 40, height: 40, resizeMode: 'contain', marginBottom: 4 },
-  providerLabel: { fontSize: 10, fontWeight: '600', color: '#666', textAlign: 'center' },
-
-  // Plan Selection Styles
-  planSelector: {
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e8e8e8',
+    position: 'relative',
+  },
+
+  quickActionIcon: {
+    fontSize: 20,
+    marginBottom: 2,
+  },
+
+  quickActionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#333',
+  },
+
+  badge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ff3b30',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+
+  // Input Styles
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#666',
+    marginBottom: 8,
+  },
+
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
     borderRadius: 12,
     padding: 16,
-    backgroundColor: '#fff',
+    fontSize: 16,
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
+  },
+
+  validationError: {
+    color: '#ff3b30',
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+
+  validationSuccess: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+
+  validationSuccessText: {
+    color: '#2e7d32',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  // Network Grid (Provider Selection)
+  networkGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+
+  networkItem: {
+    width: '48%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    position: 'relative',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    minHeight: 80,
+  },
+
+  networkItemSelected: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  networkLogo: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+    marginBottom: 4,
+  },
+
+  networkName: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+    textAlign: 'center',
+  },
+
+  networkNameSelected: {
+    color: '#ff3b30',
+  },
+
+  checkmark: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  checkmarkText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+
+  // Plan Selection
+  planSelector: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: '#fafafa',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  planSelected: {
+
+  planSelectorSelected: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
     borderWidth: 2,
   },
-  planSelectorText: {
-    color: '#666',
+
+  planSelectorPlaceholder: {
+    color: '#999',
     fontSize: 16,
   },
+
   planSelectorArrow: {
     color: '#999',
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
   },
+
   planDisabled: {
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: '#e8e8e8',
     borderRadius: 12,
     padding: 16,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fafafa',
   },
+
   planDisabledText: {
     color: '#999',
     fontSize: 16,
     textAlign: 'center',
   },
+
   selectedPlanContent: {
     flex: 1,
   },
+
   planMainInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
   },
+
   planName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1a1a1a',
   },
+
   planPrice: {
     fontSize: 16,
     fontWeight: '700',
     color: '#ff3b30',
   },
+
   planDetails: {
     marginTop: 4,
   },
+
   planDetail: {
     fontSize: 12,
     color: '#666',
   },
 
-  input: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  error: { 
-    color: '#ff3b30', 
-    fontSize: 12, 
-    marginTop: 6,
-    fontWeight: '500' 
-  },
-  success: {
-    color: '#28a745',
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '500'
-  },
-
-  proceedBtn: {
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
+  // Buttons
+  primaryButton: {
     backgroundColor: '#ff3b30',
-    alignItems: 'center',
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  proceedDisabled: { 
-    backgroundColor: '#ccc',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  proceedText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
-  },
-
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  backBtnText: {
-    color: '#fff',
-  },
-
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  summaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  summaryTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    marginBottom: 16, 
-    textAlign: 'center',
-    color: '#333' 
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderRadius: 12,
     alignItems: 'center',
     marginBottom: 12,
   },
-  summaryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryLogo: { 
-    width: 30, 
-    height: 30, 
-    resizeMode: 'contain', 
-    marginRight: 8 
-  },
-  summaryLabel: { 
-    fontWeight: '600', 
-    fontSize: 14, 
-    color: '#666',
-    flex: 1,
-  },
-  summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
-  summaryValue: { 
-    fontSize: 14, 
-    color: '#333', 
-    fontWeight: '600',
-    textAlign: 'right',
-    maxWidth: '60%',
-  },
-  summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 12,
-  },
-  summaryTotal: {
-    fontSize: 18,
-    color: '#ff3b30',
-    fontWeight: '700',
+
+  primaryButtonDisabled: {
+    backgroundColor: '#d0d0d0',
   },
 
-  // Balance Card Styles
-  balanceCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  secondaryButton: {
     backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  buttonLoadingText: {
+    marginLeft: 0,
+  },
+
+  // Balance Overview
+  balanceOverview: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
+    elevation: 2,
   },
+
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
-  balanceTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
+
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
   },
-  refreshBtn: {
+
+  refreshButton: {
     padding: 4,
   },
-  refreshText: {
-    fontSize: 16,
+
+  refreshIcon: {
+    fontSize: 18,
+    color: '#ff3b30',
   },
-  totalBalance: {
-    fontSize: 32,
+
+  balanceAmount: {
+    fontSize: 36,
     fontWeight: '700',
-    color: '#28a745',
-    textAlign: 'center',
+    color: '#1a1a1a',
     marginBottom: 16,
   },
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
+
+  balanceCalculation: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
   },
-  transactionPreview: {
+
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  balanceRowLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  balanceRowValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  balanceRowLabelBold: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  balanceRowValueBold: {
+    fontSize: 15,
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
+
+  negativeAmount: {
+    color: '#ff3b30',
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  insufficientWarning: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+  },
+
+  insufficientWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  balanceLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  balanceLoadingText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  // Summary Styles
+  summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-  insufficientBalanceWarning: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
-  },
-  warningText: {
-    color: '#856404',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  topUpBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
     marginBottom: 12,
   },
-  retryBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryBalance: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  negativeBalance: {
-    color: '#dc3545',
-  },
 
-  // PIN Entry Styles
-  pinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    alignItems: 'center',
-  },
-  pinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pinInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    letterSpacing: 8,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: '#f8f9fa',
-    width: 150,
-  },
-  pinInputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  pinError: {
-    color: '#ff3b30',
+  summaryLabel: {
     fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
+    color: '#666',
     fontWeight: '500',
   },
-  pinHelp: {
-    color: '#666',
+
+  summaryValue: {
     fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
+    color: '#1a1a1a',
+    fontWeight: '600',
+    textAlign: 'right',
+    maxWidth: '60%',
   },
-  pinDotsContainer: {
+
+  summaryValueContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  summaryNetworkLogo: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e8e8e8',
+    marginVertical: 12,
+  },
+
+  summaryLabelTotal: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueTotal: {
+    fontSize: 20,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+
+  // PIN Entry - Bottom Sheet
+  pinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  pinBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d0d0d0',
+    borderRadius: 2,
+    alignSelf: 'center',
     marginBottom: 20,
   },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  pinSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  attemptsWarning: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+
+  attemptsWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  pinInputArea: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+
+  pinDotsContainer: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  pinInputHint: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+
   pinDot: {
     width: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: '#e8e8e8',
     borderWidth: 2,
-    borderColor: '#ddd',
+    borderColor: '#d0d0d0',
   },
+
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
+
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
 
-  pinSummaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderTopWidth: 4,
-    borderTopColor: '#ff3b30',
-  },
-  pinSummaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
+  hiddenPinInput: {
+    position: 'absolute',
+    left: -9999,
+    width: 1,
+    height: 1,
+    opacity: 0,
   },
 
-  attemptsWarning: {
-    color: '#ff8c00',
-    fontSize: 14,
-    fontWeight: '500',
+  pinErrorText: {
+    color: '#ff3b30',
+    fontSize: 13,
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 16,
-    backgroundColor: '#fff3cd',
-    padding: 8,
-    borderRadius: 8,
-  },
-
-  // Account Locked Styles
-  lockedCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#dc3545',
-  },
-  lockedTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  lockedText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-
-  // No PIN Set Styles
-  noPinCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
-  },
-  noPinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  noPinText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
+    marginTop: -12,
+    marginBottom: 20,
   },
 
   // Modal Styles
-  modalContainer: { 
-    flex: 1, 
+  modalContainer: {
+    flex: 1,
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
+
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: '#333' 
-  },
-  modalCloseBtn: {
-    padding: 8,
-  },
-  modalCloseBtnText: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: 'bold',
+    borderBottomColor: '#e8e8e8',
   },
 
-  contactItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
   },
-  contactInfo: {
+
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalCloseText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  contactAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  contactAvatarText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  contactDetails: {
     flex: 1,
   },
-  contactName: { 
-    fontSize: 16, 
-    fontWeight: '500', 
-    color: '#333',
+
+  contactName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#1a1a1a',
     marginBottom: 2,
   },
-  contactNumber: { 
-    color: '#666', 
-    fontSize: 14 
-  },
-  recentTime: {
+
+  contactPhone: {
     fontSize: 12,
     color: '#999',
   },
 
-  // Plan Item Styles
+  dateText: {
+    fontSize: 11,
+    color: '#999',
+  },
+
+  emptyState: {
+    paddingVertical: 60,
+    alignItems: 'center',
+  },
+
+  emptyStateText: {
+    fontSize: 15,
+    color: '#999',
+  },
+
+  // Plan Item Styles (in modal)
   planItem: {
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
     backgroundColor: '#fff',
   },
+
   planItemSelected: {
     backgroundColor: '#fff5f5',
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',
   },
+
   planItemContent: {
     flex: 1,
   },
+
   planHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
+
   planItemName: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1a1a1a',
     flex: 1,
   },
+
   planItemPrice: {
     fontSize: 16,
     fontWeight: '700',
     color: '#ff3b30',
   },
+
   planItemDetails: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
     marginBottom: 4,
   },
+
   planItemDetail: {
     fontSize: 12,
     color: '#666',
@@ -1819,17 +1929,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
+
   planItemDescription: {
     fontSize: 12,
     color: '#888',
     marginTop: 4,
     fontStyle: 'italic',
-  },
-
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 16,
-    marginTop: 40,
   },
 });

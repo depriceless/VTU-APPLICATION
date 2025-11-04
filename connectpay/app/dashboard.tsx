@@ -1,4 +1,3 @@
-
 import React, { useContext, useEffect, useState } from 'react';
 import FundWallet from './fund-wallet'; 
 import TransactionDetails from './TransactionDetails';
@@ -47,6 +46,12 @@ const ImprovedSidebar = ({
   onProfilePress, 
   onClose 
 }) => {
+  const getFirstName = (fullName) => {
+    if (!fullName) return 'User';
+    const nameParts = fullName.trim().split(' ');
+    return nameParts[0];
+  };
+
   const menuItems = [
     { name: 'Dashboard', icon: 'home', route: '/dashboard', category: 'main' },
     { name: 'Profile', icon: 'person', route: '/profile', category: 'main' },
@@ -56,9 +61,9 @@ const ImprovedSidebar = ({
     { name: 'Cable TV', icon: 'tv', route: '/cable-tv', category: 'services' },
     { name: 'Internet', icon: 'globe', route: '/internet', category: 'services' },
     { name: 'Transfer', icon: 'send', route: '/transfer', category: 'financial' },
-   { name: 'Transaction History', icon: 'receipt', route: '/transaction-history', category: 'financial' },
+    { name: 'Transaction History', icon: 'receipt', route: '/transaction-history', category: 'financial' },
     { name: 'Settings', icon: 'settings', route: '/settings', category: 'account' },
- { name: 'Help & Support', icon: 'help-circle', route: '/need-help', category: 'account' },
+    { name: 'Help & Support', icon: 'help-circle', route: '/need-help', category: 'account' },
     { name: 'Logout', icon: 'log-out', category: 'account' },
   ];
 
@@ -109,14 +114,12 @@ const ImprovedSidebar = ({
   return (
     <Animated.View style={[sidebarStyles.sidebar, { left: sidebarAnim }]}>
       <SafeAreaView style={sidebarStyles.sidebarContent}>
-        {/* Header */}
         <View style={sidebarStyles.sidebarHeader}>
           <TouchableOpacity style={sidebarStyles.closeButton} onPress={onClose}>
             <Ionicons name="close" size={24} color="#666" />
           </TouchableOpacity>
         </View>
 
-        {/* Profile Section */}
         <TouchableOpacity style={sidebarStyles.profileSection} onPress={onProfilePress}>
           <View style={sidebarStyles.profileContainer}>
             <View style={sidebarStyles.profileAvatar}>
@@ -130,7 +133,7 @@ const ImprovedSidebar = ({
             </View>
             <View style={sidebarStyles.profileInfo}>
               <Text style={sidebarStyles.profileName}>
-                {user?.name || (isLoading ? 'Loading...' : 'User')}
+                {getFirstName(user?.name) || (isLoading ? 'Loading...' : 'User')}
               </Text>
               <Text style={sidebarStyles.profileEmail}>
                 {user?.email || (isLoading ? 'Loading...' : 'user@example.com')}
@@ -143,7 +146,6 @@ const ImprovedSidebar = ({
           </View>
         </TouchableOpacity>
 
-        {/* Menu Items */}
         <ScrollView style={sidebarStyles.menuContainer}>
           {Object.entries(groupedMenuItems).map(([category, items]) => (
             <View key={category} style={sidebarStyles.menuCategory}>
@@ -180,7 +182,6 @@ const ImprovedSidebar = ({
           ))}
         </ScrollView>
 
-        {/* Footer */}
         <View style={sidebarStyles.sidebarFooter}>
           <Text style={sidebarStyles.footerText}>Version 1.0.0</Text>
           <Text style={sidebarStyles.footerText}>© 2025 Connectpay</Text>
@@ -194,7 +195,6 @@ export default function Dashboard() {
   const { logout, token, isLoggedIn, user: contextUser, balance: contextBalance } = useContext(AuthContext);
   const router = useRouter();
 
-  // Enhanced state management
   const [user, setUser] = useState(null);
   const [accountBalance, setAccountBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
@@ -208,10 +208,10 @@ export default function Dashboard() {
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(3);
 
   const sidebarAnim = useState(new Animated.Value(-SCREEN_WIDTH * 0.85))[0];
 
-  // Helper function for API calls
   const makeApiCall = async (endpoint, fallbackValue = null) => {
     try {
       if (!token) {
@@ -277,7 +277,6 @@ export default function Dashboard() {
     }
   };
 
-  // Enhanced transaction formatting
   const formatTransactionDate = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -553,7 +552,6 @@ export default function Dashboard() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#ff2b2b" />
       
-      {/* Improved Sidebar */}
       <ImprovedSidebar
         sidebarAnim={sidebarAnim}
         user={user}
@@ -564,7 +562,6 @@ export default function Dashboard() {
         onClose={toggleSidebar}
       />
 
-      {/* Overlay for sidebar */}
       {sidebarOpen && (
         <TouchableOpacity 
           style={styles.overlay} 
@@ -573,16 +570,32 @@ export default function Dashboard() {
         />
       )}
 
-      {/* Header Card */}
       <View style={styles.headerCard}>
         <View style={styles.headerTop}>
           <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
             <Ionicons name="menu" size={28} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={navigateToProfile} style={styles.headerProfileButton}>
-            <Text style={styles.greeting}>Hello, {user?.name?.split(' ')[0] || 'User'}</Text>
-            <Ionicons name="chevron-forward" size={16} color="#fff" style={{ marginLeft: 5 }} />
-          </TouchableOpacity>
+          
+          <View style={styles.headerRight}>
+            <TouchableOpacity 
+              style={styles.notificationButton}
+              onPress={() => router.push('/notifications')}
+            >
+              <Ionicons name="notifications-outline" size={18} color="#fff" />
+              {notificationCount > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {notificationCount > 99 ? '9+' : notificationCount}
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity onPress={navigateToProfile} style={styles.headerProfileButton}>
+              <Text style={styles.greeting}>Hello, {user?.name?.split(' ')[0] || 'User'}</Text>
+              <Ionicons name="chevron-forward" size={12} color="#fff" style={{ marginLeft: 4 }} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.balanceSection}>
@@ -615,7 +628,6 @@ export default function Dashboard() {
         </View>
       </View>
 
-
       <ScrollView 
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -631,69 +643,95 @@ export default function Dashboard() {
         <Text style={styles.servicesHeader}>What would you like to do?</Text>
 
         <View style={styles.quickActions}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/buy-airtime')}
-          >
-            <Ionicons name="call" size={20} color="#ff2b2b" />
-            <Text style={styles.actionText}>Buy Airtime</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/buy-data')}
-          >
-            <Ionicons name="wifi" size={20} color="#ff2b2b" />
-            <Text style={styles.actionText}>Buy Data</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/electricity')}
-          >
-            <Ionicons name="flash" size={20} color="#ff2b2b" />
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#E3F2FD' }]}
+              onPress={() => handleQuickAction('/buy-airtime')}
+            >
+              <Ionicons name="call" size={24} color="#2196F3" />
+            </TouchableOpacity>
+            <Text style={styles.actionText}>Airtime</Text>
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#FFF3E0' }]}
+              onPress={() => handleQuickAction('/buy-data')}
+            >
+              <Ionicons name="wifi" size={24} color="#FF9800" />
+            </TouchableOpacity>
+            <Text style={styles.actionText}>Data</Text>
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#E8F5E9' }]}
+              onPress={() => handleQuickAction('/cable-tv')}
+            >
+              <Ionicons name="tv" size={24} color="#4CAF50" />
+            </TouchableOpacity>
+            <Text style={styles.actionText}>TV</Text>
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#E1F5FE' }]}
+              onPress={() => handleQuickAction('/electricity')}
+            >
+              <Ionicons name="flash" size={24} color="#03A9F4" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Electricity</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/cable-tv')}
-          >
-            <Ionicons name="tv" size={20} color="#ff2b2b" />
-            <Text style={styles.actionText}>Cable TV</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/print-recharge')}
-          >
-            <Ionicons name="print" size={20} color="#ff2b2b" />
-            <Text style={styles.actionText}>Print Recharge</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/fund-betting')}
-          >
-            <Ionicons name="football" size={20} color="#ff2b2b" />
-            <Text style={styles.actionText}>Fund Betting</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/internet')}
-          >
-            <Ionicons name="globe" size={20} color="#ff2b2b" />
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#F3E5F5' }]}
+              onPress={() => handleQuickAction('/print-recharge')}
+            >
+              <Ionicons name="print" size={24} color="#9C27B0" />
+            </TouchableOpacity>
+            <Text style={styles.actionText}>Print recharge</Text>
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#FFF9C4' }]}
+              onPress={() => handleQuickAction('/fund-betting')}
+            >
+              <Ionicons name="football" size={24} color="#FBC02D" />
+            </TouchableOpacity>
+            <Text style={styles.actionText}>Betting</Text>
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#E0F2F1' }]}
+              onPress={() => handleQuickAction('/internet')}
+            >
+              <Ionicons name="globe" size={24} color="#009688" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Internet</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/education')}
-          >
-            <Ionicons name="school" size={20} color="#ff2b2b" />
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#FCE4EC' }]}
+              onPress={() => handleQuickAction('/education')}
+            >
+              <Ionicons name="school" size={24} color="#E91E63" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Education</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleQuickAction('/transfer')}
-          >
-            <Ionicons name="send" size={20} color="#ff2b2b" />
+          </View>
+
+          <View style={styles.actionButtonWrapper}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: '#F1F8E9' }]}
+              onPress={() => handleQuickAction('/transfer')}
+            >
+              <Ionicons name="send" size={24} color="#689F38" />
+            </TouchableOpacity>
             <Text style={styles.actionText}>Transfer</Text>
-          </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.needHelpContainer}>
@@ -701,12 +739,19 @@ export default function Dashboard() {
             style={styles.needHelpButton}
             onPress={() => handleQuickAction('/need-help')}
           >
-            <Ionicons name="help-circle" size={20} color="#fff" />
-            <Text style={styles.needHelpText}>Need Help</Text>
+            <View style={styles.needHelpLeft}>
+              <View style={styles.needHelpIconContainer}>
+                <Ionicons name="help-circle" size={28} color="#fff" />
+              </View>
+              <View style={styles.needHelpTextContainer}>
+                <Text style={styles.needHelpTitle}>Need Help?</Text>
+                <Text style={styles.needHelpSubtitle}>Try our self service or open a ticket</Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
 
-        {/* Transaction Section */}
         <View style={styles.transactionsContainer}>
           <View style={styles.transactionsHeader}>
             <Text style={styles.transactionsTitle}>Recent Transactions</Text>
@@ -733,7 +778,7 @@ export default function Dashboard() {
             </View>
           ) : (
             <View style={styles.transactionsList}>
-             {transactions.slice(0, showAllTransactions ? transactions.length : 3).map((tx) => (
+              {transactions.slice(0, showAllTransactions ? transactions.length : 3).map((tx) => (
                 <TouchableOpacity
                   key={tx._id}
                   style={styles.transactionItem}
@@ -776,7 +821,6 @@ export default function Dashboard() {
         </View>
       </ScrollView>
 
-      {/* Transaction Details Modal */}
       <Modal
         visible={showTransactionDetails}
         animationType="slide"
@@ -907,7 +951,6 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
         )}
       </Modal>
 
-      {/* Logout Confirmation Modal */}
       <Modal
         visible={showLogoutConfirm}
         animationType="fade"
@@ -938,46 +981,42 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
         </View>
       </Modal>
 
-{/* Fund Wallet Modal */}
-<Modal
-  visible={showFundWallet}
-  animationType="slide"
-  presentationStyle="pageSheet"
-  onRequestClose={() => setShowFundWallet(false)}
->
-  <SafeAreaView style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
-    {/* Header */}
-    <View style={{ 
-      flexDirection: 'row', 
-      alignItems: 'center', 
-      justifyContent: 'space-between',
-      paddingHorizontal: 16,
-      paddingVertical: 16,
-      backgroundColor: '#fff',
-      borderBottomWidth: 1,
-      borderBottomColor: '#eee'
-    }}>
-      <TouchableOpacity onPress={() => setShowFundWallet(false)}>
-        <Ionicons name="arrow-back" size={24} color="#333" />
-      </TouchableOpacity>
-      <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>Fund Wallet</Text>
-      <View style={{ width: 24 }} />
-    </View>
-    
-    <FundWallet 
-      onClose={() => setShowFundWallet(false)}
-      onSuccess={handleFundWalletSuccess}
-      token={token}
-      currentBalance={accountBalance}
-    />
-  </SafeAreaView>
-</Modal>
-
+      <Modal
+        visible={showFundWallet}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowFundWallet(false)}
+      >
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 16,
+            backgroundColor: '#fff',
+            borderBottomWidth: 1,
+            borderBottomColor: '#eee'
+          }}>
+            <TouchableOpacity onPress={() => setShowFundWallet(false)}>
+              <Ionicons name="arrow-back" size={28} color="#333" />
+            </TouchableOpacity>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>Fund Wallet</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          
+          <FundWallet 
+            onClose={() => setShowFundWallet(false)}
+            onSuccess={handleFundWalletSuccess}
+            token={token}
+            currentBalance={accountBalance}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-// Sidebar Styles
 const sidebarStyles = StyleSheet.create({
   sidebar: {
     position: 'absolute',
@@ -992,75 +1031,64 @@ const sidebarStyles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 10,
   },
-
   sidebarContent: {
     flex: 1,
     paddingTop: Platform.OS === 'ios' ? 0 : StatusBar.currentHeight,
   },
-
   sidebarHeader: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
-
   closeButton: {
     padding: 8,
     borderRadius: 20,
     backgroundColor: '#f8f9fa',
   },
-
   profileSection: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
-
   profileContainer: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-
   profileAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#fff5f5',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#ff2b2b',
-    marginRight: 15,
+    marginRight: 12,
   },
-
   avatarText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     color: '#ff2b2b',
   },
-
   profileInfo: {
     flex: 1,
   },
-
   profileName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
     color: '#1f2937',
-    marginBottom: 4,
+    marginBottom: 3,
   },
-
   profileEmail: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6b7280',
-    marginBottom: 8,
+    marginBottom: 6,
   },
-
   profileBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1072,45 +1100,39 @@ const sidebarStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ffe5e5',
   },
-
   profileBadgeText: {
     fontSize: 12,
     color: '#ff2b2b',
     fontWeight: '600',
     marginRight: 4,
   },
-
   menuContainer: {
     flex: 1,
     paddingHorizontal: 20,
     paddingVertical: 10,
   },
-
   menuCategory: {
-    marginBottom: 25,
+    marginBottom: 18,
   },
-
   categoryTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: '#9ca3af',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    marginBottom: 15,
+    marginBottom: 10,
     paddingHorizontal: 4,
   },
-
   sidebarItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
-    marginBottom: 4,
+    marginBottom: 3,
     position: 'relative',
   },
-
   activeSidebarItem: {
     backgroundColor: '#ff2b2b',
     shadowColor: '#ff2b2b',
@@ -1119,7 +1141,6 @@ const sidebarStyles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-
   logoutItem: {
     backgroundColor: '#dc2626',
     marginTop: 10,
@@ -1129,78 +1150,66 @@ const sidebarStyles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
-
   menuItemContent: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
   },
-
   iconContainer: {
-    width: 36,
-    height: 36,
+    width: 34,
+    height: 34,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#f8f9fa',
-    marginRight: 12,
+    marginRight: 10,
   },
-
   activeIconContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-
   logoutIconContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-
   sidebarText: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '500',
     color: '#374151',
     flex: 1,
   },
-
   activeText: {
     color: '#fff',
     fontWeight: '600',
   },
-
   logoutText: {
     color: '#fff',
     fontWeight: '600',
   },
-
   activeIndicator: {
     width: 4,
     height: 20,
     backgroundColor: '#fff',
     borderRadius: 2,
   },
-
   sidebarFooter: {
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: '#f5f5f5',
     alignItems: 'center',
   },
-
   footerText: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#9ca3af',
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: 1,
   },
 });
 
-// Main Dashboard Styles
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: '#fafafa' 
   },
-
   overlay: {
     position: 'absolute',
     top: 0,
@@ -1210,8 +1219,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 5,
   },
-
-  headerCard: {
+   headerCard: {
     backgroundColor: '#ff2b2b',
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
@@ -1225,72 +1233,92 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 8,
   },
-
-  headerTop: {
+headerTop: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 25,
   },
-
   menuButton: {
     padding: 5,
     borderRadius: 8,
   },
-
+  headerRight: {
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: 4,
+    marginTop: -28,
+  },
+  notificationButton: {
+    padding: 6,
+    position: 'relative',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 18,
+    alignSelf: 'flex-end',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#ff2b2b',
+  },
+  notificationBadgeText: {
+    color: '#ff2b2b',
+    fontSize: 9,
+    fontWeight: '700',
+  },
   headerProfileButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 20,
   },
-
   greeting: { 
-    fontSize: 16, 
+    fontSize: 15, 
     fontWeight: '600', 
     color: '#fff' 
   },
-
   balanceSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-
   balanceInfo: {
     flex: 1,
   },
-
   balanceTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   balanceTitle: { 
     color: '#fff', 
     fontSize: 16, 
     opacity: 0.9,
     marginRight: 10,
   },
-
   balanceToggle: {
     padding: 5,
     marginRight: 8,
   },
-
   refreshButton: {
     padding: 5,
   },
-
   balanceAmount: { 
     color: '#fff', 
     fontSize: 28, 
     fontWeight: '700' 
   },
-
   fundButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1309,7 +1337,6 @@ const styles = StyleSheet.create({
     marginBottom: -40,
     marginRight: -5,
   },
-
   fundButtonText: { 
     color: '#ff2b2b',
     marginLeft: -20,
@@ -1317,12 +1344,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
   },
-
   scrollContent: { 
     paddingHorizontal: 1, 
     paddingVertical: 20 
   },
-
   servicesHeader: { 
     fontSize: 20, 
     fontWeight: '700', 
@@ -1330,63 +1355,87 @@ const styles = StyleSheet.create({
     marginBottom: 20, 
     textAlign: 'center' 
   },
-
   quickActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     flexWrap: 'wrap',
     marginBottom: 30,
+    paddingHorizontal: 20,
   },
-
   actionButton: {
-    backgroundColor: '#fff',
-    width: '30%',
-    borderRadius: 12,
-    paddingVertical: 18,
+    width: 60,
+    height: 60,
+    borderRadius: 10,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
-    elevation: 3,
+    elevation: 2,
   },
-
   actionText: { 
     color: '#374151', 
-    marginTop: 8, 
     fontWeight: '600', 
-    fontSize: 12, 
-    textAlign: 'center' 
+    fontSize: 10,
+    textAlign: 'center',
+    marginTop: 2,
   },
-
-  needHelpContainer: {
+  actionButtonWrapper: {
     alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 16,
+    width: '23%',
+    marginLeft: '2%',
   },
-
+  needHelpContainer: {
+    marginBottom: 30,
+    paddingHorizontal: 16,
+  },
   needHelpButton: {
-    backgroundColor: '#ff2b2b',
+    backgroundColor: '#e91515d0',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 30,
-    borderRadius: 25,
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 16,
     shadowColor: '#ff2b2b',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
   },
-
-  needHelpText: {
+  needHelpLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  needHelpIconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  needHelpTextContainer: {
+    flex: 1,
+  },
+  needHelpTitle: {
     color: '#fff',
-    marginLeft: 10,
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 16,
+    marginBottom: 2,
   },
-
-   transactionsContainer: { 
+  needHelpSubtitle: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+    opacity: 0.9,
+  },
+  transactionsContainer: { 
     backgroundColor: '#fff',
     borderRadius: 16,
     marginHorizontal: 16,
@@ -1398,8 +1447,7 @@ const styles = StyleSheet.create({
     elevation: 3,
     overflow: 'hidden',
   },
-
-   transactionsHeader: {
+  transactionsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1409,15 +1457,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-
-   transactionsTitle: { 
+  transactionsTitle: { 
     fontSize: 18, 
     fontWeight: '700', 
     color: '#1f2937',
     letterSpacing: -0.3,
   },
-
-  
   viewAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1428,41 +1473,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#ffe5e5',
   },
-
-    viewAllText: {
+  viewAllText: {
     color: '#ff2b2b',
     fontSize: 13,
     fontWeight: '600',
     marginRight: 2,
   },
-
   noTransactionsContainer: {
     alignItems: 'center',
     paddingVertical: 40,
   },
-
-   noTransactions: { 
+  noTransactions: { 
     color: '#6b7280', 
     fontSize: 17,
     marginTop: 20,
     fontWeight: '600',
     textAlign: 'center',
   },
- noTransactionsSubtext: {
+  noTransactionsSubtext: {
     color: '#9ca3af',
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
     lineHeight: 20,
   },
-  
   transactionsList: {
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-
-  
-   transactionItem: {
+  transactionItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1474,7 +1513,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f0f0f0',
   },
- transactionLeft: {
+  transactionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
@@ -1497,8 +1536,6 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-
-  
   transactionDescription: {
     fontSize: 14,
     fontWeight: '600',
@@ -1507,32 +1544,30 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     lineHeight: 18,
   },
-   transactionDate: {
+  transactionDate: {
     fontSize: 11,
     color: '#9ca3af',
     marginBottom: 4,
     fontWeight: '500',
   },
-   transactionMeta: {
+  transactionMeta: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
   },
-
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
     marginRight: 6,
   },
-   statusText: {
+  statusText: {
     color: '#fff',
     fontSize: 9,
     fontWeight: '700',
     textTransform: 'capitalize',
     letterSpacing: 0.3,
   },
-
   transactionReference: {
     fontSize: 10,
     color: '#9ca3af',
@@ -1540,14 +1575,11 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 0.5,
   },
-
   transactionRight: {
     alignItems: 'flex-end',
     justifyContent: 'center',
     minWidth: 75,
   },
-
-  
   transactionAmount: {
     fontSize: 15,
     fontWeight: '700',
@@ -1560,7 +1592,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   confirmationModal: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1573,7 +1604,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 10,
   },
-
   confirmationTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -1581,19 +1611,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 15,
   },
-
   confirmationMessage: {
     fontSize: 16,
     color: '#6b7280',
     textAlign: 'center',
     marginBottom: 25,
   },
-
   confirmationButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-
   cancelButton: {
     flex: 1,
     backgroundColor: '#f3f4f6',
@@ -1602,13 +1629,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-
   cancelButtonText: {
     fontSize: 16,
     color: '#374151',
     fontWeight: '600',
   },
-
   logoutConfirmButton: {
     flex: 1,
     backgroundColor: '#ff2b2b',
@@ -1617,26 +1642,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
   },
-
   logoutConfirmButtonText: {
     fontSize: 16,
     color: '#fff',
     fontWeight: '600',
   },
 });
-
-const updatedQuickActionsStyles = {
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    marginBottom: 30,
-    paddingHorizontal: 5, // Add small padding to match transactions
-  },
-
-  needHelpContainer: {
-    alignItems: 'center',
-    marginBottom: 30,
-    paddingHorizontal: 5, // Add small padding to match
-  },
-};

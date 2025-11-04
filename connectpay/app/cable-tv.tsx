@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,14 +18,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import CableTVSuccessModal from './CableTVSuccessModal';
 import { AuthContext } from '../contexts/AuthContext';
 
-// API Configuration - Updated to match airtime
 const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
     : `${process.env.EXPO_PUBLIC_API_URL}/api`,
 };
 
-// Interfaces
 interface Contact {
   id: string;
   name: string;
@@ -56,6 +54,7 @@ interface PinStatus {
 interface CablePackage {
   id: string;
   name: string;
+  customerPrice: number;
   amount: number;
   duration: string;
   operator: string;
@@ -63,13 +62,14 @@ interface CablePackage {
 }
 
 export default function BuyCableTV() {
-  // Use AuthContext like in airtime component
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
   
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedOperator, setSelectedOperator] = useState<string | null>(null);
   const [selectedPackage, setSelectedPackage] = useState<CablePackage | null>(null);
   const [smartCardNumber, setSmartCardNumber] = useState('');
+  const [customerName, setCustomerName] = useState('');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [contactsList, setContactsList] = useState<Contact[]>([]);
@@ -86,40 +86,32 @@ export default function BuyCableTV() {
   const [isValidatingCard, setIsValidatingCard] = useState(false);
   const [pinError, setPinError] = useState('');
   const [cardError, setCardError] = useState('');
+  const pinInputRef = useRef<TextInput>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
   const [cablePackages, setCablePackages] = useState<CablePackage[]>([]);
   const [isLoadingPackages, setIsLoadingPackages] = useState(false);
-  const [customerName, setCustomerName] = useState('');
 
-  // Cable TV Operators
   const operators = [
     { 
       id: 'dstv', 
       label: 'DStv', 
       logo: require('../assets/images/DStv.png'),
-      color: '#0066cc',
-      disabled: false
     },
     { 
       id: 'gotv', 
       label: 'GOtv', 
       logo: require('../assets/images/gotv.jpg'),
-      color: '#00b04f',
-      disabled: false
     },
     { 
       id: 'startime', 
       label: 'StarTimes', 
       logo: require('../assets/images/startime.png'),
-      color: '#ff6b35',
-      disabled: false
     },
     { 
       id: 'showmax', 
       label: 'Showmax', 
       logo: require('../assets/images/showmax.png'),
-      color: '#e50914',
       disabled: true,
       comingSoon: true
     },
@@ -128,19 +120,19 @@ export default function BuyCableTV() {
   // Validation
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const isSmartCardValid = smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber);
-  const hasEnoughBalance = userBalance && selectedPackage ? selectedPackage.amount <= userBalance.total : true;
-  
-const canProceed = 
-  isPhoneValid && 
-  selectedOperator && 
-  selectedPackage && 
-  selectedPackage.amount > 0 &&  // Add this check
-  selectedPackage.amount >= 500 && // Add this check
-  selectedPackage.amount <= 50000 && // Add this check
-  isSmartCardValid && 
-  hasEnoughBalance && 
-  customerName.trim() !== '';
+  const hasEnoughBalance = userBalance && selectedPackage ? selectedPackage.customerPrice <= userBalance.total : true;
+  const canProceed = isPhoneValid && selectedOperator && selectedPackage && isSmartCardValid && customerName.trim() !== '' && !isLoadingPackages;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
+
+  // Auto-validate smart card
+  useEffect(() => {
+    if (selectedOperator && smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber)) {
+      const timer = setTimeout(() => {
+        validateSmartCard();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [smartCardNumber, selectedOperator]);
 
   // Load packages when operator changes
   useEffect(() => {
@@ -152,12 +144,11 @@ const canProceed =
     }
   }, [selectedOperator]);
 
-  // Load data on mount - Updated to use AuthContext
+  // Initialize on mount
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
     
-    // Initialize balance from AuthContext like in airtime component
     if (balance) {
       const balanceAmount = parseFloat(balance.amount) || 0;
       setUserBalance({
@@ -168,63 +159,45 @@ const canProceed =
       });
     }
     
-    // Fetch updated data
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
     }, 1000);
   }, []);
 
-  // Refresh balance when stepping to review page
+  // Refresh balance on step 2
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when stepping to PIN entry
+  // Clear PIN when modal opens
   useEffect(() => {
-    if (currentStep === 3) {
+    if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
+      
+      setTimeout(() => {
+        pinInputRef.current?.focus();
+      }, 100);
     }
-  }, [currentStep]);
+  }, [showPinEntry]);
 
-  // Save form state whenever it changes
+  // Save form state
   useEffect(() => {
     saveFormState();
-  }, [phone, selectedOperator, selectedPackage, smartCardNumber]);
+  }, [phone, selectedOperator, selectedPackage, smartCardNumber, customerName]);
 
-
-  // Add this with your other useEffects
-useEffect(() => {
-  // Auto-validate when smart card is 10+ digits and operator is selected
-  if (selectedOperator && smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber)) {
-    // Debounce the validation
-    const timer = setTimeout(() => {
-      validateSmartCard();
-    }, 1000);
-    
-    return () => clearTimeout(timer);
-  }
-}, [smartCardNumber, selectedOperator]);
-
-  // ========== SIMPLIFIED API FUNCTIONS (matching airtime) ==========
-  
-  // FIXED: Simple token getter using AuthContext
   const getAuthToken = async () => {
     if (!token) {
-      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
     return token;
   };
 
-  // FIXED: Updated API request function matching airtime
   const makeApiRequest = async (endpoint, options = {}) => {
-    console.log(`API Request: ${endpoint}`);
-    
     try {
       const authToken = await getAuthToken();
       
@@ -258,7 +231,6 @@ useEffect(() => {
         }
       }
 
-      // Handle authentication errors
       if (response.status === 401) {
         throw new Error('Session expired. Please login again.');
       }
@@ -279,8 +251,6 @@ useEffect(() => {
       return data;
 
     } catch (error) {
-      console.error(`API Error for ${endpoint}:`, error.message);
-
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
@@ -295,19 +265,112 @@ useEffect(() => {
     }
   };
 
-  // ========== BALANCE FUNCTIONS (updated to match airtime) ==========
-  
+  const fetchCablePackages = async (operator: string) => {
+    setIsLoadingPackages(true);
+    setCablePackages([]);
+    setSelectedPackage(null);
+    
+    try {
+      const response = await makeApiRequest(`/cable/packages/${operator}`);
+
+      if (response.success && response.data) {
+        const validPackages = response.data
+          .map(pkg => {
+            const clubKonnectPrice = parseFloat(pkg.PRODUCT_DISCOUNT_AMOUNT || pkg.amount || pkg.price);
+            
+            return {
+              id: pkg.variation_id || pkg.id,
+              name: pkg.name || pkg.package_name,
+              providerCost: clubKonnectPrice,
+              amount: clubKonnectPrice,
+              customerPrice: clubKonnectPrice,
+              profit: 0,
+              duration: pkg.duration || '30 days',
+              operator: operator,
+              description: pkg.description || pkg.details
+            };
+          })
+          .filter(pkg => {
+            return pkg.providerCost > 0 && 
+                   pkg.customerPrice >= 500 && 
+                   pkg.customerPrice <= 50000;
+          })
+          .sort((a, b) => a.customerPrice - b.customerPrice);
+
+        if (validPackages.length === 0) {
+          throw new Error('No valid packages available for this operator');
+        }
+
+        setCablePackages(validPackages);
+      } else {
+        throw new Error(response.message || 'Failed to fetch cable packages');
+      }
+    } catch (error) {
+      setCablePackages([]);
+      Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages.`);
+    } finally {
+      setIsLoadingPackages(false);
+    }
+  };
+
+  const validateSmartCard = async () => {
+    if (!isSmartCardValid) {
+      setCardError('Smart card number must be at least 10 digits');
+      return;
+    }
+
+    if (!selectedOperator) {
+      setCardError('Please select an operator first');
+      return;
+    }
+
+    setIsValidatingCard(true);
+    setCardError('');
+    setCustomerName('');
+
+    try {
+      const response = await makeApiRequest('/cable/validate-smartcard', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          smartCardNumber, 
+          operator: selectedOperator 
+        }),
+      });
+
+      if (response && response.success) {
+        setCustomerName(response.customerName || 'Verified Customer');
+        setCardError('');
+      } else {
+        setCardError(response?.message || 'Smart card validation failed');
+        setCustomerName('');
+      }
+    } catch (error: any) {
+      setCardError(error.message || 'Unable to validate smart card');
+      setCustomerName('');
+    } finally {
+      setIsValidatingCard(false);
+    }
+  };
+
+  const checkPinStatus = async () => {
+    try {
+      const response = await makeApiRequest('/purchase/pin-status');
+      
+      if (response.success) {
+        setPinStatus(response);
+      }
+    } catch (error) {
+      console.error('Error checking PIN status:', error);
+    }
+  };
+
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Refreshing balance from AuthContext");
-      
-      // Use AuthContext's refresh function
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      // Update local balance state from AuthContext
       if (balance) {
         const balanceAmount = parseFloat(balance.amount) || 0;
         
@@ -322,9 +385,7 @@ useEffect(() => {
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        // Fallback: try direct API call
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
@@ -344,14 +405,10 @@ useEffect(() => {
         }
       }
     } catch (error) {
-      console.error("Balance fetch error:", error);
-      
-      // Try to use cached balance as fallback
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
+          setUserBalance(JSON.parse(cachedBalance));
         } else {
           setUserBalance(null);
         }
@@ -363,204 +420,50 @@ useEffect(() => {
     }
   };
 
-  // ========== PIN FUNCTIONS (same as airtime) ==========
-  
-  const checkPinStatus = async () => {
+  const saveFormState = async () => {
     try {
-      console.log('Checking PIN status...');
-      const response = await makeApiRequest('/purchase/pin-status');
-      
-      if (response.success) {
-        setPinStatus(response);
-      }
+      const formState = { phone, selectedOperator, selectedPackage, smartCardNumber, customerName };
+      await AsyncStorage.setItem('cableTvFormState', JSON.stringify(formState));
     } catch (error) {
-      console.error('Error checking PIN status:', error);
+      console.log('Error saving form state:', error);
     }
   };
 
-  // ========== FORM STATE MANAGEMENT ==========
-  
   const loadFormState = async () => {
     try {
       const savedState = await AsyncStorage.getItem('cableTvFormState');
       if (savedState) {
         const formData = JSON.parse(savedState);
-        
         if (formData.phone) setPhone(formData.phone);
         if (formData.selectedOperator) setSelectedOperator(formData.selectedOperator);
         if (formData.smartCardNumber) setSmartCardNumber(formData.smartCardNumber);
         if (formData.selectedPackage) setSelectedPackage(formData.selectedPackage);
         if (formData.customerName) setCustomerName(formData.customerName);
-        
-        console.log('Form state loaded from storage');
       }
     } catch (error) {
-      console.error('Error loading form state:', error);
+      console.log('Error loading form state:', error);
     }
   };
 
-  const saveFormState = async () => {
-    try {
-      const formData = {
-        phone,
-        selectedOperator,
-        selectedPackage,
-        smartCardNumber,
-        customerName,
-        timestamp: Date.now()
-      };
-      
-      await AsyncStorage.setItem('cableTvFormState', JSON.stringify(formData));
-    } catch (error) {
-      console.error('Error saving form state:', error);
-    }
-  };
-
-  const saveRecentNumber = async (phoneNumber: string, name?: string) => {
+  const saveRecentNumber = async (number: string, name?: string) => {
     try {
       const recent = await AsyncStorage.getItem('recentNumbers');
       let recentList: RecentNumber[] = recent ? JSON.parse(recent) : [];
-      
-      // Remove if already exists
-      recentList = recentList.filter(item => item.number !== phoneNumber);
-      
-      // Add to beginning
+
+      recentList = recentList.filter(item => item.number !== number);
       recentList.unshift({
-        number: phoneNumber,
+        number,
         name,
         timestamp: Date.now()
       });
-      
-      // Keep only last 10
       recentList = recentList.slice(0, 10);
-      
+
       await AsyncStorage.setItem('recentNumbers', JSON.stringify(recentList));
       setRecentNumbers(recentList);
-      
-      console.log('Recent number saved');
     } catch (error) {
-      console.error('Error saving recent number:', error);
+      console.log('Error saving recent number:', error);
     }
   };
-
-  // ========== CABLE TV SPECIFIC FUNCTIONS ==========
-  
-  // Find the fetchCablePackages function and replace it with this:
-// CABLE TV ONLY - Replace your fetchCablePackages function with this:
-
-const fetchCablePackages = async (operator: string) => {
-  setIsLoadingPackages(true);
-  setCablePackages([]);
-  setSelectedPackage(null);
-  
-  try {
-    console.log(`Fetching cable packages for: ${operator}`);
-    const response = await makeApiRequest(`/cable/packages/${operator}`);
-
-    if (response.success && response.data) {
-      const validPackages = response.data
-        .map(pkg => {
-          // FOR CABLE TV: Use ClubKonnect price directly (no markup)
-          const clubKonnectPrice = parseFloat(pkg.PRODUCT_DISCOUNT_AMOUNT || pkg.amount || pkg.price);
-          
-          const packageData = {
-            id: pkg.variation_id || pkg.id,
-            name: pkg.name || pkg.package_name,
-            providerCost: clubKonnectPrice,
-            amount: clubKonnectPrice,  // NO MARKUP for Cable TV
-            customerPrice: clubKonnectPrice,  // Same as provider cost
-            profit: 0,  // Zero profit for Cable TV
-            duration: pkg.duration || '30 days',
-            operator: operator,
-            description: pkg.description || pkg.details
-          };
-          
-          console.log('CABLE TV PACKAGE (NO MARKUP):', {
-            name: packageData.name,
-            clubKonnectPrice: clubKonnectPrice,
-            customerPays: packageData.amount,
-            profit: packageData.profit
-          });
-          
-          return packageData;
-        })
-        .filter(pkg => {
-          if (!pkg.providerCost || pkg.providerCost <= 0) {
-            console.warn(`Skipping package with invalid cost:`, pkg.name);
-            return false;
-          }
-          if (pkg.customerPrice < 500 || pkg.customerPrice > 50000) {
-            console.warn(`Skipping package outside range:`, pkg.name, pkg.customerPrice);
-            return false;
-          }
-          return true;
-        })
-        .sort((a, b) => a.customerPrice - b.customerPrice);
-
-      if (validPackages.length === 0) {
-        throw new Error('No valid packages available for this operator');
-      }
-
-      setCablePackages(validPackages);
-      console.log(`Loaded ${validPackages.length} Cable TV packages (NO MARKUP)`);
-    } else {
-      throw new Error(response.message || 'Failed to fetch cable packages');
-    }
-  } catch (error) {
-    console.error('Error fetching cable packages:', error);
-    setCablePackages([]);
-    Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages.`);
-  } finally {
-    setIsLoadingPackages(false);
-  }
-};
-
-  // Smart Card Validation
- const validateSmartCard = async () => {
-  if (!isSmartCardValid) {
-    setCardError('Smart card number must be at least 10 digits');
-    return;
-  }
-
-  if (!selectedOperator) {
-    setCardError('Please select an operator first');
-    return;
-  }
-
-  setIsValidatingCard(true);
-  setCardError('');
-  setCustomerName('');
-
-  try {
-    console.log('Validating smart card:', { operator: selectedOperator, smartCardNumber });
-    
-    const response = await makeApiRequest('/cable/validate-smartcard', {
-      method: 'POST',
-      body: JSON.stringify({ 
-        smartCardNumber, 
-        operator: selectedOperator 
-      }),
-    });
-
-    console.log('Validation response:', response);
-
-    if (response && response.success) {
-      setCustomerName(response.customerName || 'Verified Customer');
-      setCardError('');
-      console.log('Smart card validated successfully');
-    } else {
-      setCardError(response?.message || 'Smart card validation failed');
-      setCustomerName('');
-      console.log('Smart card validation failed:', response?.message);
-    }
-  } catch (error: any) {
-    console.error('Smart card validation error:', error);
-    setCardError(error.message || 'Unable to validate smart card');
-    setCustomerName('');
-  } finally {
-    setIsValidatingCard(false);
-  }
-};
 
   const loadRecentNumbers = async () => {
     try {
@@ -573,8 +476,6 @@ const fetchCablePackages = async (operator: string) => {
     }
   };
 
-  // ========== CONTACT FUNCTIONS ==========
-  
   const selectContact = async () => {
     setIsLoadingContacts(true);
     try {
@@ -585,7 +486,9 @@ const fetchCablePackages = async (operator: string) => {
           pageSize: 100,
           sort: Contacts.SortTypes.FirstName,
         });
-        const validContacts = data.filter(c => c.phoneNumbers && c.phoneNumbers.length > 0);
+        const validContacts = data.filter(
+          c => c.phoneNumbers && c.phoneNumbers.length > 0
+        );
         if (validContacts.length > 0) {
           setContactsList(validContacts);
           setShowContactsModal(true);
@@ -632,54 +535,29 @@ const fetchCablePackages = async (operator: string) => {
     setShowRecentsModal(false);
   };
 
-  const handleBuyForSelf = () => {
-    Alert.alert('Info', 'This would use your registered phone number. For demo, please enter a number manually.');
+  const handleProceedToPayment = () => {
+    if (!pinStatus?.isPinSet) {
+      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      return;
+    }
+    if (pinStatus?.isLocked) {
+      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      return;
+    }
+    setShowPinEntry(true);
   };
 
-  // ========== UNIFIED PAYMENT PROCESSING (same as airtime) ==========
-  
- const validatePinAndPurchase = async () => {
-  console.log('=== CABLE TV PAYMENT START ===');
-  
-  if (!isPinValid) {
-    console.log('PIN invalid:', pin);
-    setPinError('PIN must be exactly 4 digits');
-    return;
-  }
-
-  // ADD THIS DEBUG LOG
-  console.log('🔍 PURCHASE DATA CHECK:', {
-    selectedPackage: {
-      id: selectedPackage?.id,
-      name: selectedPackage?.name,
-      amount: selectedPackage?.amount,
-      customerPrice: selectedPackage?.customerPrice,
-      providerCost: selectedPackage?.providerCost
-    },
-    whatWillBeSent: {
-      amount: selectedPackage?.amount
+  const validatePinAndPurchase = async () => {
+    if (!isPinValid) {
+      setPinError('PIN must be exactly 4 digits');
+      return;
     }
-  });
 
-  console.log('Starting cable TV payment process...');
-  setIsValidatingPin(true);
-  setIsProcessingPayment(true);
-  setPinError('');
+    setIsValidatingPin(true);
+    setIsProcessingPayment(true);
+    setPinError('');
 
-  try {
-    console.log('Cable TV payment payload:', {
-      type: 'cable_tv',
-      operator: selectedOperator,
-      packageId: selectedPackage?.id,
-      smartCardNumber: smartCardNumber,
-      phone: phone,
-      amount: selectedPackage?.amount,
-      pinProvided: !!pin
-    });
-
-  
-
-      // Use the same /purchase route as airtime
+    try {
       const response = await makeApiRequest('/purchase', {
         method: 'POST',
         body: JSON.stringify({
@@ -688,19 +566,14 @@ const fetchCablePackages = async (operator: string) => {
           packageId: selectedPackage?.id,
           smartCardNumber: smartCardNumber,
           phone: phone,
-          amount: selectedPackage?.amount,
+          amount: selectedPackage?.customerPrice,
           pin: pin,
         }),
       });
 
-      console.log('Purchase response:', response);
-
       if (response.success === true) {
-        console.log('Cable TV payment successful!');
-        
         await saveRecentNumber(phone);
         
-        // Update balance using the same logic as airtime
         if (response.newBalance) {
           const balanceAmount = response.newBalance.amount || 
                                response.newBalance.totalBalance || 
@@ -717,13 +590,10 @@ const fetchCablePackages = async (operator: string) => {
 
           setUserBalance(updatedBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-          console.log('Balance updated:', updatedBalance);
         }
 
-        // Clear form
         await AsyncStorage.removeItem('cableTvFormState');
 
-        // Prepare success data
         const operatorName = operators.find(op => op.id === selectedOperator)?.label || selectedOperator?.toUpperCase();
         setSuccessData({
           transaction: response.transaction || {},
@@ -731,18 +601,17 @@ const fetchCablePackages = async (operator: string) => {
           phone,
           smartCardNumber,
           customerName: customerName || 'Verified Customer',
-          amount: response.transaction?.amount || selectedPackage?.amount,
+          amount: response.transaction?.amount || selectedPackage?.customerPrice,
           packageName: selectedPackage?.name,
           newBalance: response.newBalance
         });
 
+        setShowPinEntry(false);
         setTimeout(() => {
           setShowSuccessModal(true);
         }, 300);
 
       } else {
-        console.log('Cable TV payment failed:', response.message);
-        
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
         }
@@ -751,8 +620,6 @@ const fetchCablePackages = async (operator: string) => {
       }
 
     } catch (error) {
-      console.error('Cable TV payment error:', error);
-      
       if (error.message.includes('locked') || error.message.includes('attempts')) {
         setPinError(error.message);
       } else if (error.message.includes('PIN')) {
@@ -764,22 +631,17 @@ const fetchCablePackages = async (operator: string) => {
     } finally {
       setIsValidatingPin(false);
       setIsProcessingPayment(false);
-      console.log('=== CABLE TV PAYMENT END ===');
     }
   };
 
   const handleCloseSuccessModal = () => {
-    console.log('User closed success modal');
     setShowSuccessModal(false);
     setSuccessData(null);
   };
 
   const handleBuyMoreCableTV = () => {
-    console.log('User selected: Buy More Cable TV');
     setShowSuccessModal(false);
     setSuccessData(null);
-
-    // Reset form
     setCurrentStep(1);
     setPhone('');
     setSelectedOperator(null);
@@ -789,82 +651,113 @@ const fetchCablePackages = async (operator: string) => {
     setPin('');
     setPinError('');
     setCardError('');
+    setShowPinEntry(false);
   };
 
   return (
     <View style={styles.container}>
-      
       {/* STEP 1: FORM */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* Beneficiary Section */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Beneficiary</Text>
-            <View style={styles.buttonRow}>
+          {/* Quick Actions */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Select Recipient</Text>
+            <View style={styles.quickActions}>
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginRight: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={selectContact}
                 disabled={isLoadingContacts}
               >
                 {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#555" />
+                  <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.actionBtnText}>📞 Contacts</Text>
+                  <>
+                    <Text style={styles.quickActionIcon}>📱</Text>
+                    <Text style={styles.quickActionText}>Contacts</Text>
+                  </>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginHorizontal: 8 }]} 
-                onPress={handleBuyForSelf}
-              >
-                <Text style={styles.actionBtnText}>👤 Self</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[styles.actionBtn, { flex: 1, marginLeft: 8 }]} 
+                style={styles.quickActionBtn} 
                 onPress={showRecentNumbers}
               >
-                <Text style={styles.actionBtnText}>🕐 Recent ({recentNumbers.length})</Text>
+                <Text style={styles.quickActionIcon}>🕐</Text>
+                <Text style={styles.quickActionText}>Recent</Text>
+                {recentNumbers.length > 0 && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>{recentNumbers.length}</Text>
+                  </View>
+                )}
               </TouchableOpacity>
             </View>
           </View>
 
-           {/* Operator Selection */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Select Operator</Text>
-            <View style={styles.operatorGrid}>
-              {operators.map((operator) => (
+          {/* Phone Number Input */}
+          <View style={styles.card}>
+            <Text style={styles.inputLabel}>Phone Number</Text>
+            <TextInput
+              style={styles.textInput}
+              keyboardType="phone-pad"
+              placeholder="08012345678"
+              placeholderTextColor="#999"
+              maxLength={11}
+              value={phone}
+              onChangeText={setPhone}
+            />
+            {phone !== '' && !isPhoneValid && (
+              <Text style={styles.validationError}>Enter valid 11-digit number starting with 070, 080, 081, or 090</Text>
+            )}
+            {phone !== '' && isPhoneValid && (
+              <View style={styles.validationSuccess}>
+                <Text style={styles.validationSuccessText}>✓ Valid phone number</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Operator Selection */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Cable TV Operator</Text>
+            <View style={styles.networkGrid}>
+              {operators.map((op) => (
                 <TouchableOpacity
-                  key={operator.id}
+                  key={op.id}
                   style={[
-                    styles.operatorCard,
-                    selectedOperator === operator.id && styles.operatorSelected,
-                    operator.disabled && styles.operatorDisabled,
+                    styles.networkItem,
+                    selectedOperator === op.id && styles.networkItemSelected,
+                    op.disabled && styles.networkItemDisabled,
                   ]}
                   onPress={() => {
-                    if (!operator.disabled) {
-                      setSelectedOperator(operator.id);
+                    if (!op.disabled) {
+                      setSelectedOperator(op.id);
                     }
                   }}
-                  disabled={operator.disabled}
+                  disabled={op.disabled}
+                  activeOpacity={0.7}
                 >
-                  <Image source={operator.logo} style={[
-                    styles.operatorLogo,
-                    operator.disabled && styles.operatorLogoDisabled
+                  <Image source={op.logo} style={[
+                    styles.networkLogo,
+                    op.disabled && styles.networkLogoDisabled
                   ]} />
                   <Text style={[
-                    styles.operatorLabel,
-                    operator.disabled && styles.operatorLabelDisabled
+                    styles.networkName,
+                    selectedOperator === op.id && styles.networkNameSelected,
+                    op.disabled && styles.networkNameDisabled
                   ]}>
-                    {operator.label}
+                    {op.label}
                   </Text>
-                  {operator.comingSoon && (
+                  {op.comingSoon && (
                     <View style={styles.comingSoonBadge}>
                       <Text style={styles.comingSoonText}>Soon</Text>
+                    </View>
+                  )}
+                  {selectedOperator === op.id && !op.disabled && (
+                    <View style={styles.checkmark}>
+                      <Text style={styles.checkmarkText}>✓</Text>
                     </View>
                   )}
                 </TouchableOpacity>
@@ -872,10 +765,48 @@ const fetchCablePackages = async (operator: string) => {
             </View>
           </View>
 
+          {/* Smart Card Input */}
+          {selectedOperator && (
+            <View style={styles.card}>
+              <Text style={styles.inputLabel}>Smart Card Number</Text>
+              <View style={styles.inputContainer}>
+                <TextInput
+                  style={[
+                    styles.textInput,
+                    cardError && styles.textInputError,
+                    customerName && !cardError && styles.textInputSuccess
+                  ]}
+                  keyboardType="numeric"
+                  placeholder="Enter smart card number"
+                  placeholderTextColor="#999"
+                  value={smartCardNumber}
+                  onChangeText={setSmartCardNumber}
+                  onBlur={validateSmartCard}
+                  maxLength={15}
+                />
+                {isValidatingCard && (
+                  <ActivityIndicator 
+                    size="small" 
+                    color="#ff3b30" 
+                    style={styles.inputLoader}
+                  />
+                )}
+              </View>
+              {cardError && (
+                <Text style={styles.validationError}>{cardError}</Text>
+              )}
+              {customerName && !cardError && (
+                <View style={styles.validationSuccess}>
+                  <Text style={styles.validationSuccessText}>✓ Card verified for: {customerName}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
           {/* Package Selection */}
           {selectedOperator && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Select Package</Text>
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Select Package</Text>
               {isLoadingPackages ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="small" color="#ff3b30" />
@@ -887,459 +818,312 @@ const fetchCablePackages = async (operator: string) => {
                     style={styles.packageSelector}
                     onPress={() => setShowPackageModal(true)}
                   >
-                    <Text style={[styles.packageSelectorText, selectedPackage ? styles.packageSelected : {}]}>
-                      {selectedPackage ? `${selectedPackage.name} - ₦${selectedPackage.amount.toLocaleString()}` : 'Choose Package'}
+                    <Text style={[
+                      styles.packageSelectorText,
+                      selectedPackage && styles.packageSelectorTextSelected
+                    ]}>
+                      {selectedPackage 
+                        ? `${selectedPackage.name} - ₦${selectedPackage.customerPrice.toLocaleString()}` 
+                        : 'Choose Package'}
                     </Text>
                     <Text style={styles.dropdownArrow}>▼</Text>
                   </TouchableOpacity>
                   {selectedPackage && (
                     <View style={styles.packageDetails}>
                       <Text style={styles.packageDescription}>{selectedPackage.description}</Text>
-                      <Text style={styles.packageDuration}>Duration: {selectedPackage.duration}</Text>
+                      <Text style={styles.packageDuration}>⏱ Duration: {selectedPackage.duration}</Text>
                     </View>
                   )}
                 </>
               ) : (
-                <Text style={styles.error}>No packages available for this operator</Text>
+                <Text style={styles.validationError}>No packages available for this operator</Text>
               )}
-            </View>
-          )}
-
-         {/* Smart Card Number */}
-{selectedOperator && (
-  <View style={styles.section}>
-    <Text style={styles.label}>Smart Card Number</Text>
-    <View style={styles.inputContainer}>
-      <TextInput
-        style={[styles.input, cardError ? styles.inputError : customerName ? styles.inputSuccess : {}]}
-        keyboardType="numeric"
-        placeholder="Enter your smart card number"
-        value={smartCardNumber}
-        onChangeText={setSmartCardNumber}
-        onBlur={validateSmartCard}  // ADD THIS LINE
-        maxLength={15}
-      />
-      {isValidatingCard && (
-        <ActivityIndicator 
-          size="small" 
-          color="#ff3b30" 
-          style={styles.inputLoader}
-        />
-      )}
-    </View>
-    {cardError && (
-      <Text style={styles.error}>{cardError}</Text>
-    )}
-    {customerName && !cardError && (
-      <Text style={styles.success}>✓ Card verified for: {customerName}</Text>
-    )}
-    {!isSmartCardValid && smartCardNumber.length > 0 && (
-      <Text style={styles.error}>Smart card number must be at least 10 digits</Text>
-    )}
-  </View>
-)}
-
-          {/* Phone Number */}
-          <View style={styles.section}>
-            <Text style={styles.label}>Phone Number</Text>
-            <TextInput
-              style={styles.input}
-              keyboardType="phone-pad"
-              placeholder="Enter phone number (e.g., 08012345678)"
-              maxLength={11}
-              value={phone}
-              onChangeText={setPhone}
-            />
-            {phone !== '' && !isPhoneValid && (
-              <Text style={styles.error}>Enter valid 11-digit phone number starting with 070, 080, 081, or 090</Text>
-            )}
-            {phone !== '' && isPhoneValid && (
-              <Text style={styles.success}>✓ Valid phone number</Text>
-            )}
-          </View>
-
-          {/* Amount Display */}
-          {selectedPackage && (
-            <View style={styles.section}>
-              <Text style={styles.label}>Amount</Text>
-              <View style={styles.amountDisplay}>
-                <Text style={styles.amountText}>₦{selectedPackage.amount.toLocaleString()}</Text>
-                <Text style={styles.amountLabel}>Package Price</Text>
-              </View>
-            </View>
-          )}
-
-           {/* Package Validation Warning */}
-          {selectedPackage && selectedPackage.amount > 0 && selectedPackage.amount < 500 && (
-            <View style={styles.section}>
-              <View style={styles.warningBox}>
-                <Text style={styles.warningText}>
-                  ⚠️ Package amount is below minimum (₦500). Please select another package.
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {selectedPackage && selectedPackage.amount > 50000 && (
-            <View style={styles.section}>
-              <View style={styles.warningBox}>
-                <Text style={styles.warningText}>
-                  ⚠️ Package amount exceeds maximum (₦50,000). Please contact support.
-                </Text>
-              </View>
             </View>
           )}
 
           {/* Proceed Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, !canProceed && styles.proceedDisabled]}
+            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
             disabled={!canProceed}
             onPress={() => setCurrentStep(2)}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              Review Purchase {canProceed && selectedPackage && `• ₦${selectedPackage.amount.toLocaleString()}`}
+            <Text style={styles.primaryButtonText}>
+              {canProceed && selectedPackage 
+                ? `Continue • ₦${selectedPackage.customerPrice.toLocaleString()}`
+                : 'Complete Form to Continue'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 2: PURCHASE SUMMARY */}
+      {/* STEP 2: REVIEW */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+          contentContainerStyle={styles.scrollContentContainer}
         >
-          {/* Balance Card - Same structure as airtime */}
-          <View style={styles.balanceCard}>
+          {/* Balance Overview */}
+          <View style={styles.balanceOverview}>
             <View style={styles.balanceHeader}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
+              <Text style={styles.balanceLabel}>Available Balance</Text>
               <TouchableOpacity 
-                style={styles.refreshBtn}
+                style={styles.refreshButton} 
                 onPress={fetchUserBalance}
                 disabled={isLoadingBalance}
               >
                 {isLoadingBalance ? (
                   <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
-                  <Text style={styles.refreshText}>🔄</Text>
+                  <Text style={styles.refreshIcon}>↻</Text>
                 )}
               </TouchableOpacity>
             </View>
 
             {userBalance ? (
               <>
-                <Text style={styles.totalBalance}>
+                <Text style={styles.balanceAmount}>
                   ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
                 </Text>
 
-                <Text style={styles.lastUpdated}>
-                  Last updated: {new Date(userBalance.lastUpdated || Date.now()).toLocaleTimeString()}
-                </Text>
-
-                {/* Show balance after transaction */}
-                {selectedPackage && selectedPackage.amount > 0 && (
-                  <View style={styles.transactionPreview}>
-                    <Text style={styles.previewLabel}>After purchase:</Text>
-                    <Text style={[
-                      styles.previewAmount,
-                      ((userBalance.total || userBalance.amount || 0) - selectedPackage.amount) < 0 ? styles.insufficientPreview : styles.sufficientPreview
-                    ]}>
-                      ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPackage.amount).toLocaleString()}
-                    </Text>
+                {selectedPackage && (
+                  <View style={styles.balanceCalculation}>
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                      <Text style={styles.balanceRowValue}>-₦{selectedPackage.customerPrice.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.balanceDivider} />
+                    <View style={styles.balanceRow}>
+                      <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                      <Text style={[
+                        styles.balanceRowValueBold,
+                        (userBalance.total - selectedPackage.customerPrice) < 0 && styles.negativeAmount
+                      ]}>
+                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPackage.customerPrice).toLocaleString()}
+                      </Text>
+                    </View>
                   </View>
                 )}
 
-                {/* Insufficient balance warning */}
-                {selectedPackage && selectedPackage.amount > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientBalanceWarning}>
-                    <Text style={styles.warningText}>
-                      ⚠️ Insufficient balance for this transaction
+                {selectedPackage && selectedPackage.customerPrice > (userBalance.total || userBalance.amount || 0) && (
+                  <View style={styles.insufficientWarning}>
+                    <Text style={styles.insufficientWarningText}>
+                      Insufficient balance for this transaction
                     </Text>
-                    <TouchableOpacity 
-                      style={styles.topUpBtn}
-                      onPress={() => {/* Navigate to top-up */}}
-                    >
-                      <Text style={styles.topUpBtnText}>Top Up Wallet</Text>
-                    </TouchableOpacity>
                   </View>
                 )}
               </>
             ) : (
-              <View style={styles.loadingBalance}>
-                <Text style={styles.noBalanceText}>
-                  {isLoadingBalance ? 'Loading your balance...' : 'Unable to load balance'}
+              <View style={styles.balanceLoading}>
+                <Text style={styles.balanceLoadingText}>
+                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
-                {!isLoadingBalance && (
-                  <TouchableOpacity 
-                    style={styles.retryBtn}
-                    onPress={fetchUserBalance}
-                  >
-                    <Text style={styles.retryBtnText}>Tap to Retry</Text>
-                  </TouchableOpacity>
-                )}
               </View>
             )}
           </View>
+          
+          {/* Transaction Summary */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
-          {/* Purchase Summary Card */}
-          <View style={styles.summaryCard}>
-            <Text style={styles.summaryTitle}>Purchase Summary</Text>
-
-            {/* Operator */}
-            {selectedOperator && (
-              <View style={styles.summaryRow}>
-                <View style={styles.summaryLeft}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Operator</Text>
+              <View style={styles.summaryValueContainer}>
+                {selectedOperator && (
                   <Image
                     source={operators.find((op) => op.id === selectedOperator)?.logo}
-                    style={styles.summaryLogo}
+                    style={styles.summaryNetworkLogo}
                   />
-                  <Text style={styles.summaryText}>
-                    {operators.find((op) => op.id === selectedOperator)?.label}
-                  </Text>
+                )}
+                <Text style={styles.summaryValue}>
+                  {operators.find((op) => op.id === selectedOperator)?.label}
+                </Text>
+              </View>
+            </View>
+
+            {selectedPackage && (
+              <>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Package</Text>
+                  <Text style={styles.summaryValue}>{selectedPackage.name}</Text>
                 </View>
-              </View>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Duration</Text>
+                  <Text style={styles.summaryValue}>{selectedPackage.duration}</Text>
+                </View>
+              </>
             )}
 
-            {/* Package */}
-            {selectedPackage && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Package:</Text>
-                <Text style={styles.summaryValue}>{selectedPackage.name}</Text>
-              </View>
-            )}
-
-            {/* Duration */}
-            {selectedPackage && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Duration:</Text>
-                <Text style={styles.summaryValue}>{selectedPackage.duration}</Text>
-              </View>
-            )}
-
-            {/* Smart Card */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Smart Card:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Smart Card</Text>
               <Text style={styles.summaryValue}>{smartCardNumber}</Text>
             </View>
 
-            {/* Customer Name */}
             {customerName && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Customer:</Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabel}>Customer</Text>
                 <Text style={styles.summaryValue}>{customerName}</Text>
               </View>
             )}
 
-            {/* Phone */}
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Recipient:</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Recipient</Text>
               <Text style={styles.summaryValue}>{phone}</Text>
             </View>
 
             <View style={styles.summaryDivider} />
 
-            {/* Total Amount */}
             {selectedPackage && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total:</Text>
-                <Text style={[styles.summaryValue, styles.summaryTotal]}>
-                  ₦{selectedPackage.amount.toLocaleString()}
-                </Text>
-              </View>
-            )}
-
-            {/* Balance After */}
-            {userBalance && selectedPackage && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Balance After:</Text>
-                <Text style={[
-                  styles.summaryValue, 
-                  styles.summaryBalance,
-                  ((userBalance.total || userBalance.amount || 0) - selectedPackage.amount) < 0 ? styles.negativeBalance : {}
-                ]}>
-                  ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPackage.amount).toLocaleString()}
-                </Text>
+              <View style={styles.summaryItem}>
+                <Text style={styles.summaryLabelTotal}>Total Amount</Text>
+                <Text style={styles.summaryValueTotal}>₦{selectedPackage.customerPrice.toLocaleString()}</Text>
               </View>
             )}
           </View>
 
-          {/* Proceed to PIN Button */}
+          {/* Action Buttons */}
           <TouchableOpacity
             style={[
-              styles.proceedBtn, 
-              !hasEnoughBalance && styles.proceedDisabled
+              styles.primaryButton, 
+              !hasEnoughBalance && styles.primaryButtonDisabled
             ]}
             disabled={!hasEnoughBalance}
-            onPress={() => setCurrentStep(3)}
+            onPress={handleProceedToPayment}
+            activeOpacity={0.8}
           >
-            <Text style={styles.proceedText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Enter PIN to Pay'}
+            <Text style={styles.primaryButtonText}>
+              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
             </Text>
           </TouchableOpacity>
 
-          {/* Back Button */}
           <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
+            style={styles.secondaryButton}
             onPress={() => setCurrentStep(1)}
+            activeOpacity={0.8}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Edit Details</Text>
+            <Text style={styles.secondaryButtonText}>Edit Details</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* STEP 3: PIN ENTRY */}
-      {currentStep === 3 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{ paddingBottom: 40 }}
+      {/* PIN Entry Modal - Bottom Sheet */}
+      <Modal 
+        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+        animationType="slide"
+        transparent={true}
+      >
+        <TouchableOpacity 
+          style={styles.pinModalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            if (!isValidatingPin && !isProcessingPayment) {
+              setShowPinEntry(false);
+              setPin('');
+              setPinError('');
+            }
+          }}
         >
-          {/* PIN Status Check */}
-          {pinStatus?.isLocked && (
-            <View style={styles.lockedCard}>
-              <Text style={styles.lockedTitle}>🔒 Account Locked</Text>
-              <Text style={styles.lockedText}>
-                Too many failed PIN attempts. Please try again in {pinStatus.lockTimeRemaining} minutes.
-              </Text>
-              <TouchableOpacity 
-                style={styles.refreshBtn}
-                onPress={checkPinStatus}
-              >
-                <Text style={styles.refreshText}>🔄 Check Status</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {!pinStatus?.isPinSet && (
-            <View style={styles.noPinCard}>
-              <Text style={styles.noPinTitle}>📱 PIN Required</Text>
-              <Text style={styles.noPinText}>
-                You need to set up a 4-digit transaction PIN in your account settings before making purchases.
-              </Text>
-            </View>
-          )}
-
-          {pinStatus?.isPinSet && !pinStatus?.isLocked && (
-            <>
-              {/* Transaction Summary */}
-              <View style={styles.pinSummaryCard}>
-                <Text style={styles.pinSummaryTitle}>Confirm Cable TV Purchase</Text>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Operator:</Text>
-                  <Text style={styles.summaryValue}>
-                    {operators.find((op) => op.id === selectedOperator)?.label}
-                  </Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Package:</Text>
-                  <Text style={styles.summaryValue}>{selectedPackage?.name}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Smart Card:</Text>
-                  <Text style={styles.summaryValue}>{smartCardNumber}</Text>
-                </View>
-
-                <View style={styles.summaryRow}>
-                  <Text style={styles.summaryLabel}>Phone:</Text>
-                  <Text style={styles.summaryValue}>{phone}</Text>
-                </View>
-
-                {selectedPackage && (
-                  <View style={styles.summaryRow}>
-                    <Text style={styles.summaryLabel}>Amount:</Text>
-                    <Text style={[styles.summaryValue, styles.summaryAmount]}>
-                      ₦{selectedPackage.amount.toLocaleString()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-
-              {/* PIN Entry */}
-              <View style={styles.pinCard}>
-                <Text style={styles.pinTitle}>Enter Your 4-Digit PIN</Text>
-
-                {pinStatus?.attemptsRemaining < 3 && (
-                  <Text style={styles.attemptsWarning}>
-                    ⚠️ {pinStatus.attemptsRemaining} attempts remaining
-                  </Text>
-                )}
-
-                <View style={styles.pinInputContainer}>
-                  <TextInput
-                    style={[styles.pinInput, pinError ? styles.pinInputError : {}]}
-                    value={pin}
-                    onChangeText={(text) => {
-                      setPin(text.replace(/\D/g, '').substring(0, 4));
-                      setPinError('');
-                    }}
-                    keyboardType="numeric"
-                    secureTextEntry={true}
-                    placeholder="****"
-                    maxLength={4}
-                    autoFocus={true}
-                  />
-                </View>
-
-                {pinError ? (
-                  <Text style={styles.pinError}>{pinError}</Text>
-                ) : (
-                  <Text style={styles.pinHelp}>
-                    Enter your 4-digit transaction PIN to complete this cable TV purchase
-                  </Text>
-                )}
-
-                {/* PIN Dots Display */}
-                <View style={styles.pinDotsContainer}>
-                  {[0, 1, 2, 3].map((index) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.pinDot,
-                        pin.length > index && styles.pinDotFilled,
-                        pinError && styles.pinDotError
-                      ]}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {/* Confirm Payment Button */}
-              <TouchableOpacity
-                style={[
-                  styles.proceedBtn,
-                  (!isPinValid || isValidatingPin || isProcessingPayment) && styles.proceedDisabled
-                ]}
-                disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-                onPress={validatePinAndPurchase}
-              >
-                {isValidatingPin || isProcessingPayment ? (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={[styles.proceedText, { marginLeft: 8 }]}>
-                      {isProcessingPayment ? 'Processing Payment...' : 'Validating PIN...'}
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={styles.proceedText}>
-                    Confirm Payment • ₦{selectedPackage?.amount.toLocaleString()}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </>
-          )}
-
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.proceedBtn, styles.backBtn]}
-            onPress={() => setCurrentStep(2)}
-            disabled={isValidatingPin || isProcessingPayment}
+          <TouchableOpacity 
+            style={styles.pinBottomSheet}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Text style={[styles.proceedText, styles.backBtnText]}>← Back to Summary</Text>
+            {/* Drag Handle */}
+            <View style={styles.dragHandle} />
+
+            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+            {pinStatus?.attemptsRemaining < 3 && (
+              <View style={styles.attemptsWarning}>
+                <Text style={styles.attemptsWarningText}>
+                  {pinStatus.attemptsRemaining} attempts remaining
+                </Text>
+              </View>
+            )}
+
+            {/* PIN Input Area - Pressable */}
+            <TouchableOpacity 
+              style={styles.pinInputArea}
+              activeOpacity={0.7}
+              onPress={() => {
+                pinInputRef.current?.focus();
+              }}
+            >
+              <View style={styles.pinDotsContainer}>
+                {[0, 1, 2, 3].map((index) => (
+                  <View
+                    key={index}
+                    style={[
+                      styles.pinDot,
+                      pin.length > index && styles.pinDotFilled,
+                      pinError && styles.pinDotError
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              ref={pinInputRef}
+              style={styles.hiddenPinInput}
+              value={pin}
+              onChangeText={(text) => {
+                setPin(text.replace(/\D/g, '').substring(0, 4));
+                setPinError('');
+              }}
+              keyboardType="number-pad"
+              secureTextEntry={true}
+              maxLength={4}
+              caretHidden={true}
+            />
+
+            {pinError && (
+              <Text style={styles.pinErrorText}>{pinError}</Text>
+            )}
+
+            {/* Confirm Payment Button */}
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+              ]}
+              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+              onPress={validatePinAndPurchase}
+              activeOpacity={0.8}
+            >
+              {isValidatingPin || isProcessingPayment ? (
+                <View style={styles.buttonLoading}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.primaryButtonText}>
+                  Confirm Payment
+                </Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Cancel PIN Entry */}
+            <TouchableOpacity
+              style={styles.secondaryButton}
+              onPress={() => {
+                setShowPinEntry(false);
+                setPin('');
+                setPinError('');
+              }}
+              disabled={isValidatingPin || isProcessingPayment}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.secondaryButtonText}>Cancel</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </ScrollView>
-      )}
+        </TouchableOpacity>
+      </Modal>
 
       {/* Package Selection Modal */}
       <Modal visible={showPackageModal} animationType="slide">
@@ -1347,47 +1131,41 @@ const fetchCablePackages = async (operator: string) => {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Package</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowPackageModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
-  data={cablePackages}
-  keyExtractor={(item) => item.id}
-  renderItem={({ item }) => (
-    <TouchableOpacity
-      style={[
-        styles.packageItem,
-        selectedPackage?.id === item.id && styles.packageItemSelected
-      ]}
-      onPress={() => {
-        // ADD THIS DEBUG LOG
-        console.log('✅ PACKAGE SELECTED:', {
-          id: item.id,
-          name: item.name,
-          amount: item.amount,
-          customerPrice: item.customerPrice,
-          providerCost: item.providerCost
-        });
-        
-        setSelectedPackage(item);
-        setShowPackageModal(false);
-      }}
-    >
-      <View style={styles.packageInfo}>
-        <Text style={styles.packageName}>{item.name}</Text>
-        <Text style={styles.packageDescription}>{item.description}</Text>
-        <Text style={styles.packageDuration}>Duration: {item.duration}</Text>
-      </View>
-      <Text style={styles.packagePrice}>₦{item.amount.toLocaleString()}</Text>
-    </TouchableOpacity>
-  )}
-  ListEmptyComponent={
-    <Text style={styles.emptyText}>No packages available</Text>
-  }
-/>
+            data={cablePackages}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.packageItem,
+                  selectedPackage?.id === item.id && styles.packageItemSelected
+                ]}
+                onPress={() => {
+                  setSelectedPackage(item);
+                  setShowPackageModal(false);
+                }}
+                activeOpacity={0.7}
+              >
+                <View style={styles.packageInfo}>
+                  <Text style={styles.packageName}>{item.name}</Text>
+                  <Text style={styles.packageDescription}>{item.description}</Text>
+                  <Text style={styles.packageDuration}>⏱ {item.duration}</Text>
+                </View>
+                <Text style={styles.packagePrice}>₦{item.customerPrice.toLocaleString()}</Text>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No packages available</Text>
+              </View>
+            }
+          />
         </View>
       </Modal>
 
@@ -1397,10 +1175,10 @@ const fetchCablePackages = async (operator: string) => {
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Select Contact</Text>
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowContactsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1408,12 +1186,18 @@ const fetchCablePackages = async (operator: string) => {
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '?'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactNumber}>{item.phoneNumbers[0].number}</Text>
+                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -1426,12 +1210,11 @@ const fetchCablePackages = async (operator: string) => {
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Recent Numbers</Text>
-
             <TouchableOpacity
-              style={styles.modalCloseBtn}
+              style={styles.modalCloseButton}
               onPress={() => setShowRecentsModal(false)}
             >
-              <Text style={styles.modalCloseBtnText}>✕</Text>
+              <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
           <FlatList
@@ -1439,22 +1222,30 @@ const fetchCablePackages = async (operator: string) => {
             keyExtractor={(item) => item.number + item.timestamp}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.contactItem}
+                style={styles.listItem}
                 onPress={() => handleContactSelect(item.number, item.name)}
+                activeOpacity={0.7}
               >
-                <View style={styles.contactInfo}>
+                <View style={styles.contactAvatar}>
+                  <Text style={styles.contactAvatarText}>
+                    {item.name?.charAt(0).toUpperCase() || '📱'}
+                  </Text>
+                </View>
+                <View style={styles.contactDetails}>
                   <Text style={styles.contactName}>
                     {item.name || 'Unknown'}
                   </Text>
-                  <Text style={styles.contactNumber}>{item.number}</Text>
+                  <Text style={styles.contactPhone}>{item.number}</Text>
                 </View>
-                <Text style={styles.recentTime}>
+                <Text style={styles.dateText}>
                   {new Date(item.timestamp).toLocaleDateString()}
                 </Text>
               </TouchableOpacity>
             )}
             ListEmptyComponent={
-              <Text style={styles.emptyText}>No recent numbers found</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateText}>No recent numbers found</Text>
+              </View>
             }
           />
         </View>
@@ -1480,632 +1271,217 @@ const fetchCablePackages = async (operator: string) => {
   );
 }
 
-// Styles
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f5f5f5' 
+  },
+
   scrollContent: { 
     flex: 1 
   },
-  section: { margin: 16, marginBottom: 24 },
-  label: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    marginBottom: 8, 
-    color: '#333' 
+
+  scrollContentContainer: {
+    padding: 16,
+    paddingBottom: 40,
   },
-  buttonRow: { flexDirection: 'row' },
-  actionBtn: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+
+  card: {
     backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  actionBtnText: { color: '#555', fontSize: 14, fontWeight: '500' },
-  operatorGrid: { 
-    flexDirection: 'row', 
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 12
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 16,
   },
-  operatorCard: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    width: '48%',
-    backgroundColor: '#fff',
-    minHeight: 50,
-  },
-  operatorSelected: { 
-    borderColor: '#ff3b30', 
-    backgroundColor: '#fff5f5',
-    borderWidth: 2 
-  },
-  operatorLogo: { width: 35, height: 35, resizeMode: 'contain', marginBottom: 4 },
-  operatorLabel: { fontSize: 12, fontWeight: '600', color: '#666' },
-  packageSelector: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 14,
-    backgroundColor: '#fff',
+
+  quickActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    gap: 10,
   },
-  packageSelectorText: {
-    fontSize: 14,
-    color: '#666',
+
+  quickActionBtn: {
     flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    position: 'relative',
   },
-  packageSelected: {
-    color: '#333',
+
+  quickActionIcon: {
+    fontSize: 20,
+    marginBottom: 2,
+  },
+
+  quickActionText: {
+    fontSize: 12,
     fontWeight: '500',
+    color: '#333',
   },
-  dropdownArrow: {
-    fontSize: 12,
-    color: '#999',
-  },
-  packageDetails: {
-    marginTop: 8,
-    padding: 12,
-    backgroundColor: '#f8f9fa',
+
+  badge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: '#ff3b30',
     borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
-  packageDescription: {
-    fontSize: 13,
+
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '500',
     color: '#666',
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  packageDuration: {
-    fontSize: 12,
-    color: '#999',
-  },
+
   inputContainer: {
     position: 'relative',
   },
-  input: {
+
+  textInput: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e8e8e8',
     borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    backgroundColor: '#fff',
-  },
-  inputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  inputSuccess: {
-    borderColor: '#28a745',
-    backgroundColor: '#f8fff9',
-  },
-  inputLoader: {
-    position: 'absolute',
-    right: 14,
-    top: 14,
-  },
-  amountDisplay: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 14,
-    backgroundColor: '#f8f9fa',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  amountText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff3b30',
-  },
-  amountLabel: {
-    fontSize: 12,
-    color: '#999',
-    fontStyle: 'italic',
-  },
-  error: { 
-    color: '#ff3b30', 
-    fontSize: 12, 
-    marginTop: 6,
-    fontWeight: '500' 
-  },
-  success: {
-    color: '#28a745',
-    fontSize: 12,
-    marginTop: 6,
-    fontWeight: '500'
-  },
-  proceedBtn: {
-    margin: 16,
     padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#ff3b30',
-    alignItems: 'center',
-    shadowColor: '#ff3b30',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  proceedDisabled: { 
-    backgroundColor: '#ccc',
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  proceedText: { 
-    color: '#fff', 
-    fontSize: 16, 
-    fontWeight: '600' 
-  },
-  backBtn: {
-    backgroundColor: '#6c757d',
-    marginTop: 8,
-    shadowColor: '#6c757d',
-  },
-  backBtnText: {
-    color: '#fff',
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  balanceCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
-  },
-  balanceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  balanceTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  refreshBtn: {
-    padding: 4,
-  },
-  refreshText: {
-    fontSize: 16,
-  },
-  totalBalance: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#28a745',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  lastUpdated: {
-    fontSize: 11,
-    color: '#999',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  transactionPreview: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-  },
-  previewLabel: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '500',
-  },
-  previewAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  sufficientPreview: {
-    color: '#28a745',
-  },
-  insufficientPreview: {
-    color: '#dc3545',
-  },
-  insufficientBalanceWarning: {
-    marginTop: 16,
-    padding: 12,
-    backgroundColor: '#fff3cd',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ffeaa7',
-  },
-  warningText: {
-    color: '#856404',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  topUpBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    alignSelf: 'center',
-  },
-  topUpBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  loadingBalance: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  noBalanceText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  retryBtn: {
-    backgroundColor: '#ff3b30',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-  },
-  retryBtnText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  summaryTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    marginBottom: 16, 
-    textAlign: 'center',
-    color: '#333' 
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  summaryLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  summaryLogo: { 
-    width: 30, 
-    height: 30, 
-    resizeMode: 'contain', 
-    marginRight: 8 
-  },
-  summaryLabel: { 
-    fontWeight: '600', 
-    fontSize: 14, 
-    color: '#666',
-    flex: 1,
-  },
-  summaryText: { fontSize: 14, color: '#333', fontWeight: '500' },
-  summaryValue: { 
-    fontSize: 14, 
-    color: '#333', 
-    fontWeight: '600',
-    textAlign: 'right',
-    flex: 1,
-  },
-  summaryAmount: { fontSize: 16, color: '#ff3b30' },
-  summaryDivider: {
-    height: 1,
-    backgroundColor: '#eee',
-    marginVertical: 12,
-  },
-  summaryTotal: {
-    fontSize: 18,
-    color: '#ff3b30',
-    fontWeight: '700',
-  },
-  summaryBalance: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#28a745',
-  },
-  negativeBalance: {
-    color: '#dc3545',
-  },
-  pinCard: {
-    margin: 16,
-    padding: 24,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    alignItems: 'center',
-  },
-  pinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  pinInputContainer: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pinInput: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    letterSpacing: 8,
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    backgroundColor: '#f8f9fa',
-    width: 150,
-  },
-  pinInputError: {
-    borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5',
-  },
-  pinError: {
-    color: '#ff3b30',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    fontWeight: '500',
-  },
-  pinHelp: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  pinDotsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    marginBottom: 20,
-  },
-  pinDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: '#e0e0e0',
-    borderWidth: 2,
-    borderColor: '#ddd',
-  },
-  pinDotFilled: {
-    backgroundColor: '#ff3b30',
-    borderColor: '#ff3b30',
-  },
-  pinDotError: {
-    backgroundColor: '#ff6b6b',
-    borderColor: '#ff3b30',
-  },
-  pinSummaryCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderTopWidth: 4,
-    borderTopColor: '#ff3b30',
-  },
-  pinSummaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  attemptsWarning: {
-    color: '#ff8c00',
-    fontSize: 14,
-    fontWeight: '500',
-    textAlign: 'center',
-    marginBottom: 16,
-    backgroundColor: '#fff3cd',
-    padding: 8,
-    borderRadius: 8,
-  },
-  lockedCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#dc3545',
-  },
-  lockedTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#dc3545',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  lockedText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  noPinCard: {
-    margin: 16,
-    padding: 20,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff8c00',
-  },
-  noPinTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#ff8c00',
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  noPinText: {
-    color: '#666',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 20,
-  },
-  modalContainer: { 
-    flex: 1, 
-    backgroundColor: '#fff',
-    paddingTop: Platform.OS === 'ios' ? 50 : 20,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  modalTitle: { 
-    fontSize: 18, 
-    fontWeight: 'bold', 
-    color: '#333' 
-  },
-  modalCloseBtn: {
-    padding: 8,
-  },
-  modalCloseBtnText: {
-    fontSize: 18,
-    color: '#666',
-    fontWeight: 'bold',
-  },
-  packageItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  packageItemSelected: {
-    backgroundColor: '#fff5f5',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
-  },
-  packageInfo: {
-    flex: 1,
-    paddingRight: 12,
-  },
-  packageName: { 
-    fontSize: 16, 
-    fontWeight: '600', 
-    color: '#333',
-    marginBottom: 4,
-  },
-  packagePrice: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#28a745',
-  },
-  contactItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  contactInfo: {
-    flex: 1,
-  },
-  contactName: { 
-    fontSize: 16, 
-    fontWeight: '500', 
-    color: '#333',
-    marginBottom: 2,
-  },
-  contactNumber: { 
-    color: '#666', 
-    fontSize: 14 
-  },
-  recentTime: {
-    fontSize: 12,
-    color: '#999',
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#999',
-    fontSize: 16,
-    marginTop: 40,
-  },
-  loadingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-  },
-  loadingText: {
-    marginLeft: 8,
-    color: '#666',
+    color: '#1a1a1a',
+    backgroundColor: '#fafafa',
   },
 
-  operatorDisabled: {
+  textInputError: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  textInputSuccess: {
+    borderColor: '#2e7d32',
+    backgroundColor: '#f8fff9',
+  },
+
+  inputLoader: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
+  },
+
+  validationError: {
+    color: '#ff3b30',
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: '500',
+  },
+
+  validationSuccess: {
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#e8f5e9',
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+  },
+
+  validationSuccessText: {
+    color: '#2e7d32',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
+  networkGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  networkItem: {
+    flex: 1,
+    aspectRatio: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    position: 'relative',
+    padding: 8,
+  },
+
+  networkItemSelected: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
+
+  networkItemDisabled: {
     opacity: 0.5,
     backgroundColor: '#f5f5f5',
   },
-  operatorLogoDisabled: {
+
+  networkLogo: {
+    width: 40,
+    height: 40,
+    resizeMode: 'contain',
+    marginBottom: 6,
+  },
+
+  networkLogoDisabled: {
     opacity: 0.4,
   },
-  operatorLabelDisabled: {
+
+  networkName: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  networkNameSelected: {
+    color: '#ff3b30',
+  },
+
+  networkNameDisabled: {
     color: '#999',
   },
+
+  checkmark: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ff3b30',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  checkmarkText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
+  },
+
   comingSoonBadge: {
     position: 'absolute',
     top: 4,
@@ -2115,26 +1491,513 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 8,
   },
+
   comingSoonText: {
     color: '#fff',
     fontSize: 9,
     fontWeight: '700',
-    textTransform: 'uppercase',
   },
 
-   warningBox: {
-    backgroundColor: '#fff3cd',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff9500',
-    padding: 12,
-    borderRadius: 8,
-    marginTop: 8,
+  packageSelector: {
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 12,
+    padding: 16,
+    backgroundColor: '#fafafa',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
-  warningText: {
-    color: '#856404',
+
+  packageSelectorText: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+
+  packageSelectorTextSelected: {
+    color: '#1a1a1a',
+    fontWeight: '500',
+  },
+
+  dropdownArrow: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  packageDetails: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 8,
+  },
+
+  packageDescription: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 6,
+  },
+
+  packageDuration: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
+  loadingText: {
+    marginLeft: 8,
+    color: '#666',
+    fontSize: 14,
+  },
+
+  emptyState: {
+    padding: 40,
+    alignItems: 'center',
+  },
+
+  emptyStateText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  primaryButton: {
+    backgroundColor: '#ff3b30',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  primaryButtonDisabled: {
+    backgroundColor: '#d0d0d0',
+  },
+
+  primaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  secondaryButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+  },
+
+  secondaryButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  buttonLoading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  buttonLoadingText: {
+    marginLeft: 0,
+  },
+
+  balanceOverview: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+
+  balanceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+
+  balanceLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  refreshButton: {
+    padding: 4,
+  },
+
+  refreshIcon: {
+    fontSize: 18,
+    color: '#ff3b30',
+  },
+
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    marginBottom: 16,
+  },
+
+  balanceCalculation: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 16,
+  },
+
+  balanceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+
+  balanceRowLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+
+  balanceRowValue: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  balanceRowLabelBold: {
+    fontSize: 15,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  balanceRowValueBold: {
+    fontSize: 15,
+    color: '#2e7d32',
+    fontWeight: '700',
+  },
+
+  negativeAmount: {
+    color: '#ff3b30',
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: '#e0e0e0',
+    marginVertical: 12,
+  },
+
+  insufficientWarning: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: '#fff3e0',
+    borderRadius: 8,
+  },
+
+  insufficientWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+
+  balanceLoading: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+
+  balanceLoadingText: {
+    color: '#999',
+    fontSize: 14,
+  },
+
+  summaryItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+
+  summaryLabel: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+
+  summaryValue: {
+    fontSize: 14,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+
+  summaryNetworkLogo: {
+    width: 24,
+    height: 24,
+    resizeMode: 'contain',
+  },
+
+  summaryDivider: {
+    height: 1,
+    backgroundColor: '#e8e8e8',
+    marginVertical: 12,
+  },
+
+  summaryLabelTotal: {
+    fontSize: 16,
+    color: '#1a1a1a',
+    fontWeight: '600',
+  },
+
+  summaryValueTotal: {
+    fontSize: 20,
+    color: '#ff3b30',
+    fontWeight: '700',
+  },
+
+  pinModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  pinBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 24,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#d0d0d0',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 20,
+  },
+
+  pinTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1a1a1a',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+
+  pinSubtitle: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+
+  attemptsWarning: {
+    backgroundColor: '#fff3e0',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+
+  attemptsWarningText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+
+  pinInputArea: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    alignItems: 'center',
+  },
+
+  pinDotsContainer: {
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+
+  pinInputHint: {
+    fontSize: 13,
+    color: '#999',
+    textAlign: 'center',
+  },
+
+  pinDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#e8e8e8',
+    borderWidth: 2,
+    borderColor: '#d0d0d0',
+  },
+
+  pinDotFilled: {
+    backgroundColor: '#ff3b30',
+    borderColor: '#ff3b30',
+  },
+
+  pinDotError: {
+    backgroundColor: '#ff6b6b',
+    borderColor: '#ff3b30',
+  },
+
+  hiddenPinInput: {
+    position: 'absolute',
+    left: -9999,
+    width: 1,
+    height: 1,
+  },
+
+  pinErrorText: {
+    color: '#ff3b30',
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: -12,
+    marginBottom: 20,
+  },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e8e8e8',
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1a1a1a',
+  },
+
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalCloseText: {
+    fontSize: 20,
+    color: '#666',
+    fontWeight: '600',
+  },
+
+  packageItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  packageItemSelected: {
+    backgroundColor: '#fff5f5',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ff3b30',
+  },
+
+  packageInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+
+  packageName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+
+  packagePrice: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2e7d32',
+  },
+
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+
+  contactAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f0f0f0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  contactAvatarText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#666',
+  },
+
+  contactDetails: {
+    flex: 1,
+  },
+
+  contactName: {
     fontSize: 14,
     fontWeight: '500',
-    lineHeight: 20,
+    color: '#1a1a1a',
+    marginBottom: 2,
   },
 
+  contactPhone: {
+    fontSize: 12,
+    color: '#999',
+  },
+
+  dateText: {
+    fontSize: 11,
+    color: '#999',
+  },
 });
