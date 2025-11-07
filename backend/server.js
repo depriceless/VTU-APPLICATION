@@ -491,6 +491,14 @@ try {
 }
 
 try {
+  const cardRoutes = require('./routes/card');
+  app.use('/api/card', cardRoutes);
+  console.log('✅ Card payment routes registered at /api/card');
+} catch (err) {
+  console.error('❌ Card payment routes error:', err.message);
+}
+
+try {
   app.use('/api/support', require('./routes/support'));
   console.log('✅ Support routes registered');
 } catch (err) {
