@@ -95,6 +95,21 @@ pin:{
     verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' }
   },
 
+
+  status: {
+  type: String,
+  enum: ['active', 'deactivated', 'suspended'],
+  default: 'active'
+},
+deactivatedAt: {
+  type: Date,
+  default: null
+},
+deactivationReason: {
+  type: String,
+  default: null
+},
+
   // ADD THESE NEW FIELDS HERE - INSIDE THE SCHEMA DEFINITION
   suspendedAt: { type: Date },
   suspensionReason: { type: String },

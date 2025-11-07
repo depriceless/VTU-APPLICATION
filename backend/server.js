@@ -323,6 +323,21 @@ if (userRoutes) {
   }
 }
 
+
+
+if (accountRoutes) {
+  try {
+    app.use('/api/account', accountRoutes);
+    console.log('✅ Account routes registered at /api/account');
+    console.log('   - POST /api/account/deactivate - Deactivate account');
+    console.log('   - POST /api/account/reactivate - Reactivate account');
+    console.log('   - DELETE /api/account/delete - Permanently delete account');
+    console.log('   - GET /api/account/status - Get account status');
+  } catch (err) {
+    console.error('❌ Account routes registration error:', err.message);
+  }
+}
+
 if (walletRoutes) {
   try {
     app.use('/api', walletRoutes);
