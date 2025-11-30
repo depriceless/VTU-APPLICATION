@@ -1,6 +1,50 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { API_CONFIG } from "../config/api.config";
 
+// Error Boundary Component
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '40px', textAlign: 'center', color: '#dc3545' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
+          <h3 style={{ marginBottom: '16px' }}>Something went wrong</h3>
+          <p style={{ marginBottom: '20px' }}>{this.state.error?.message}</p>
+          <button 
+            onClick={() => this.setState({ hasError: false, error: null })}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#ff3b30',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
 // AdminModal component
 const AdminModal = ({ 
   showAdminModal, 
@@ -19,14 +63,17 @@ const AdminModal = ({
     padding: '8px 12px',
     border: '2px solid #e2e8f0',
     borderRadius: '6px',
-    fontSize: '14px'
+    fontSize: '14px',
+    color: '#000',
+    backgroundColor: '#fff'
   };
 
   const labelStyle = {
     display: 'block',
     marginBottom: '8px',
     fontSize: '14px',
-    fontWeight: '600'
+    fontWeight: '600',
+    color: '#000'
   };
 
   const gridStyle = {
@@ -65,7 +112,7 @@ const AdminModal = ({
           justifyContent: 'space-between',
           alignItems: 'center'
         }}>
-          <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+          <h3 style={{ margin: 0, color: '#000', fontSize: '18px', fontWeight: '600' }}>
             {selectedAdmin ? 'Edit Admin User' : 'Create New Admin User'}
           </h3>
           <button
@@ -180,7 +227,7 @@ const AdminModal = ({
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 backgroundColor: '#fff',
-                color: '#718096',
+                color: '#000',
                 fontSize: '14px',
                 fontWeight: '600',
                 cursor: actionLoading ? 'not-allowed' : 'pointer'
@@ -525,15 +572,16 @@ const AdminManagement = () => {
   });
 
   // API Base URL Configuration
-// Use the BASE_URL from your API_CONFIG
-const API_BASE_URL = API_CONFIG.BASE_URL;
+  const API_BASE_URL = API_CONFIG?.BASE_URL || 'http://localhost:5000';
+
   // Role and permission configurations
   const ROLE_CONFIG = {
     super_admin: { color: '#ff3b30', name: 'Super Admin', priority: 1 },
     admin: { color: '#ff8c00', name: 'Administrator', priority: 2 },
     manager: { color: '#28a745', name: 'Manager', priority: 3 },
     support: { color: '#007bff', name: 'Support', priority: 4 },
-    moderator: { color: '#6f42c1', name: 'Moderator', priority: 5 }
+    moderator: { color: '#6f42c1', name: 'Moderator', priority: 5 },
+    user: { color: '#6c757d', name: 'User', priority: 6 }
   };
 
   const PERMISSION_CATEGORIES = {
@@ -581,71 +629,60 @@ const API_BASE_URL = API_CONFIG.BASE_URL;
     }, 5000);
   }, []);
 
-const makeApiCall = useCallback(async (endpoint, options = {}) => {
-  try {
-    const url = `${API_BASE_URL}${endpoint}`;
-    
-    const defaultOptions = {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
-      credentials: 'include', // Add this line
-    };
+  // Safe API call function with better error handling
+  const makeApiCall = useCallback(async (endpoint, options = {}) => {
+    try {
+      // Check if endpoint starts with slash, add if not
+      const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+      const url = `${API_BASE_URL}${formattedEndpoint}`;
+      
+      console.log(`Making API call to: ${url}`);
 
-    const response = await fetch(url, {
-      ...defaultOptions,
-      ...options
-    });
+      const defaultOptions = {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        credentials: 'include',
+      };
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
+      const response = await fetch(url, {
+        ...defaultOptions,
+        ...options
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        } catch (parseError) {
+          // If response is not JSON, use status text
+          console.warn('Could not parse error response as JSON');
+        }
+        throw new Error(errorMessage);
+      }
+
+      // Check if response has content
+      const contentLength = response.headers.get('content-length');
+      if (contentLength === '0' || !response.body) {
+        return { success: true }; // Return success for empty responses
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('API Call failed:', error);
+      
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        throw new Error('Network error: Unable to connect to server. Please check your internet connection and ensure the backend is running.');
+      }
+      
+      throw error;
     }
+  }, [token, API_BASE_URL]);
 
-    return await response.json();
-  } catch (error) {
-    console.error('API Call failed:', error);
-    
-    if (error.name === 'TypeError' && error.message.includes('fetch')) {
-      throw new Error('Network error. Please check your internet connection and ensure the backend is running.');
-    }
-    
-    throw error;
-  }
-}, [token, API_BASE_URL]);
-
-  // Check mobile screen
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  useEffect(() => {
-    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    if (authToken) {
-      setToken(authToken);
-    } else {
-      showNotification('Please login again', 'error');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-    }
-  }, [showNotification]);
-
-  useEffect(() => {
-    if (token) {
-      fetchStats();
-      fetchAdmins();
-      fetchRoles();
-      fetchActivityLogs();
-    }
-  }, [token, activeTab, filters]);
-
-  // API Functions
+  // API Functions - MOVED BEFORE handleAdminSubmit to fix the reference error
   const fetchStats = useCallback(async () => {
     if (!token) return;
     
@@ -675,19 +712,52 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
       queryParams.append('page', filters.page.toString());
       queryParams.append('limit', filters.limit.toString());
       
+      console.log('Fetching admins from API...');
       const data = await makeApiCall(`/api/admin/management/admins?${queryParams}`);
       
-      setAdmins(data.admins || []);
+      console.log('Raw API response:', data);
+      
+      // Handle different response structures
+      let adminsData = [];
+      if (Array.isArray(data)) {
+        adminsData = data;
+      } else if (data && Array.isArray(data.admins)) {
+        adminsData = data.admins;
+      } else if (data && Array.isArray(data.users)) {
+        adminsData = data.users;
+      } else if (data && Array.isArray(data.data)) {
+        adminsData = data.data;
+      }
+      
+      console.log('Processed admins data:', adminsData);
+      
+      // Ensure each admin has the required fields
+      const processedAdmins = adminsData.map(admin => ({
+        _id: admin._id || admin.id || `temp-${Math.random()}`,
+        username: admin.name || admin.username || admin.userName || 'Unknown User',
+        email: admin.email || admin.emailAddress || 'No email',
+        role: admin.role || admin.roleType || admin.userRole || 'user',
+        isActive: admin.isActive !== undefined ? admin.isActive : 
+                  admin.status === 'active' ? true : 
+                  admin.status === 'inactive' ? false : true,
+        lastLogin: admin.lastLogin || admin.last_login || admin.lastSession || null,
+        phone: admin.phone || admin.phoneNumber || '',
+        // Include all original properties
+        ...admin
+      }));
+      
+      setAdmins(processedAdmins);
       setPagination(data.pagination || {
         currentPage: 1,
         totalPages: 1,
-        totalItems: 0,
+        totalItems: processedAdmins.length,
         hasNextPage: false,
         hasPrevPage: false
       });
     } catch (error) {
       console.error('Error fetching admins:', error);
       showNotification(`Failed to fetch admin users: ${error.message}`, 'error');
+      setAdmins([]); // Set empty array on error
     } finally {
       setLoading(false);
     }
@@ -698,11 +768,22 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
     
     try {
       const data = await makeApiCall('/api/admin/management/roles');
-      setRoles(data.roles || []);
-      setPermissions(data.permissions || ALL_PERMISSIONS);
+      
+      let rolesData = [];
+      if (Array.isArray(data)) {
+        rolesData = data;
+      } else if (data && Array.isArray(data.roles)) {
+        rolesData = data.roles;
+      } else if (data && Array.isArray(data.data)) {
+        rolesData = data.data;
+      }
+      
+      setRoles(rolesData);
+      setPermissions(Array.isArray(data.permissions) ? data.permissions : ALL_PERMISSIONS);
     } catch (error) {
       console.error('Error fetching roles:', error);
       showNotification(`Failed to fetch roles: ${error.message}`, 'error');
+      setRoles([]); // Set empty array on error
     }
   }, [token, makeApiCall, showNotification]);
 
@@ -711,82 +792,44 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
     
     try {
       const data = await makeApiCall('/api/admin/management/activity-logs');
-      setActivityLogs(data.logs || []);
+      
+      let logsData = [];
+      if (Array.isArray(data)) {
+        logsData = data;
+      } else if (data && Array.isArray(data.logs)) {
+        logsData = data.logs;
+      } else if (data && Array.isArray(data.data)) {
+        logsData = data.data;
+      } else if (data && Array.isArray(data.activities)) {
+        logsData = data.activities;
+      }
+      
+      setActivityLogs(logsData);
     } catch (error) {
       console.error('Error fetching activity logs:', error);
       showNotification(`Failed to fetch activity logs: ${error.message}`, 'error');
+      setActivityLogs([]); // Set empty array on error
     }
   }, [token, makeApiCall, showNotification]);
 
-  // Role management functions
-  const createRole = useCallback(async (roleData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall('/api/admin/management/roles', {
-        method: 'POST',
-        body: JSON.stringify(roleData)
-      });
-      showNotification('Role created successfully');
-      await fetchRoles();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error creating role:', error);
-      showNotification(`Failed to create role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
-
-  const updateRole = useCallback(async (roleId, roleData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
-        method: 'PUT',
-        body: JSON.stringify(roleData)
-      });
-      showNotification('Role updated successfully');
-      await fetchRoles();
-    } catch (error) {
-      console.error('Error updating role:', error);
-      showNotification(`Failed to update role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles]);
-
-  const deleteRole = useCallback(async (roleId) => {
-    if (!token) return;
-    if (!window.confirm('Are you sure you want to delete this role?')) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
-        method: 'DELETE'
-      });
-      showNotification('Role deleted successfully');
-      await fetchRoles();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error deleting role:', error);
-      showNotification(`Failed to delete role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
-
-  // Admin management functions
+  // Admin management functions - MOVED BEFORE handleAdminSubmit
   const createAdmin = useCallback(async (adminData) => {
     if (!token) return;
     
     try {
       setActionLoading(true);
+      
+      // Ensure isActive is properly set (default to true if not provided)
+      const dataToSend = {
+        ...adminData,
+        isActive: adminData.isActive !== undefined ? adminData.isActive : true
+      };
+      
+      console.log('Creating admin with data:', dataToSend);
+      
       await makeApiCall('/api/admin/management/admins', {
         method: 'POST',
-        body: JSON.stringify(adminData)
+        body: JSON.stringify(dataToSend)
       });
       showNotification('Admin user created successfully');
       await fetchAdmins();
@@ -859,6 +902,101 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
     }
   }, [token, makeApiCall, showNotification, fetchAdmins, fetchStats]);
 
+  // Role management functions
+  const createRole = useCallback(async (roleData) => {
+    if (!token) return;
+    
+    try {
+      setActionLoading(true);
+      await makeApiCall('/api/admin/management/roles', {
+        method: 'POST',
+        body: JSON.stringify(roleData)
+      });
+      showNotification('Role created successfully');
+      await fetchRoles();
+      await fetchStats();
+    } catch (error) {
+      console.error('Error creating role:', error);
+      showNotification(`Failed to create role: ${error.message}`, 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
+
+  const updateRole = useCallback(async (roleId, roleData) => {
+    if (!token) return;
+    
+    try {
+      setActionLoading(true);
+      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
+        method: 'PUT',
+        body: JSON.stringify(roleData)
+      });
+      showNotification('Role updated successfully');
+      await fetchRoles();
+    } catch (error) {
+      console.error('Error updating role:', error);
+      showNotification(`Failed to update role: ${error.message}`, 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [token, makeApiCall, showNotification, fetchRoles]);
+
+  const deleteRole = useCallback(async (roleId) => {
+    if (!token) return;
+    if (!window.confirm('Are you sure you want to delete this role?')) return;
+    
+    try {
+      setActionLoading(true);
+      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
+        method: 'DELETE'
+      });
+      showNotification('Role deleted successfully');
+      await fetchRoles();
+      await fetchStats();
+    } catch (error) {
+      console.error('Error deleting role:', error);
+      showNotification(`Failed to delete role: ${error.message}`, 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
+
+  // Check mobile screen
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Token management
+  useEffect(() => {
+    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    if (authToken) {
+      setToken(authToken);
+    } else {
+      showNotification('Please login again', 'error');
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
+    }
+  }, [showNotification]);
+
+  // Data fetching
+  useEffect(() => {
+    if (token) {
+      fetchStats();
+      if (activeTab === 'admins') {
+        fetchAdmins();
+      } else if (activeTab === 'roles') {
+        fetchRoles();
+      } else if (activeTab === 'logs') {
+        fetchActivityLogs();
+      }
+    }
+  }, [token, activeTab, filters]);
+
   // Handle filter changes
   const handleFilterChange = useCallback((key, value) => {
     setFilters(prev => {
@@ -880,14 +1018,14 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
   }, []);
 
   const selectAllAdmins = useCallback(() => {
-    if (selectedAdmins.length === admins.length) {
+    if (selectedAdmins.length === admins.length && admins.length > 0) {
       setSelectedAdmins([]);
     } else {
-      setSelectedAdmins(admins.map(admin => admin._id));
+      setSelectedAdmins(admins.map(admin => admin._id).filter(id => id)); // Filter out undefined IDs
     }
   }, [selectedAdmins.length, admins]);
 
-  // Form handlers
+  // Form handlers - NOW updateAdmin is defined before this
   const handleAdminSubmit = useCallback(async () => {
     if (adminForm.password !== adminForm.confirmPassword) {
       showNotification('Passwords do not match', 'error');
@@ -895,34 +1033,40 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
     }
     
     const adminData = {
-      username: adminForm.username,
+      name: adminForm.username,
       email: adminForm.email,
       phone: adminForm.phone,
       role: adminForm.role,
-      isActive: adminForm.isActive
+      isActive: adminForm.isActive // Make sure this is included
     };
     
     if (adminForm.password) {
       adminData.password = adminForm.password;
     }
     
-    if (selectedAdmin) {
-      await updateAdmin(selectedAdmin._id, adminData);
-    } else {
-      await createAdmin(adminData);
-    }
+    console.log('Submitting admin data:', adminData);
     
-    setShowAdminModal(false);
-    setAdminForm({
-      username: '',
-      email: '',
-      phone: '',
-      role: '',
-      password: '',
-      confirmPassword: '',
-      isActive: true
-    });
-    setSelectedAdmin(null);
+    try {
+      if (selectedAdmin) {
+        await updateAdmin(selectedAdmin._id, adminData);
+      } else {
+        await createAdmin(adminData);
+      }
+      
+      setShowAdminModal(false);
+      setAdminForm({
+        username: '',
+        email: '',
+        phone: '',
+        role: '',
+        password: '',
+        confirmPassword: '',
+        isActive: true // Reset to active for new admin
+      });
+      setSelectedAdmin(null);
+    } catch (error) {
+      // Error handling is done in the API functions
+    }
   }, [adminForm, selectedAdmin, updateAdmin, createAdmin, showNotification]);
 
   const handleRoleSubmit = useCallback(async () => {
@@ -950,13 +1094,13 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
   const handleEditAdmin = useCallback((admin) => {
     setSelectedAdmin(admin);
     setAdminForm({
-      username: admin.username,
-      email: admin.email,
+      username: admin.name || admin.username || '',
+      email: admin.email || '',
       phone: admin.phone || '',
-      role: admin.role,
+      role: admin.role || '',
       password: '',
       confirmPassword: '',
-      isActive: admin.isActive
+      isActive: admin.isActive !== undefined ? admin.isActive : true
     });
     setShowAdminModal(true);
   }, []);
@@ -978,9 +1122,9 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
   const handleConfigureRole = useCallback((role) => {
     setSelectedRole(role);
     setRoleForm({
-      name: role.name,
+      name: role.name || '',
       description: role.description || '',
-      permissions: role.permissions || []
+      permissions: Array.isArray(role.permissions) ? role.permissions : []
     });
     setShowRoleModal(true);
   }, []);
@@ -995,7 +1139,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
     setShowRoleModal(true);
   }, []);
 
-  // Status badges and utilities
+  // Status badges and utilities with safe data access
   const getStatusBadge = useCallback((isActive) => {
     const statusConfig = {
       true: { bg: '#28a745', text: 'Active' },
@@ -1020,7 +1164,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
   }, []);
 
   const getRoleBadge = useCallback((role) => {
-    const config = ROLE_CONFIG[role] || { color: '#6c757d', name: role };
+    const config = ROLE_CONFIG[role] || { color: '#6c757d', name: role || 'Unknown' };
     
     return (
       <span style={{
@@ -1039,13 +1183,34 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
 
   const formatDate = useCallback((dateString) => {
     if (!dateString) return 'Never';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      return new Date(dateString).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid Date';
+    }
+  }, []);
+
+  // Safe function to get initials from username - FIXED THE SPLIT ERROR
+  const getInitials = useCallback((username) => {
+    if (!username || typeof username !== 'string') return '??';
+    
+    // Remove any extra spaces and split
+    const cleanUsername = username.trim().replace(/\s+/g, ' ');
+    const names = cleanUsername.split(' ').filter(name => name.length > 0);
+    
+    if (names.length === 0) return '??';
+    
+    if (names.length === 1) {
+      return names[0].charAt(0).toUpperCase();
+    }
+    
+    return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
   }, []);
 
   // Notification Component
@@ -1310,7 +1475,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
             }} />
             <p style={{ marginTop: '16px', color: '#718096' }}>Loading admin users...</p>
           </div>
-        ) : admins.length === 0 ? (
+        ) : !Array.isArray(admins) || admins.length === 0 ? (
           <div style={{ padding: '60px 20px', textAlign: 'center', color: '#718096' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>👨‍💼</div>
             <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No admin users found</h3>
@@ -1376,7 +1541,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                         color: '#fff',
                         fontWeight: 'bold'
                       }}>
-                        {admin.username.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        {getInitials(admin.username)}
                       </div>
                       <div>
                         <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
@@ -1459,7 +1624,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
         )}
       </div>
 
-      {!loading && admins.length > 0 && <PaginationControls />}
+      {!loading && Array.isArray(admins) && admins.length > 0 && <PaginationControls />}
     </div>
   );
 
@@ -1495,11 +1660,11 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
         gap: '20px',
         marginBottom: '32px'
       }}>
-        {roles.map((role) => {
+        {Array.isArray(roles) && roles.map((role) => {
           const roleConfig = ROLE_CONFIG[role.name] || { color: '#6c757d', name: role.name, priority: 99 };
           return (
             <div
-              key={role._id}
+              key={role._id || role.id || Math.random()}
               style={{
                 backgroundColor: '#fff',
                 padding: '24px',
@@ -1574,7 +1739,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                   color: '#1a202c',
                   margin: '0 0 8px 0'
                 }}>
-                  Permissions ({role.permissions.length})
+                  Permissions ({Array.isArray(role.permissions) ? role.permissions.length : 0})
                 </h4>
                 <div style={{
                   display: 'flex',
@@ -1582,9 +1747,10 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                   gap: '6px'
                 }}>
                   {Object.entries(PERMISSION_CATEGORIES).map(([categoryKey, category]) => {
-                    const categoryPermissions = role.permissions.filter(p => 
-                      ALL_PERMISSIONS.find(ap => ap.id === p && ap.category === categoryKey)
-                    );
+                    const categoryPermissions = Array.isArray(role.permissions) ? 
+                      role.permissions.filter(p => 
+                        ALL_PERMISSIONS.find(ap => ap.id === p && ap.category === categoryKey)
+                      ) : [];
                     
                     if (categoryPermissions.length === 0) return null;
                     
@@ -1618,7 +1784,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                 fontSize: '12px',
                 color: '#718096'
               }}>
-                Access to {role.permissions.length} of {ALL_PERMISSIONS.length} total permissions
+                Access to {Array.isArray(role.permissions) ? role.permissions.length : 0} of {ALL_PERMISSIONS.length} total permissions
               </div>
             </div>
           );
@@ -1656,11 +1822,11 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                 }}>
                   Permission
                 </th>
-                {roles.map((role) => {
+                {Array.isArray(roles) && roles.map((role) => {
                   const roleConfig = ROLE_CONFIG[role.name] || { color: '#6c757d', name: role.name };
                   return (
                     <th
-                      key={role._id}
+                      key={role._id || role.id || Math.random()}
                       style={{
                         padding: '12px',
                         textAlign: 'center',
@@ -1682,7 +1848,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                 <React.Fragment key={categoryKey}>
                   <tr style={{ backgroundColor: '#f8f9fa' }}>
                     <td
-                      colSpan={roles.length + 1}
+                      colSpan={(Array.isArray(roles) ? roles.length : 0) + 1}
                       style={{
                         padding: '8px 12px',
                         fontSize: '13px',
@@ -1703,12 +1869,12 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                       }}>
                         {permission.name}
                       </td>
-                      {roles.map((role) => {
-                        const hasPermission = role.permissions.includes(permission.id);
+                      {Array.isArray(roles) && roles.map((role) => {
+                        const hasPermission = Array.isArray(role.permissions) && role.permissions.includes(permission.id);
                         
                         return (
                           <td
-                            key={role._id}
+                            key={role._id || role.id || Math.random()}
                             style={{
                               padding: '8px 12px',
                               textAlign: 'center'
@@ -1786,7 +1952,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {activityLogs.length > 0 ? activityLogs.map((log, index) => (
+        {Array.isArray(activityLogs) && activityLogs.length > 0 ? activityLogs.map((log, index) => (
           <div
             key={index}
             style={{
@@ -1818,13 +1984,13 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
                 color: '#1a202c',
                 marginBottom: '4px'
               }}>
-                {log.description}
+                {log.description || 'No description'}
               </div>
               <div style={{
                 fontSize: '12px',
                 color: '#718096'
               }}>
-                by {log.adminName} • {formatDate(log.timestamp)} • IP: {log.ipAddress}
+                by {log.adminName || 'Unknown'} • {formatDate(log.timestamp)} • IP: {log.ipAddress || 'Unknown'}
               </div>
             </div>
             <div style={{
@@ -1835,7 +2001,7 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
               fontSize: '11px',
               fontWeight: '600'
             }}>
-              {log.status}
+              {log.status || 'unknown'}
             </div>
           </div>
         )) : (
@@ -1889,132 +2055,135 @@ const makeApiCall = useCallback(async (endpoint, options = {}) => {
       success: '#28a745',
       failed: '#dc3545',
       warning: '#ff8c00',
-      info: '#007bff'
+      info: '#007bff',
+      unknown: '#6c757d'
     };
-    return colors[status] || colors.info;
+    return colors[status] || colors.unknown;
   };
 
   return (
-    <div style={{
-      width: '100%',
-      maxWidth: '100%',
-      backgroundColor: '#f8f9fa',
-      minHeight: '100vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-    }}>
-      <style>{`
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
-        }
-      `}</style>
-      
-      <NotificationBanner />
-      
-      {/* Header Stats Cards */}
+    <ErrorBoundary>
       <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: isMobile ? '16px' : '24px',
-        marginBottom: '32px',
-        padding: '20px'
+        width: '100%',
+        maxWidth: '100%',
+        backgroundColor: '#f8f9fa',
+        minHeight: '100vh',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
       }}>
-        {[
-          { label: 'Total Admins', value: stats.totalAdmins, color: '#ff3b30', icon: '👨‍💼' },
-          { label: 'Active Admins', value: stats.activeAdmins, color: '#28a745', icon: '✅' },
-          { label: 'Inactive Admins', value: stats.inactiveAdmins, color: '#6c757d', icon: '⏸️' },
-          { label: 'Total Roles', value: stats.totalRoles, color: '#007bff', icon: '🔑' }
-        ].map((stat, index) => (
-          <div key={index} style={{
-            backgroundColor: '#fff',
-            padding: isMobile ? '20px' : '24px',
-            borderRadius: '16px',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e2e8f0',
-            flex: '1',
-            minWidth: isMobile ? '140px' : '200px'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-              <span style={{ fontSize: '24px' }}>{stat.icon}</span>
-              <h3 style={{ color: '#1a202c', fontSize: '14px', fontWeight: '600', margin: 0 }}>
-                {stat.label}
-              </h3>
-            </div>
-            <p style={{ color: stat.color, fontSize: isMobile ? '20px' : '24px', fontWeight: '700', margin: 0 }}>
-              {stat.value.toLocaleString()}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Card */}
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e2e8f0',
-        overflow: 'hidden',
-        margin: '0 20px 20px 20px'
-      }}>
-        {/* Tab Navigation */}
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+        
+        <NotificationBanner />
+        
+        {/* Header Stats Cards */}
         <div style={{
-          padding: isMobile ? '20px' : '24px',
-          borderBottom: '1px solid #e2e8f0',
-          backgroundColor: '#f8f9fa'
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: isMobile ? '16px' : '24px',
+          marginBottom: '32px',
+          padding: '20px'
         }}>
-          <div style={{
-            display: 'flex',
-            flexDirection: isMobile ? 'column' : 'row',
-            gap: '16px',
-            alignItems: isMobile ? 'stretch' : 'center',
-            justifyContent: 'space-between',
-            marginBottom: '20px'
-          }}>
-            <h2 style={{
-              color: '#1a202c',
-              fontSize: isMobile ? '20px' : '24px',
-              fontWeight: '700',
-              margin: 0
+          {[
+            { label: 'Total Admins', value: stats.totalAdmins, color: '#ff3b30', icon: '👨‍💼' },
+            { label: 'Active Admins', value: stats.activeAdmins, color: '#28a745', icon: '✅' },
+            { label: 'Inactive Admins', value: stats.inactiveAdmins, color: '#6c757d', icon: '⏸️' },
+            { label: 'Total Roles', value: stats.totalRoles, color: '#007bff', icon: '🔑' }
+          ].map((stat, index) => (
+            <div key={index} style={{
+              backgroundColor: '#fff',
+              padding: isMobile ? '20px' : '24px',
+              borderRadius: '16px',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #e2e8f0',
+              flex: '1',
+              minWidth: isMobile ? '140px' : '200px'
             }}>
-              Admin Management
-            </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                <span style={{ fontSize: '24px' }}>{stat.icon}</span>
+                <h3 style={{ color: '#1a202c', fontSize: '14px', fontWeight: '600', margin: 0 }}>
+                  {stat.label}
+                </h3>
+              </div>
+              <p style={{ color: stat.color, fontSize: isMobile ? '20px' : '24px', fontWeight: '700', margin: 0 }}>
+                {stat.value.toLocaleString()}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Main Content Card */}
+        <div style={{
+          backgroundColor: '#fff',
+          borderRadius: '16px',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          overflow: 'hidden',
+          margin: '0 20px 20px 20px'
+        }}>
+          {/* Tab Navigation */}
+          <div style={{
+            padding: isMobile ? '20px' : '24px',
+            borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#f8f9fa'
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: '16px',
+              alignItems: isMobile ? 'stretch' : 'center',
+              justifyContent: 'space-between',
+              marginBottom: '20px'
+            }}>
+              <h2 style={{
+                color: '#1a202c',
+                fontSize: isMobile ? '20px' : '24px',
+                fontWeight: '700',
+                margin: 0
+              }}>
+                Admin Management
+              </h2>
+            </div>
+            
+            <TabNavigation />
           </div>
-          
-          <TabNavigation />
+
+          {/* Tab Content */}
+          <div style={{ padding: isMobile ? '16px' : '24px' }}>
+            {activeTab === 'admins' && <AdminUsersContent />}
+            {activeTab === 'roles' && <RolesPermissionsContent />}
+            {activeTab === 'logs' && <ActivityLogsContent />}
+          </div>
         </div>
 
-        {/* Tab Content */}
-        <div style={{ padding: isMobile ? '16px' : '24px' }}>
-          {activeTab === 'admins' && <AdminUsersContent />}
-          {activeTab === 'roles' && <RolesPermissionsContent />}
-          {activeTab === 'logs' && <ActivityLogsContent />}
-        </div>
+        {/* Modals */}
+        <AdminModal 
+          showAdminModal={showAdminModal}
+          setShowAdminModal={setShowAdminModal}
+          selectedAdmin={selectedAdmin}
+          adminForm={adminForm}
+          setAdminForm={setAdminForm}
+          actionLoading={actionLoading}
+          handleAdminSubmit={handleAdminSubmit}
+          ROLE_CONFIG={ROLE_CONFIG}
+        />
+
+        <RoleModal 
+          showRoleModal={showRoleModal}
+          setShowRoleModal={setShowRoleModal}
+          selectedRole={selectedRole}
+          roleForm={roleForm}
+          setRoleForm={setRoleForm}
+          actionLoading={actionLoading}
+          handleRoleSubmit={handleRoleSubmit}
+          ALL_PERMISSIONS={ALL_PERMISSIONS}
+          PERMISSION_CATEGORIES={PERMISSION_CATEGORIES}
+        />
       </div>
-
-      {/* Modals */}
-      <AdminModal 
-        showAdminModal={showAdminModal}
-        setShowAdminModal={setShowAdminModal}
-        selectedAdmin={selectedAdmin}
-        adminForm={adminForm}
-        setAdminForm={setAdminForm}
-        actionLoading={actionLoading}
-        handleAdminSubmit={handleAdminSubmit}
-        ROLE_CONFIG={ROLE_CONFIG}
-      />
-
-      <RoleModal 
-        showRoleModal={showRoleModal}
-        setShowRoleModal={setShowRoleModal}
-        selectedRole={selectedRole}
-        roleForm={roleForm}
-        setRoleForm={setRoleForm}
-        actionLoading={actionLoading}
-        handleRoleSubmit={handleRoleSubmit}
-        ALL_PERMISSIONS={ALL_PERMISSIONS}
-        PERMISSION_CATEGORIES={PERMISSION_CATEGORIES}
-      />
-    </div>
+    </ErrorBoundary>
   );
 };
 

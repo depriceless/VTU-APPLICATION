@@ -1681,19 +1681,28 @@ router.get('/management/admins', adminAuth, async (req, res) => {
 // POST /api/admin/management/admins - Create new admin user
 router.post('/management/admins', adminAuth, async (req, res) => {
   try {
-    const { name, email, phone, role, password, status } = req.body;
+    const { name, username, email, phone, role, password, status, isActive } = req.body;
 
     // Validation
-    if (!name || !email || !password || !role) {
+    if (!name && !username) {
       return res.status(400).json({
         success: false,
-        message: 'Name, email, password, and role are required'
+        message: 'Name or username is required'
       });
     }
 
+    if (!email || !password || !role) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, and role are required'
+      });
+    }
+
+    const adminUsername = name || username;
+
     // Check if admin already exists
     const existingAdmin = await Admin.findOne({ 
-      $or: [{ email }, { username: name }] 
+      $or: [{ email }, { username: adminUsername }] 
     });
     
     if (existingAdmin) {
@@ -1703,29 +1712,58 @@ router.post('/management/admins', adminAuth, async (req, res) => {
       });
     }
 
+    // Determine isActive value - prioritize isActive boolean over status string
+    let activeStatus = true; // Default to active
+    
+    if (isActive !== undefined) {
+      // Use isActive if provided
+      activeStatus = Boolean(isActive);
+    } else if (status !== undefined) {
+      // Fall back to status string
+      activeStatus = status === 'active';
+    }
+
+    console.log('Creating admin with:', {
+      username: adminUsername,
+      email,
+      role,
+      isActive: activeStatus,
+      receivedIsActive: isActive,
+      receivedStatus: status
+    });
+
     // Create new admin
     const newAdmin = new Admin({
-      username: name,
+      username: adminUsername,
       email,
       phone: phone || null,
       password, // Will be hashed by pre-save middleware
       role,
-      isActive: status === 'active'
+      isActive: activeStatus // Use the determined active status
     });
 
     await newAdmin.save();
+
+    // Verify the save worked
+    const verifyAdmin = await Admin.findById(newAdmin._id).select('-password');
+    console.log('Admin created successfully:', {
+      id: verifyAdmin._id,
+      username: verifyAdmin.username,
+      isActive: verifyAdmin.isActive
+    });
 
     res.status(201).json({
       success: true,
       message: 'Admin user created successfully',
       admin: {
-        _id: newAdmin._id,
-        name: newAdmin.username,
-        email: newAdmin.email,
-        phone: newAdmin.phone,
-        role: newAdmin.role,
-        status: newAdmin.isActive ? 'active' : 'inactive',
-        createdAt: newAdmin.createdAt
+        _id: verifyAdmin._id,
+        name: verifyAdmin.username,
+        email: verifyAdmin.email,
+        phone: verifyAdmin.phone,
+        role: verifyAdmin.role,
+        isActive: verifyAdmin.isActive,
+        status: verifyAdmin.isActive ? 'active' : 'inactive',
+        createdAt: verifyAdmin.createdAt
       }
     });
 
@@ -1733,7 +1771,8 @@ router.post('/management/admins', adminAuth, async (req, res) => {
     console.error('Error creating admin:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to create admin user'
+      message: 'Failed to create admin user',
+      error: error.message
     });
   }
 });
@@ -1742,7 +1781,7 @@ router.post('/management/admins', adminAuth, async (req, res) => {
 router.put('/management/admins/:adminId', adminAuth, async (req, res) => {
   try {
     const { adminId } = req.params;
-    const { name, email, phone, role, password, status } = req.body;
+    const { name, username, email, phone, role, password, status, isActive } = req.body;
 
     const admin = await Admin.findById(adminId);
     if (!admin) {
@@ -1753,26 +1792,48 @@ router.put('/management/admins/:adminId', adminAuth, async (req, res) => {
     }
 
     // Update fields
-    if (name) admin.username = name;
+    if (name || username) admin.username = name || username;
     if (email) admin.email = email;
     if (phone !== undefined) admin.phone = phone;
     if (role) admin.role = role;
-    if (status) admin.isActive = status === 'active';
+    
+    // Handle status update - prioritize isActive over status
+    if (isActive !== undefined) {
+      admin.isActive = Boolean(isActive);
+    } else if (status !== undefined) {
+      admin.isActive = status === 'active';
+    }
+    
     if (password) admin.password = password; // Will be hashed by pre-save middleware
 
+    console.log('Updating admin:', {
+      id: adminId,
+      isActive: admin.isActive,
+      receivedIsActive: isActive,
+      receivedStatus: status
+    });
+
     await admin.save();
+
+    // Verify update
+    const verifyAdmin = await Admin.findById(adminId).select('-password');
+    console.log('Admin updated successfully:', {
+      id: verifyAdmin._id,
+      isActive: verifyAdmin.isActive
+    });
 
     res.json({
       success: true,
       message: 'Admin user updated successfully',
       admin: {
-        _id: admin._id,
-        name: admin.username,
-        email: admin.email,
-        phone: admin.phone,
-        role: admin.role,
-        status: admin.isActive ? 'active' : 'inactive',
-        updatedAt: admin.updatedAt
+        _id: verifyAdmin._id,
+        name: verifyAdmin.username,
+        email: verifyAdmin.email,
+        phone: verifyAdmin.phone,
+        role: verifyAdmin.role,
+        isActive: verifyAdmin.isActive,
+        status: verifyAdmin.isActive ? 'active' : 'inactive',
+        updatedAt: verifyAdmin.updatedAt
       }
     });
 
@@ -1780,44 +1841,8 @@ router.put('/management/admins/:adminId', adminAuth, async (req, res) => {
     console.error('Error updating admin:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update admin user'
-    });
-  }
-});
-
-// DELETE /api/admin/management/admins/:adminId - Delete admin user
-router.delete('/management/admins/:adminId', adminAuth, async (req, res) => {
-  try {
-    const { adminId } = req.params;
-
-    // Prevent deleting self
-    if (adminId === req.admin.id) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot delete your own account'
-      });
-    }
-
-    const admin = await Admin.findById(adminId);
-    if (!admin) {
-      return res.status(404).json({
-        success: false,
-        message: 'Admin user not found'
-      });
-    }
-
-    await Admin.findByIdAndDelete(adminId);
-
-    res.json({
-      success: true,
-      message: 'Admin user deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Error deleting admin:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to delete admin user'
+      message: 'Failed to update admin user',
+      error: error.message
     });
   }
 });
@@ -1826,10 +1851,10 @@ router.delete('/management/admins/:adminId', adminAuth, async (req, res) => {
 router.put('/management/admins/:adminId/status', adminAuth, async (req, res) => {
   try {
     const { adminId } = req.params;
-    const { status } = req.body;
+    const { status, isActive } = req.body;
 
     // Prevent disabling self
-    if (adminId === req.admin.id && status !== 'active') {
+    if (adminId === req.admin.id && (isActive === false || status === 'inactive')) {
       return res.status(400).json({
         success: false,
         message: 'Cannot deactivate your own account'
@@ -1844,16 +1869,45 @@ router.put('/management/admins/:adminId/status', adminAuth, async (req, res) => 
       });
     }
 
-    admin.isActive = status === 'active';
+    // Determine new active status
+    let newActiveStatus;
+    if (isActive !== undefined) {
+      newActiveStatus = Boolean(isActive);
+    } else if (status !== undefined) {
+      newActiveStatus = status === 'active';
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Either isActive or status must be provided'
+      });
+    }
+
+    console.log('Updating admin status:', {
+      id: adminId,
+      oldStatus: admin.isActive,
+      newStatus: newActiveStatus,
+      receivedIsActive: isActive,
+      receivedStatus: status
+    });
+
+    admin.isActive = newActiveStatus;
     await admin.save();
+
+    // Verify update
+    const verifyAdmin = await Admin.findById(adminId).select('-password');
+    console.log('Admin status updated:', {
+      id: verifyAdmin._id,
+      isActive: verifyAdmin.isActive
+    });
 
     res.json({
       success: true,
-      message: `Admin ${status === 'active' ? 'activated' : 'deactivated'} successfully`,
+      message: `Admin ${newActiveStatus ? 'activated' : 'deactivated'} successfully`,
       admin: {
-        _id: admin._id,
-        status: admin.isActive ? 'active' : 'inactive',
-        updatedAt: admin.updatedAt
+        _id: verifyAdmin._id,
+        isActive: verifyAdmin.isActive,
+        status: verifyAdmin.isActive ? 'active' : 'inactive',
+        updatedAt: verifyAdmin.updatedAt
       }
     });
 
@@ -1861,7 +1915,8 @@ router.put('/management/admins/:adminId/status', adminAuth, async (req, res) => 
     console.error('Error updating admin status:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update admin status'
+      message: 'Failed to update admin status',
+      error: error.message
     });
   }
 });

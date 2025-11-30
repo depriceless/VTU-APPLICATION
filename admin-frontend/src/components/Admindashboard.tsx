@@ -9,13 +9,13 @@ import NotificationManagement from './NotificationManagement';
 import SupportTicketDetail from './SupportTicketDetail';
 
 const AdminDashboard = () => {
-  const [isExpanded, setIsExpanded] = useState(false); // Start collapsed on mobile
+  const [isExpanded, setIsExpanded] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
-  // Dashboard state - now uses real API data
+  // Dashboard state
   const [dashboardStats, setDashboardStats] = useState({
     todayRevenue: { value: 0, change: 0, loading: true },
     totalTransactions: { value: 0, timeframe: 'Last 24 hours', loading: true },
@@ -58,199 +58,6 @@ const AdminDashboard = () => {
     };
   }, []);
 
-// Check screen size
-  useEffect(() => {
-    const checkScreenSize = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile && isExpanded) {
-        setIsExpanded(false);
-      }
-    };
-
-    checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
-    return () => window.removeEventListener('resize', checkScreenSize);
-  }, [isExpanded]);
-
-  // Add this useEffect right here:
-// Add this useEffect right here:
-// Add this useEffect right here:
-useEffect(() => {
-  console.log('Setting up showTicket event listener');
-  
-  const handleShowTicket = (event) => {
-    console.log('Received showTicket event:', event.detail);
-    console.log('Setting activeMenu to:', `ticket-${event.detail.ticketId}`);
-    setActiveMenu(`ticket-${event.detail.ticketId}`);
-  };
-  
-  window.addEventListener('showTicket', handleShowTicket);
-  return () => {
-    console.log('Cleaning up showTicket event listener');
-    window.removeEventListener('showTicket', handleShowTicket);
-  };
-}, []);
-
-  // API functions to fetch real data from your backend
-  const fetchDashboardStats = async () => {
-    try {
-      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/stats');
-      if (!response.ok) throw new Error('Failed to fetch dashboard stats');
-      
-      const data = await response.json();
-      
-      setDashboardStats({
-        todayRevenue: { 
-          value: data.todayRevenue, 
-          change: data.revenueChange, 
-          loading: false 
-        },
-        totalTransactions: { 
-          value: data.totalTransactions, 
-          timeframe: 'Last 24 hours', 
-          loading: false 
-        },
-        activeUsers: { 
-          value: data.activeUsers, 
-          status: 'Online now', 
-          loading: false 
-        },
-        successRate: { 
-          value: data.successRate, 
-          context: 'Last 24 hours', 
-          loading: false 
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
-      setDashboardStats(prev => ({
-        todayRevenue: { value: 0, change: 0, loading: false },
-        totalTransactions: { value: 0, timeframe: 'Last 24 hours', loading: false },
-        activeUsers: { value: 0, status: 'Offline', loading: false },
-        successRate: { value: 0, context: 'No data', loading: false }
-      }));
-    }
-  };
-
-  const fetchRecentActivities = async () => {
-    try {
-      setActivitiesLoading(true);
-      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/recent-activities');
-      if (!response.ok) throw new Error('Failed to fetch activities');
-      
-      const data = await response.json();
-      setRecentActivities(data);
-    } catch (error) {
-      console.error('Error fetching recent activities:', error);
-      setRecentActivities([
-        { icon: '⚠️', description: 'Unable to load activities - API connection failed', timeAgo: 'Just now' }
-      ]);
-    } finally {
-      setActivitiesLoading(false);
-    }
-  };
-
-  const fetchMenuStats = async () => {
-  try {
-    const response = await fetch('https://vtu-application.onrender.com/api/services/stats');
-    if (!response.ok) throw new Error('Failed to fetch menu stats');
-    
-    const data = await response.json();
-    setMenuStats(data.data); // Changed: added .data since API returns { success: true, data: {...} }
-  } catch (error) {
-    console.error('Error fetching menu stats:', error);
-    setMenuStats({});
-  }
-};
-
-
- // Function to fetch admin profile
-  const fetchAdminProfile = async () => {
-  try {
-    const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    console.log('Admin token exists:', !!token);
-    console.log('Token value:', token ? token.substring(0, 20) + '...' : 'null');
-    
-    if (!token) {
-      console.log('No token found, redirecting to login');
-      window.location.href = '/';
-      return;
-    }
-    
-    // Use API_CONFIG for consistent URL handling
-    const isDevelopment = window.location.hostname === 'localhost' || 
-                         window.location.hostname === '127.0.0.1';
-    const BASE_URL = isDevelopment 
-      ? 'http://localhost:5002' 
-      : 'https://vtu-application.onrender.com';
-    
-    const response = await fetch(`${BASE_URL}/api/admin/profile`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      console.log('Response status:', response.status);
-      console.log('Response ok:', response.ok);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.log('Error response:', errorText);
-        throw new Error(`Failed to fetch admin profile: ${response.status} ${errorText}`);
-      }
-      
-      const data = await response.json();
-      console.log('Full API response:', data);
-      
-      if (data.success && data.profile) {
-        console.log('Setting admin profile with:', data.profile);
-        setAdminProfile({
-          name: data.profile.name,
-          email: data.profile.email,
-          role: data.profile.role === 'super_admin' ? 'Super Administrator' : 
-                data.profile.role === 'admin' ? 'Administrator' : 
-                data.profile.role === 'support' ? 'Support Staff' : 'Admin User',
-          phone: data.profile.phone || '+234 123 456 7890',
-          avatar: data.profile.avatar
-        });
-      } else {
-        console.log('API response missing success or profile:', data);
-      }
-    } catch (error) {
-      console.error('Error fetching admin profile:', error);
-      // Keep fallback data if API fails
-      setAdminProfile(prev => ({
-        ...prev,
-        name: 'Admin User (Offline)',
-        email: 'admin@vtuapp.com'
-      }));
-    }
-  };
-
-  // Fetch data on component mount and set up auto-refresh
-  useEffect(() => {
-    // Initial fetch
-    fetchDashboardStats();
-    fetchRecentActivities(); 
-    fetchMenuStats();
-    fetchAdminProfile(); // Add this line
-
-    // Set up auto-refresh intervals
-    const statsInterval = setInterval(fetchDashboardStats, 30000);
-    const activitiesInterval = setInterval(fetchRecentActivities, 60000);
-    const menuStatsInterval = setInterval(fetchMenuStats, 300000);
-    const profileInterval = setInterval(fetchAdminProfile, 60000); // Refresh profile every minute
-
-    return () => {
-      clearInterval(statsInterval);
-      clearInterval(activitiesInterval);
-      clearInterval(menuStatsInterval);
-      clearInterval(profileInterval);
-    };
-  }, []);
-
   // Check screen size
   useEffect(() => {
     const checkScreenSize = () => {
@@ -265,6 +72,181 @@ useEffect(() => {
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
   }, [isExpanded]);
+
+  // Ticket event listener
+  useEffect(() => {
+    const handleShowTicket = (event) => {
+      setActiveMenu(`ticket-${event.detail.ticketId}`);
+    };
+    
+    window.addEventListener('showTicket', handleShowTicket);
+    return () => {
+      window.removeEventListener('showTicket', handleShowTicket);
+    };
+  }, []);
+
+  // API functions
+  const fetchDashboardStats = async () => {
+    try {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/stats', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+      
+      const data = await response.json();
+      
+      setDashboardStats({
+        todayRevenue: { 
+          value: data.todayRevenue || 0, 
+          change: data.revenueChange || 0, 
+          loading: false 
+        },
+        totalTransactions: { 
+          value: data.totalTransactions || 0, 
+          timeframe: 'Last 24 hours', 
+          loading: false 
+        },
+        activeUsers: { 
+          value: data.activeUsers || 0, 
+          status: 'Online now', 
+          loading: false 
+        },
+        successRate: { 
+          value: data.successRate || 0, 
+          context: 'Last 24 hours', 
+          loading: false 
+        }
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      setDashboardStats({
+        todayRevenue: { value: 0, change: 0, loading: false },
+        totalTransactions: { value: 0, timeframe: 'Last 24 hours', loading: false },
+        activeUsers: { value: 0, status: 'Offline', loading: false },
+        successRate: { value: 0, context: 'No data', loading: false }
+      });
+    }
+  };
+
+  const fetchRecentActivities = async () => {
+    try {
+      setActivitiesLoading(true);
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/recent-activities', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch activities');
+      
+      const data = await response.json();
+      setRecentActivities(data.activities || data || []);
+    } catch (error) {
+      console.error('Error fetching recent activities:', error);
+      setRecentActivities([
+        { icon: '⚠️', description: 'Unable to load activities - API connection failed', timeAgo: 'Just now' }
+      ]);
+    } finally {
+      setActivitiesLoading(false);
+    }
+  };
+
+  const fetchMenuStats = async () => {
+    try {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/services/stats', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch menu stats');
+      
+      const data = await response.json();
+      setMenuStats(data.data || data || {});
+    } catch (error) {
+      console.error('Error fetching menu stats:', error);
+      setMenuStats({});
+    }
+  };
+
+  const fetchAdminProfile = async () => {
+    try {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      
+      if (!token) {
+        window.location.href = '/';
+        return;
+      }
+      
+      const response = await fetch('https://vtu-application.onrender.com/api/admin/profile', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include'
+      });
+      
+      if (response.status === 401) {
+        localStorage.removeItem('admin_token');
+        sessionStorage.removeItem('admin_token');
+        window.location.href = '/';
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.profile) {
+        setAdminProfile({
+          name: data.profile.name || 'Admin User',
+          email: data.profile.email || 'admin@vtuapp.com',
+          role: data.profile.role === 'super_admin' ? 'Super Administrator' : 
+                data.profile.role === 'admin' ? 'Administrator' : 
+                data.profile.role === 'support' ? 'Support Staff' : 'Admin User',
+          phone: data.profile.phone || '+234 123 456 7890',
+          avatar: data.profile.avatar || 'AU'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching admin profile:', error);
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        console.log('Network error - using cached profile data');
+      }
+    }
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchDashboardStats();
+    fetchRecentActivities();
+    fetchMenuStats();
+    fetchAdminProfile();
+
+    // Set up auto-refresh intervals
+    const statsInterval = setInterval(fetchDashboardStats, 30000);
+    const activitiesInterval = setInterval(fetchRecentActivities, 60000);
+    const menuStatsInterval = setInterval(fetchMenuStats, 300000);
+    const profileInterval = setInterval(fetchAdminProfile, 60000);
+
+    return () => {
+      clearInterval(statsInterval);
+      clearInterval(activitiesInterval);
+      clearInterval(menuStatsInterval);
+      clearInterval(profileInterval);
+    };
+  }, []);
 
   // Menu items with real data from backend
   const menuItems = [
@@ -559,35 +541,29 @@ useEffect(() => {
   const clearSearch = () => setSearchQuery('');
   
   const handleLogout = () => {
-  // Get the remembered username before clearing storage
-  const rememberedUsername = localStorage.getItem('remembered_username');
-  
-  // Clear localStorage except remembered username
-  const itemsToKeep = ['remembered_username'];
-  Object.keys(localStorage).forEach(key => {
-    if (!itemsToKeep.includes(key)) {
-      localStorage.removeItem(key);
+    const rememberedUsername = localStorage.getItem('remembered_username');
+    
+    const itemsToKeep = ['remembered_username'];
+    Object.keys(localStorage).forEach(key => {
+      if (!itemsToKeep.includes(key)) {
+        localStorage.removeItem(key);
+      }
+    });
+    
+    sessionStorage.clear();
+    
+    document.cookie.split(';').forEach(cookie => {
+      const eqPos = cookie.indexOf('=');
+      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+    });
+    
+    if (rememberedUsername) {
+      localStorage.setItem('remembered_username', rememberedUsername);
     }
-  });
-  
-  // Clear sessionStorage completely
-  sessionStorage.clear();
-  
-  // Clear cookies
-  document.cookie.split(';').forEach(cookie => {
-    const eqPos = cookie.indexOf('=');
-    const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
-    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-  });
-  
-  // Restore remembered username if it existed
-  if (rememberedUsername) {
-    localStorage.setItem('remembered_username', rememberedUsername);
-  }
-  
-  // Redirect to login page
-  window.location.href = '/'; 
-};
+    
+    window.location.href = '/'; 
+  };
 
   const handleProfile = () => {
     setActiveMenu('profile');
@@ -773,140 +749,147 @@ useEffect(() => {
   };
 
   // Profile content
-  const renderProfileContent = () => (
-    <div style={{width: '100%', maxWidth: '100%'}}>
+ // Profile content
+const renderProfileContent = () => (
+  <div style={{width: '100%', maxWidth: '100%'}}>
+    <div style={{
+      backgroundColor: '#fff',
+      padding: isMobile ? '16px' : '24px',
+      borderRadius: '12px',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #e2e8f0',
+      marginBottom: '20px',
+      width: '100%'
+    }}>
       <div style={{
-        backgroundColor: '#fff',
-        padding: isMobile ? '16px' : '24px',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e2e8f0',
-        marginBottom: '20px',
-        width: '100%'
+        display: 'flex',
+        alignItems: isMobile ? 'flex-start' : 'center',
+        gap: isMobile ? '16px' : '24px',
+        marginBottom: isMobile ? '20px' : '24px',
+        flexDirection: isMobile ? 'column' : 'row',
+        textAlign: isMobile ? 'center' : 'left'
       }}>
         <div style={{
+          width: isMobile ? '60px' : '80px',
+          height: isMobile ? '60px' : '80px',
+          background: 'linear-gradient(135deg, #667eea, #764ba2)',
+          borderRadius: '50%',
           display: 'flex',
-          alignItems: isMobile ? 'flex-start' : 'center',
-          gap: isMobile ? '16px' : '24px',
-          marginBottom: isMobile ? '20px' : '24px',
-          flexDirection: isMobile ? 'column' : 'row',
-          textAlign: isMobile ? 'center' : 'left'
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: isMobile ? '20px' : '24px',
+          color: '#fff',
+          fontWeight: 'bold'
         }}>
-          <div style={{
-            width: isMobile ? '60px' : '80px',
-            height: isMobile ? '60px' : '80px',
-            background: 'linear-gradient(135deg, #667eea, #764ba2)',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: isMobile ? '20px' : '24px',
-            color: '#fff',
-            fontWeight: 'bold'
-          }}>
-            {adminProfile.avatar}
-          </div>
-          <div>
-            <h2 style={{fontSize: isMobile ? '18px' : '20px', fontWeight: '700', color: '#1a202c', margin: '0 0 8px 0'}}>
-              {adminProfile.name}
-            </h2>
-            <p style={{fontSize: isMobile ? '14px' : '16px', color: '#718096', margin: '0 0 8px 0'}}>
-              {adminProfile.email}
-            </p>
-            <span style={{
-              backgroundColor: '#28a745',
-              color: '#fff',
-              padding: '4px 8px',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '600'
-            }}>
-              {adminProfile.role}
-            </span>
-          </div>
+          {adminProfile.avatar}
         </div>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: isMobile ? '16px' : '20px',
-          width: '100%'
-        }}>
-          {[
-            { label: 'Full Name', value: adminProfile.name, type: 'text' },
-            { label: 'Email Address', value: adminProfile.email, type: 'email' },
-            { label: 'Phone Number', value: adminProfile.phone, type: 'tel' },
-            { label: 'Role', value: 'super_admin', type: 'select' }
-          ].map((field, index) => (
-            <div key={index}>
-              <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#1a202c', marginBottom: '8px'}}>
-                {field.label}
-              </label>
-              {field.type === 'select' ? (
-                <select value={field.value} style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  backgroundColor: '#f7fafc',
-                  boxSizing: 'border-box'
-                }}>
-                  <option value="super_admin">Super Administrator</option>
-                  <option value="admin">Administrator</option>
-                  <option value="manager">Manager</option>
-                </select>
-              ) : (
-                <input type={field.type} value={field.value} style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  backgroundColor: '#f7fafc',
-                  boxSizing: 'border-box'
-                }} />
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div style={{
-          display: 'flex',
-          gap: '12px',
-          marginTop: '24px',
-          flexDirection: isMobile ? 'column' : 'row'
-        }}>
-          <button style={{
-            padding: '10px 16px',
-            backgroundColor: '#ff3b30',
+        <div>
+          <h2 style={{fontSize: isMobile ? '18px' : '20px', fontWeight: '700', color: '#000000', margin: '0 0 8px 0'}}>
+            {adminProfile.name}
+          </h2>
+          <p style={{fontSize: isMobile ? '14px' : '16px', color: '#000000', margin: '0 0 8px 0'}}>
+            {adminProfile.email}
+          </p>
+          <span style={{
+            backgroundColor: '#28a745',
             color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            flex: isMobile ? '1' : 'none'
+            padding: '4px 8px',
+            borderRadius: '12px',
+            fontSize: '11px',
+            fontWeight: '600'
           }}>
-            Update Profile
-          </button>
-          <button style={{
-            padding: '10px 16px',
-            backgroundColor: '#f7fafc',
-            color: '#718096',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            flex: isMobile ? '1' : 'none'
-          }}>
-            Change Password
-          </button>
+            {adminProfile.role}
+          </span>
         </div>
       </div>
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: isMobile ? '16px' : '20px',
+        width: '100%'
+      }}>
+        {[
+          { label: 'Full Name', value: adminProfile.name, type: 'text' },
+          { label: 'Email Address', value: adminProfile.email, type: 'email' },
+          { label: 'Phone Number', value: adminProfile.phone, type: 'tel' },
+          { label: 'Role', value: 'super_admin', type: 'select' }
+        ].map((field, index) => (
+          <div key={index}>
+            <label style={{display: 'block', fontSize: '14px', fontWeight: '600', color: '#000000', marginBottom: '8px'}}>
+              {field.label}
+            </label>
+            {field.type === 'select' ? (
+              <select value={field.value} style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                boxSizing: 'border-box'
+              }}>
+                <option value="super_admin">Super Administrator</option>
+                <option value="admin">Administrator</option>
+                <option value="manager">Manager</option>
+              </select>
+            ) : (
+              <input 
+                type={field.type} 
+                value={field.value} 
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: '#ffffff',
+                  color: '#000000',
+                  boxSizing: 'border-box'
+                }} 
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        marginTop: '24px',
+        flexDirection: isMobile ? 'column' : 'row'
+      }}>
+        <button style={{
+          padding: '10px 16px',
+          backgroundColor: '#ff3b30',
+          color: '#ffffff',
+          border: 'none',
+          borderRadius: '8px',
+          fontSize: '14px',
+          fontWeight: '600',
+          cursor: 'pointer',
+          flex: isMobile ? '1' : 'none'
+        }}>
+          Update Profile
+        </button>
+        <button style={{
+          padding: '10px 16px',
+          backgroundColor: '#f7fafc',
+          color: '#000000',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          fontSize: '14px',
+          fontWeight: '600',
+          cursor: 'pointer',
+          flex: isMobile ? '1' : 'none'
+        }}>
+          Change Password
+        </button>
+      </div>
     </div>
-  );
+  </div>
+);
 
   const renderUserManagementContent = () => <UserManagement />;
 
