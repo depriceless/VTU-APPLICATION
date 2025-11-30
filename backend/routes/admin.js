@@ -1921,6 +1921,57 @@ router.put('/management/admins/:adminId/status', adminAuth, async (req, res) => 
   }
 });
 
+// DELETE /api/admin/management/admins/:adminId - Delete admin user
+router.delete('/management/admins/:adminId', adminAuth, async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    console.log('Delete admin request:', {
+      adminId,
+      requestingAdmin: req.admin.id
+    });
+
+    // Prevent deleting self
+    if (adminId === req.admin.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot delete your own account'
+      });
+    }
+
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin user not found'
+      });
+    }
+
+    console.log('Deleting admin:', {
+      id: admin._id,
+      username: admin.username,
+      email: admin.email
+    });
+
+    await Admin.findByIdAndDelete(adminId);
+
+    console.log('Admin deleted successfully');
+
+    res.json({
+      success: true,
+      message: 'Admin user deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('Error deleting admin:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete admin user',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/admin/management/roles - Get roles and permissions
 router.get('/management/roles', adminAuth, async (req, res) => {
   try {
