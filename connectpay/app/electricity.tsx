@@ -198,9 +198,15 @@ export default function BuyElectricity() {
       
       setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 100);
+      }, 300);
     }
   }, [showPinEntry]);
+
+  const handlePinAreaPress = () => {
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
+  };
 
   // Save form state
   useEffect(() => {
@@ -1038,12 +1044,11 @@ export default function BuyElectricity() {
               </View>
             )}
 
+            {/* PIN Input Area - Pressable */}
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -1057,27 +1062,34 @@ export default function BuyElectricity() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+                Tap here to enter PIN
+              </Text>
+              
+              {/* Actual Input - Transparent overlay */}
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                  setPin(cleaned);
+                  setPinError('');
+                }}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
             )}
 
+            {/* Confirm Payment Button */}
             <TouchableOpacity
               style={[
                 styles.primaryButton,
@@ -1101,6 +1113,7 @@ export default function BuyElectricity() {
               )}
             </TouchableOpacity>
 
+            {/* Cancel PIN Entry */}
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={() => {
@@ -1807,6 +1820,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
 
   pinDotsContainer: {
@@ -1841,11 +1855,14 @@ const styles = StyleSheet.create({
     borderColor: '#ff3b30',
   },
 
-  hiddenPinInput: {
+  overlayPinInput: {
     position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
   },
 
   pinErrorText: {

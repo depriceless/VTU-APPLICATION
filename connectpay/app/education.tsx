@@ -11,6 +11,7 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import EducationSuccessModal from './EducationSuccessModal';
@@ -46,6 +47,8 @@ interface UserBalance {
   bonus: number;
   total: number;
   lastUpdated: number;
+  amount?: number;
+  currency?: string;
 }
 
 interface PinStatus {
@@ -138,55 +141,70 @@ export default function BuyEducation() {
   const totalAmount = selectedExam ? selectedExam.price * quantityNum : 0;
   const isQuantityValid = quantityNum >= 1 && quantityNum <= 10;
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
-  const hasEnoughBalance = userBalance ? totalAmount <= userBalance.total : true;
+  
+  // Safe balance check with proper fallbacks
+  const getBalanceAmount = (): number => {
+    if (!userBalance) return 0;
+    return userBalance.total || userBalance.amount || 0;
+  };
+
+  const hasEnoughBalance = totalAmount <= getBalanceAmount();
   const canProceed = selectedExam && isQuantityValid && hasEnoughBalance && isPhoneValid;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
+  // Load initial data
   useEffect(() => {
     loadRecentPurchases();
     loadFormState();
     
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = parseFloat(balance.amount?.toString() || '0') || 0;
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
         total: balanceAmount,
         lastUpdated: Date.now(),
+        amount: balanceAmount,
+        currency: balance.currency || "NGN",
       });
     }
     
+    // Load balance and PIN status after a short delay
     setTimeout(() => {
       fetchUserBalance();
       checkPinStatus();
     }, 1000);
   }, []);
 
+  // Refresh balance when moving to step 2
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
+  // Setup PIN entry when modal opens
   useEffect(() => {
     if (showPinEntry) {
       setPin('');
       setPinError('');
       checkPinStatus();
       
+      // Focus PIN input after a short delay
       setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 100);
+      }, 300);
     }
   }, [showPinEntry]);
 
+  // Save form state when inputs change
   useEffect(() => {
     saveFormState();
   }, [selectedExam, quantity, phone]);
 
-  const getAuthToken = async () => {
+  const getAuthToken = async (): Promise<string> => {
     if (!token) {
-      throw new Error('Authentication required');
+      throw new Error('Authentication required. Please login again.');
     }
     return token;
   };
@@ -236,7 +254,7 @@ export default function BuyEducation() {
 
       return data;
 
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
@@ -248,7 +266,7 @@ export default function BuyEducation() {
     try {
       const response = await makeApiRequest('/purchase/pin-status');
       if (response.success) {
-        setPinStatus(response);
+        setPinStatus(response.data || response);
       }
     } catch (error) {
       console.error('Error checking PIN status:', error);
@@ -263,20 +281,21 @@ export default function BuyEducation() {
       }
       
       if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
-        const realBalance = {
+        const balanceAmount = parseFloat(balance.amount?.toString() || '0') || 0;
+        const realBalance: UserBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
           currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          lastUpdated: Date.now(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
       }
     } catch (error) {
+      console.error('Error fetching balance:', error);
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
@@ -331,6 +350,8 @@ export default function BuyEducation() {
         totalAmount,
         timestamp: Date.now()
       });
+      
+      // Keep only last 5 purchases
       recentList = recentList.slice(0, 5);
 
       await AsyncStorage.setItem('recentEducationPurchases', JSON.stringify(recentList));
@@ -353,95 +374,135 @@ export default function BuyEducation() {
 
   const handleProceedToPayment = () => {
     if (!pinStatus?.isPinSet) {
-      Alert.alert('PIN Required', 'Please set up a transaction PIN in your account settings before making purchases.');
+      Alert.alert(
+        'PIN Required', 
+        'Please set up a transaction PIN in your account settings before making purchases.',
+        [{ text: 'OK', style: 'default' }]
+      );
       return;
     }
+    
     if (pinStatus?.isLocked) {
-      Alert.alert('Account Locked', `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`);
+      Alert.alert(
+        'Account Locked', 
+        `Too many failed PIN attempts. Please try again in ${pinStatus.lockTimeRemaining} minutes.`,
+        [{ text: 'OK', style: 'default' }]
+      );
       return;
     }
+    
     setShowPinEntry(true);
   };
 
-  const validatePinAndPurchase = async () => {
-    if (!isPinValid) {
-      setPinError('PIN must be exactly 4 digits');
-      return;
-    }
+ const validatePinAndPurchase = async () => {
+  if (!isPinValid) {
+    setPinError('PIN must be exactly 4 digits');
+    return;
+  }
 
-    setIsValidatingPin(true);
-    setIsProcessingPayment(true);
-    setPinError('');
+  setIsValidatingPin(true);
+  setIsProcessingPayment(true);
+  setPinError('');
 
-    try {
-      const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'education',
-          provider: selectedExam?.examBody,
-          examType: selectedExam?.code,
-          phone: phone,
-          amount: totalAmount,
-          pin: pin,
-        }),
+  try {
+    // Use the correct endpoint and data structure to match your backend
+    const response = await makeApiRequest('/purchase', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'education',  // Service type
+        provider: selectedExam?.examBody,  // 'waec' or 'jamb'
+        examType: selectedExam?.code,  // The exam code
+        phone: phone,
+        amount: totalAmount,  // Total amount
+        pin: pin,
+      }),
+    });
+
+    if (response.success === true) {
+      await saveRecentPurchase(selectedExam?.name || '', quantityNum, totalAmount);
+      
+      // Update balance from response
+      if (response.newBalance) {
+        const balanceAmount = response.newBalance.mainBalance || 
+                             response.newBalance.totalBalance || 
+                             response.newBalance.amount || 0;
+        
+        const updatedBalance: UserBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          currency: response.newBalance.currency || "NGN",
+          lastUpdated: Date.now(),
+        };
+
+        setUserBalance(updatedBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+      }
+
+      // Refresh balance using context
+      if (refreshBalance) {
+        await refreshBalance();
+      }
+
+      // Clear saved form state
+      await AsyncStorage.removeItem('educationFormState');
+
+      // Set success data
+      setSuccessData({
+        transaction: response.transaction || {},
+        examName: selectedExam?.name || 'Exam Card',
+        quantity: quantityNum,
+        amount: totalAmount,
+        newBalance: response.newBalance || {
+          amount: getBalanceAmount() - totalAmount,
+          total: getBalanceAmount() - totalAmount,
+          currency: "NGN"
+        }
       });
 
-      if (response.success === true) {
-        await saveRecentPurchase(selectedExam?.name || '', quantityNum, totalAmount);
-        
-        if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
-          
-          const updatedBalance = {
-            main: balanceAmount,
-            bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
-          };
+      // Close PIN modal and show success
+      setShowPinEntry(false);
+      setTimeout(() => {
+        setShowSuccessModal(true);
+      }, 400);
 
-          setUserBalance(updatedBalance);
-          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-        }
-
-        await AsyncStorage.removeItem('educationFormState');
-
-        setSuccessData({
-          transaction: response.transaction || {},
-          examName: selectedExam?.name,
-          quantity: quantityNum,
-          amount: totalAmount,
-          newBalance: response.newBalance
-        });
-
-        setShowPinEntry(false);
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 300);
-
+    } else {
+      const errorMsg = response.message || 'Payment could not be processed';
+      if (errorMsg.toLowerCase().includes('pin')) {
+        setPinError(errorMsg);
       } else {
-        if (response.message && response.message.toLowerCase().includes('pin')) {
-          setPinError(response.message);
-        }
-        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
+        Alert.alert('Transaction Failed', errorMsg);
       }
-
-    } catch (error) {
-      if (error.message.includes('locked') || error.message.includes('attempts')) {
-        setPinError(error.message);
-      } else if (error.message.includes('PIN')) {
-        setPinError(error.message);
-      } else {
-        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
-      }
-    } finally {
-      setIsValidatingPin(false);
-      setIsProcessingPayment(false);
     }
-  };
+
+  } catch (error: any) {
+    console.error('Payment error:', error);
+    
+    // Better error handling
+    let errorMessage = 'Unable to process payment. Please try again.';
+    
+    if (error.message.includes('locked') || error.message.includes('attempts')) {
+      setPinError(error.message);
+      return;
+    } else if (error.message.includes('PIN') || error.message.includes('pin')) {
+      setPinError(error.message);
+      return;
+    } else if (error.message.includes('balance') || error.message.includes('insufficient')) {
+      errorMessage = error.message;
+    } else if (error.message.includes('network') || error.message.includes('connection')) {
+      errorMessage = 'Network error. Please check your connection and try again.';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    Alert.alert('Payment Error', errorMessage);
+    
+  } finally {
+    setIsValidatingPin(false);
+    setIsProcessingPayment(false);
+  }
+};
 
   const handleCloseSuccessModal = () => {
     setShowSuccessModal(false);
@@ -460,9 +521,41 @@ export default function BuyEducation() {
     setShowPinEntry(false);
   };
 
+  const handlePinChange = (text: string) => {
+    const cleanedText = text.replace(/\D/g, '').substring(0, 4);
+    setPin(cleanedText);
+    if (pinError) setPinError('');
+  };
+
+  const handleCategorySelect = (categoryId: string) => {
+    setActiveCategory(categoryId);
+    // Reset selection when changing category
+    if (selectedExam && !filteredExams.find(exam => exam.id === selectedExam.id)) {
+      setSelectedExam(null);
+    }
+  };
+
+  const handlePinAreaPress = () => {
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
+  };
+
+  // Safe formatting function
+  const formatCurrency = (amount: number): string => {
+    try {
+      return `₦${amount.toLocaleString()}`;
+    } catch (error) {
+      return '₦0';
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      {/* STEP 1: FORM */}
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      {/* STEP 1: SELECT EXAM & DETAILS */}
       {currentStep === 1 && (
         <ScrollView
           style={styles.scrollContent}
@@ -480,7 +573,7 @@ export default function BuyEducation() {
                     styles.categoryBtn,
                     activeCategory === category.id && styles.categoryBtnActive
                   ]}
-                  onPress={() => setActiveCategory(category.id)}
+                  onPress={() => handleCategorySelect(category.id)}
                   activeOpacity={0.7}
                 >
                   <Text style={[
@@ -510,7 +603,7 @@ export default function BuyEducation() {
                 >
                   <Image source={exam.logo} style={styles.examLogo} />
                   <Text style={styles.examName}>{exam.name}</Text>
-                  <Text style={styles.examPrice}>₦{exam.price.toLocaleString()}</Text>
+                  <Text style={styles.examPrice}>{formatCurrency(exam.price)}</Text>
                   {selectedExam?.id === exam.id && (
                     <View style={styles.selectedIndicator}>
                       <Text style={styles.selectedIndicatorText}>✓</Text>
@@ -527,13 +620,14 @@ export default function BuyEducation() {
               <Text style={styles.sectionTitle}>Quantity</Text>
               <View style={styles.quantityContainer}>
                 <TouchableOpacity
-                  style={styles.quantityBtn}
+                  style={[styles.quantityBtn, quantityNum <= 1 && styles.quantityBtnDisabled]}
                   onPress={() => {
                     if (quantityNum > 1) setQuantity((quantityNum - 1).toString());
                   }}
+                  disabled={quantityNum <= 1}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.quantityBtnText}>-</Text>
+                  <Text style={[styles.quantityBtnText, quantityNum <= 1 && styles.quantityBtnTextDisabled]}>-</Text>
                 </TouchableOpacity>
                 
                 <TextInput
@@ -547,13 +641,14 @@ export default function BuyEducation() {
                 />
                 
                 <TouchableOpacity
-                  style={styles.quantityBtn}
+                  style={[styles.quantityBtn, quantityNum >= 10 && styles.quantityBtnDisabled]}
                   onPress={() => {
                     if (quantityNum < 10) setQuantity((quantityNum + 1).toString());
                   }}
+                  disabled={quantityNum >= 10}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.quantityBtnText}>+</Text>
+                  <Text style={[styles.quantityBtnText, quantityNum >= 10 && styles.quantityBtnTextDisabled]}>+</Text>
                 </TouchableOpacity>
               </View>
               <Text style={styles.quantityHelp}>Maximum 10 cards per transaction</Text>
@@ -563,9 +658,9 @@ export default function BuyEducation() {
           {/* Phone Number Input */}
           {selectedExam && (
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Phone Number</Text>
+              <Text style={styles.sectionTitle}>Recipient Phone Number</Text>
               <TextInput
-                style={styles.textInput}
+                style={[styles.textInput, !isPhoneValid && phone !== '' && styles.inputError]}
                 keyboardType="phone-pad"
                 placeholder="08012345678"
                 placeholderTextColor="#999"
@@ -574,14 +669,16 @@ export default function BuyEducation() {
                 onChangeText={setPhone}
               />
               <Text style={styles.inputHelp}>
-                PIN details will be sent to this number
+                PIN details will be sent to this number via SMS
               </Text>
               {phone !== '' && !isPhoneValid && (
-                <Text style={styles.validationError}>Enter valid 11-digit number starting with 070, 080, 081, or 090</Text>
+                <Text style={styles.validationError}>
+                  Enter valid 11-digit Nigerian number (070, 080, 081, or 090)
+                </Text>
               )}
               {phone !== '' && isPhoneValid && (
                 <View style={styles.validationSuccess}>
-                  <Text style={styles.validationSuccessText}>Valid phone number</Text>
+                  <Text style={styles.validationSuccessText}>✓ Valid phone number</Text>
                 </View>
               )}
             </View>
@@ -595,7 +692,10 @@ export default function BuyEducation() {
             activeOpacity={0.8}
           >
             <Text style={styles.primaryButtonText}>
-              {canProceed ? `Review Purchase • ₦${totalAmount.toLocaleString()}` : 'Complete Form to Continue'}
+              {canProceed 
+                ? `Review Purchase • ${formatCurrency(totalAmount)}` 
+                : 'Complete Form to Continue'
+              }
             </Text>
           </TouchableOpacity>
 
@@ -608,7 +708,7 @@ export default function BuyEducation() {
                   <View key={index} style={styles.recentItem}>
                     <Text style={styles.recentExam}>{purchase.examType}</Text>
                     <Text style={styles.recentDetails}>
-                      {purchase.quantity} card(s) • ₦{purchase.totalAmount.toLocaleString()}
+                      {purchase.quantity} card(s) • {formatCurrency(purchase.totalAmount)}
                     </Text>
                     <Text style={styles.recentTime}>
                       {new Date(purchase.timestamp).toLocaleDateString()}
@@ -621,7 +721,7 @@ export default function BuyEducation() {
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW */}
+      {/* STEP 2: REVIEW & PAYMENT */}
       {currentStep === 2 && selectedExam && (
         <ScrollView
           style={styles.scrollContent}
@@ -647,38 +747,39 @@ export default function BuyEducation() {
             {userBalance ? (
               <>
                 <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                  {formatCurrency(getBalanceAmount())}
                 </Text>
 
                 {totalAmount > 0 && (
                   <View style={styles.balanceCalculation}>
                     <View style={styles.balanceRow}>
                       <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
-                      <Text style={styles.balanceRowValue}>-₦{totalAmount.toLocaleString()}</Text>
+                      <Text style={styles.balanceRowValue}>-{formatCurrency(totalAmount)}</Text>
                     </View>
                     <View style={styles.balanceDivider} />
                     <View style={styles.balanceRow}>
                       <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                       <Text style={[
                         styles.balanceRowValueBold,
-                        (userBalance.total - totalAmount) < 0 && styles.negativeAmount
+                        (getBalanceAmount() - totalAmount) < 0 && styles.negativeAmount
                       ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - totalAmount).toLocaleString()}
+                        {formatCurrency(Math.max(0, getBalanceAmount() - totalAmount))}
                       </Text>
                     </View>
                   </View>
                 )}
 
-                {totalAmount > (userBalance.total || userBalance.amount || 0) && (
+                {!hasEnoughBalance && (
                   <View style={styles.insufficientWarning}>
                     <Text style={styles.insufficientWarningText}>
-                      Insufficient balance for this transaction
+                      ⚠️ Insufficient balance for this transaction
                     </Text>
                   </View>
                 )}
               </>
             ) : (
               <View style={styles.balanceLoading}>
+                <ActivityIndicator size="small" color="#ff3b30" />
                 <Text style={styles.balanceLoadingText}>
                   {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                 </Text>
@@ -693,7 +794,7 @@ export default function BuyEducation() {
             <View style={styles.summaryItem}>
               <View style={styles.summaryLeft}>
                 <Image source={selectedExam.logo} style={styles.summaryLogo} />
-                <View>
+                <View style={styles.summaryTextContainer}>
                   <Text style={styles.summaryText}>{selectedExam.name}</Text>
                   <Text style={styles.summaryDesc}>{selectedExam.description}</Text>
                 </View>
@@ -714,14 +815,14 @@ export default function BuyEducation() {
 
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Unit Price</Text>
-              <Text style={styles.summaryValue}>₦{selectedExam.price.toLocaleString()}</Text>
+              <Text style={styles.summaryValue}>{formatCurrency(selectedExam.price)}</Text>
             </View>
 
             <View style={styles.summaryDivider} />
 
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabelTotal}>Total Amount</Text>
-              <Text style={styles.summaryValueTotal}>₦{totalAmount.toLocaleString()}</Text>
+              <Text style={styles.summaryValueTotal}>{formatCurrency(totalAmount)}</Text>
             </View>
           </View>
 
@@ -729,14 +830,19 @@ export default function BuyEducation() {
           <TouchableOpacity
             style={[
               styles.primaryButton, 
-              !hasEnoughBalance && styles.primaryButtonDisabled
+              (!hasEnoughBalance || !pinStatus?.isPinSet) && styles.primaryButtonDisabled
             ]}
-            disabled={!hasEnoughBalance}
+            disabled={!hasEnoughBalance || !pinStatus?.isPinSet}
             onPress={handleProceedToPayment}
             activeOpacity={0.8}
           >
             <Text style={styles.primaryButtonText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
+              {!pinStatus?.isPinSet 
+                ? 'Setup PIN Required' 
+                : !hasEnoughBalance 
+                  ? 'Insufficient Balance' 
+                  : 'Proceed to Payment'
+              }
             </Text>
           </TouchableOpacity>
 
@@ -745,12 +851,12 @@ export default function BuyEducation() {
             onPress={() => setCurrentStep(1)}
             activeOpacity={0.8}
           >
-            <Text style={styles.secondaryButtonText}>Edit Details</Text>
+            <Text style={styles.secondaryButtonText}>← Edit Details</Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
-      {/* PIN Entry Modal - Bottom Sheet */}
+      {/* PIN ENTRY MODAL */}
       <Modal 
         visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
         animationType="slide"
@@ -778,7 +884,7 @@ export default function BuyEducation() {
             <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
             <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
 
-            {pinStatus?.attemptsRemaining < 3 && (
+            {pinStatus?.attemptsRemaining !== undefined && pinStatus.attemptsRemaining < 3 && (
               <View style={styles.attemptsWarning}>
                 <Text style={styles.attemptsWarningText}>
                   {pinStatus.attemptsRemaining} attempts remaining
@@ -786,13 +892,11 @@ export default function BuyEducation() {
               </View>
             )}
 
-            {/* PIN Input Area - NOW PRESSABLE */}
+            {/* PIN Input Area */}
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -806,22 +910,24 @@ export default function BuyEducation() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+                Tap here to enter PIN
+              </Text>
+              
+              {/* Hidden PIN Input */}
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={handlePinChange}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
@@ -846,7 +952,7 @@ export default function BuyEducation() {
                 </View>
               ) : (
                 <Text style={styles.primaryButtonText}>
-                  Confirm Payment • ₦{totalAmount.toLocaleString()}
+                  Confirm Payment • {formatCurrency(totalAmount)}
                 </Text>
               )}
             </TouchableOpacity>
@@ -869,20 +975,18 @@ export default function BuyEducation() {
       </Modal>
 
       {/* Success Modal */}
-      {showSuccessModal && successData && (
-        <EducationSuccessModal
-          visible={showSuccessModal}
-          onClose={handleCloseSuccessModal}
-          onBuyMore={handleBuyMore}
-          transaction={successData.transaction || {}}
-          examName={successData.examName}
-          quantity={successData.quantity}
-          amount={successData.amount}
-          newBalance={successData.newBalance}
-          message={`${successData.quantity} ${successData.examName} card(s) purchased successfully!`}
-        />
-      )}
-    </View>
+      <EducationSuccessModal
+        visible={showSuccessModal}
+        onClose={handleCloseSuccessModal}
+        onBuyMore={handleBuyMore}
+        transaction={successData?.transaction || {}}
+        examName={successData?.examName || ''}
+        quantity={successData?.quantity || 0}
+        amount={successData?.amount || 0}
+        newBalance={successData?.newBalance || null}
+        message={successData ? `${successData.quantity} ${successData.examName} card(s) purchased successfully!` : 'Purchase completed successfully!'}
+      />
+    </KeyboardAvoidingView>
   );
 }
 
@@ -891,11 +995,9 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#f5f5f5' 
   },
-
   scrollContent: { 
     flex: 1 
   },
-
   scrollContentContainer: {
     padding: 16,
     paddingBottom: 40,
@@ -913,7 +1015,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
@@ -927,7 +1028,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap', 
     gap: 8 
   },
-
   categoryBtn: {
     paddingVertical: 8,
     paddingHorizontal: 16,
@@ -936,18 +1036,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
-
   categoryBtnActive: { 
     backgroundColor: '#ff3b30', 
     borderColor: '#ff3b30' 
   },
-
   categoryText: { 
     fontSize: 14, 
     color: '#666',
     fontWeight: '500',
   },
-
   categoryTextActive: { 
     color: '#fff', 
     fontWeight: '600' 
@@ -960,7 +1057,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
-
   examCard: {
     width: '48%',
     backgroundColor: '#fafafa',
@@ -971,19 +1067,16 @@ const styles = StyleSheet.create({
     borderColor: '#e8e8e8',
     position: 'relative',
   },
-
   examCardSelected: { 
     borderColor: '#ff3b30', 
     backgroundColor: '#fff5f5' 
   },
-
   examLogo: { 
     width: 50, 
     height: 50, 
     resizeMode: 'contain', 
     marginBottom: 8 
   },
-
   examName: {
     fontSize: 13,
     fontWeight: '600',
@@ -991,13 +1084,11 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     color: '#333',
   },
-
   examPrice: { 
     fontSize: 16, 
     fontWeight: 'bold', 
     color: '#ff3b30' 
   },
-
   selectedIndicator: {
     position: 'absolute',
     top: 8,
@@ -1009,7 +1100,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   selectedIndicatorText: { 
     color: '#fff', 
     fontSize: 12, 
@@ -1023,7 +1113,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-
   quantityBtn: {
     width: 40,
     height: 40,
@@ -1032,13 +1121,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
+  quantityBtnDisabled: {
+    backgroundColor: '#d0d0d0',
+  },
   quantityBtnText: { 
     color: '#fff', 
     fontSize: 18, 
     fontWeight: 'bold' 
   },
-
+  quantityBtnTextDisabled: { 
+    color: '#999' 
+  },
   quantityInput: {
     width: 60,
     height: 40,
@@ -1051,7 +1144,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     backgroundColor: '#fafafa',
   },
-
   quantityHelp: { 
     fontSize: 12, 
     color: '#999', 
@@ -1068,20 +1160,21 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
-
+  inputError: {
+    borderColor: '#ff3b30',
+    backgroundColor: '#fff5f5',
+  },
   inputHelp: { 
     fontSize: 12, 
     color: '#999', 
     marginTop: 6 
   },
-
   validationError: {
     color: '#ff3b30',
     fontSize: 13,
     marginTop: 8,
     fontWeight: '500',
   },
-
   validationSuccess: {
     marginTop: 8,
     paddingVertical: 6,
@@ -1090,7 +1183,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
-
   validationSuccessText: {
     color: '#2e7d32',
     fontSize: 13,
@@ -1103,26 +1195,22 @@ const styles = StyleSheet.create({
     borderRadius: 12, 
     overflow: 'hidden' 
   },
-
   recentItem: { 
     padding: 16, 
     borderBottomWidth: 1, 
     borderBottomColor: '#f0f0f0' 
   },
-
   recentExam: { 
     fontSize: 14, 
     fontWeight: '600', 
     color: '#333', 
     marginBottom: 4 
   },
-
   recentDetails: { 
     fontSize: 12, 
     color: '#666', 
     marginBottom: 4 
   },
-
   recentTime: { 
     fontSize: 11, 
     color: '#999' 
@@ -1141,19 +1229,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 3,
   },
-
   primaryButtonDisabled: {
     backgroundColor: '#d0d0d0',
     shadowOpacity: 0,
     elevation: 0,
   },
-
   primaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-
   secondaryButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
@@ -1162,19 +1247,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
-
   secondaryButtonText: {
     color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
-
   buttonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   buttonLoadingText: {
     marginLeft: 0,
   },
@@ -1191,100 +1273,83 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   balanceLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   refreshButton: {
     padding: 4,
   },
-
   refreshIcon: {
     fontSize: 18,
     color: '#ff3b30',
   },
-
   balanceAmount: {
     fontSize: 36,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   balanceCalculation: {
     backgroundColor: '#f8f8f8',
     borderRadius: 12,
     padding: 16,
   },
-
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-
   balanceRowLabel: {
     fontSize: 14,
     color: '#666',
   },
-
   balanceRowValue: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   balanceRowLabelBold: {
     fontSize: 15,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   balanceRowValueBold: {
     fontSize: 15,
     color: '#2e7d32',
     fontWeight: '700',
   },
-
   negativeAmount: {
     color: '#ff3b30',
   },
-
   balanceDivider: {
     height: 1,
     backgroundColor: '#e0e0e0',
     marginVertical: 12,
   },
-
   insufficientWarning: {
     marginTop: 12,
     padding: 12,
     backgroundColor: '#fff3e0',
     borderRadius: 8,
   },
-
   insufficientWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
   },
-
   balanceLoading: {
     paddingVertical: 20,
     alignItems: 'center',
   },
-
   balanceLoadingText: {
     color: '#999',
     fontSize: 14,
@@ -1297,68 +1362,61 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-
   summaryLeft: { 
     flexDirection: 'row', 
     alignItems: 'center', 
     flex: 1 
   },
-
   summaryLogo: { 
     width: 30, 
     height: 30, 
     resizeMode: 'contain', 
     marginRight: 8 
   },
-
+  summaryTextContainer: {
+    flex: 1,
+  },
   summaryText: { 
     fontSize: 14, 
     color: '#333', 
     fontWeight: '500' 
   },
-
   summaryDesc: { 
     fontSize: 12, 
     color: '#666' 
   },
-
   summaryLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   summaryValue: {
     fontSize: 14,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryDivider: {
     height: 1,
     backgroundColor: '#e8e8e8',
     marginVertical: 12,
   },
-
   summaryLabelTotal: {
     fontSize: 16,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueTotal: {
     fontSize: 20,
     color: '#ff3b30',
     fontWeight: '700',
   },
 
-  // PIN Entry - Bottom Sheet
+  // PIN Entry Styles
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-
   pinBottomSheet: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
@@ -1372,7 +1430,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-
   dragHandle: {
     width: 40,
     height: 4,
@@ -1381,7 +1438,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 20,
   },
-
   pinTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -1389,14 +1445,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-
   pinSubtitle: {
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
     marginBottom: 24,
   },
-
   attemptsWarning: {
     backgroundColor: '#fff3e0',
     paddingVertical: 8,
@@ -1405,13 +1459,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignSelf: 'center',
   },
-
   attemptsWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '600',
   },
-
   pinInputArea: {
     backgroundColor: '#f8f8f8',
     borderRadius: 16,
@@ -1421,21 +1473,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
-
   pinDotsContainer: {
     flexDirection: 'row',
     gap: 20,
     justifyContent: 'center',
     marginBottom: 12,
   },
-
   pinInputHint: {
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
   },
-
   pinDot: {
     width: 16,
     height: 16,
@@ -1444,24 +1494,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#d0d0d0',
   },
-
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
-
-  hiddenPinInput: {
+  overlayPinInput: {
     position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
   },
-
   pinErrorText: {
     color: '#ff3b30',
     fontSize: 13,

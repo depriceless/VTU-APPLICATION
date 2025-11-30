@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useContext, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useContext } from 'react';
 import {
   View,
   Text,
@@ -78,7 +78,7 @@ export default function PrintRecharge() {
   const [generatedPins, setGeneratedPins] = useState<Array<{ pin: string; serial: string }>>([]);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
-  const pinInputRef = useRef<TextInput>(null);
+  const pinInputRef = React.useRef<TextInput>(null);
 
   const networks = [
     { id: 'mtn', label: 'MTN', logo: require('../assets/images/mtnlogo.jpg') },
@@ -239,9 +239,16 @@ export default function PrintRecharge() {
       
       setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 100);
+      }, 300);
     }
   }, [showPinEntry]);
+
+  const handlePinAreaPress = () => {
+    console.log('PIN area pressed - attempting to focus input');
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
+  };
 
   const fetchUserBalance = useCallback(async () => {
     setIsLoadingBalance(true);
@@ -384,26 +391,25 @@ export default function PrintRecharge() {
     setPinError('');
 
     try {
-     const response = await makeApiRequest('/purchase', {
-  method: 'POST',
-  body: JSON.stringify({
-    type: 'recharge',
-    network: selectedNetwork,
-    cardType: cardType,
-    denomination,
-    quantity: qty,
-    amount: totalAmount,  // ✅ ADD THIS
-    pin,
-  }),
-});
+      const response = await makeApiRequest('/purchase', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'print_recharge',
+          network: selectedNetwork,
+          cardType: cardType,
+          denomination,
+          quantity: qty,
+          amount: totalAmount,
+          pin,
+        }),
+      });
+
       if (response.success === true) {
         console.log('PIN generation successful!');
         
-        // Extract PINs from response
         const pins = response.pins || response.data?.pins || response.transaction?.pins || [];
         setGeneratedPins(pins);
         
-        // Update balance
         if (response.newBalance) {
           const balanceAmount = response.newBalance.amount || 
                                response.newBalance.totalBalance || 
@@ -453,7 +459,7 @@ export default function PrintRecharge() {
       setIsProcessingPayment(false);
       console.log('=== RECHARGE PIN GENERATION END ===');
     }
-  }, [isPinValid, quantity, selectedNetwork, denomination, cardType, pin, hasEnoughBalance]);
+  }, [isPinValid, quantity, selectedNetwork, denomination, cardType, pin, hasEnoughBalance, totalAmount]);
 
   const handleQuantityChange = useCallback((text: string) => {
     if (text === '') {
@@ -647,7 +653,6 @@ export default function PrintRecharge() {
       contentContainerStyle={styles.scrollContentContainer}
       showsVerticalScrollIndicator={false}
     >
-      {/* Balance Overview */}
       <View style={styles.balanceOverview}>
         <View style={styles.balanceHeader}>
           <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -706,7 +711,6 @@ export default function PrintRecharge() {
         )}
       </View>
       
-      {/* Transaction Summary */}
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
@@ -748,7 +752,6 @@ export default function PrintRecharge() {
         </View>
       </View>
 
-      {/* Action Buttons */}
       <TouchableOpacity
         style={[
           styles.primaryButton, 
@@ -857,7 +860,6 @@ export default function PrintRecharge() {
         renderHistoryTab()
       )}
 
-      {/* PIN Entry Modal */}
       <Modal 
         visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
         animationType="slide"
@@ -894,10 +896,8 @@ export default function PrintRecharge() {
 
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -911,22 +911,28 @@ export default function PrintRecharge() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+               Tap here to enter PIN
+              </Text>
+              
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                  console.log('PIN changed:', cleaned);
+                  setPin(cleaned);
+                  setPinError('');
+                }}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
@@ -971,7 +977,6 @@ export default function PrintRecharge() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Success Modal */}
       <Modal
         visible={showSuccessModal}
         animationType="slide"
@@ -1042,7 +1047,6 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#f5f5f5' 
   },
-
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#fff',
@@ -1050,38 +1054,31 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e8e8e8',
     paddingTop: Platform.OS === 'ios' ? 50 : 16,
   },
-
   tab: {
     flex: 1,
     padding: 16,
     alignItems: 'center',
   },
-
   tabActive: {
     borderBottomWidth: 2,
     borderBottomColor: '#ff3b30',
   },
-
   tabText: {
     color: '#666',
     fontWeight: '500',
     fontSize: 15,
   },
-
   tabTextActive: {
     color: '#ff3b30',
     fontWeight: '600',
   },
-
   scrollContent: { 
     flex: 1 
   },
-
   scrollContentContainer: {
     padding: 16,
     paddingBottom: 40,
   },
-
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1093,19 +1090,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   networkRow: {
     flexDirection: 'row',
     gap: 10,
   },
-
   networkCard: {
     flex: 1,
     aspectRatio: 1,
@@ -1118,29 +1112,24 @@ const styles = StyleSheet.create({
     position: 'relative',
     padding: 8,
   },
-
   networkSelected: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-
   networkLogo: {
     width: 40,
     height: 40,
     resizeMode: 'contain',
     marginBottom: 6,
   },
-
   networkLabel: {
     fontSize: 10,
     fontWeight: '600',
     color: '#666',
   },
-
   networkLabelSelected: {
     color: '#ff3b30',
   },
-
   checkmark: {
     position: 'absolute',
     top: 6,
@@ -1152,18 +1141,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   checkmarkText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: 'bold',
   },
-
   cardTypeRow: {
     flexDirection: 'row',
     gap: 12,
   },
-
   cardTypeBtn: {
     flex: 1,
     paddingVertical: 14,
@@ -1173,28 +1159,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     alignItems: 'center',
   },
-
   cardTypeSelected: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   cardTypeText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#666',
   },
-
   cardTypeTextSelected: {
     color: '#fff',
   },
-
   denominationGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
-
   denominationBtn: {
     paddingVertical: 12,
     paddingHorizontal: 20,
@@ -1204,30 +1185,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     minWidth: '30%',
   },
-
   denominationSelected: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   denominationText: {
     fontSize: 14,
     fontWeight: '600',
     color: '#666',
     textAlign: 'center',
   },
-
   denominationTextSelected: {
     color: '#fff',
   },
-
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
     color: '#666',
     marginBottom: 8,
   },
-
   input: {
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1237,25 +1213,21 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
-
   inputError: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-
   validationError: {
     color: '#ff3b30',
     fontSize: 13,
     marginTop: 8,
     fontWeight: '500',
   },
-
   totalAmount: {
     fontSize: 28,
     fontWeight: '700',
     color: '#ff3b30',
   },
-
   primaryButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 16,
@@ -1263,17 +1235,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-
   primaryButtonDisabled: {
     backgroundColor: '#d0d0d0',
   },
-
   primaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-
   secondaryButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
@@ -1282,23 +1251,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
-
   secondaryButtonText: {
     color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
-
   buttonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   buttonLoadingText: {
     marginLeft: 0,
   },
-
   balanceOverview: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1310,175 +1275,145 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   balanceLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   refreshButton: {
     padding: 4,
   },
-
   refreshIcon: {
     fontSize: 18,
     color: '#ff3b30',
   },
-
   balanceAmount: {
     fontSize: 36,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   balanceCalculation: {
     backgroundColor: '#f8f8f8',
     borderRadius: 12,
     padding: 16,
   },
-
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-
   balanceRowLabel: {
     fontSize: 14,
     color: '#666',
   },
-
   balanceRowValue: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   balanceRowLabelBold: {
     fontSize: 15,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   balanceRowValueBold: {
     fontSize: 15,
     color: '#2e7d32',
     fontWeight: '700',
   },
-
   negativeAmount: {
     color: '#ff3b30',
   },
-
   balanceDivider: {
     height: 1,
     backgroundColor: '#e0e0e0',
     marginVertical: 12,
   },
-
   insufficientWarning: {
     marginTop: 12,
     padding: 12,
     backgroundColor: '#fff3e0',
     borderRadius: 8,
   },
-
   insufficientWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
   },
-
   balanceLoading: {
     paddingVertical: 20,
     alignItems: 'center',
   },
-
   balanceLoadingText: {
     color: '#999',
     fontSize: 14,
   },
-
   summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-
   summaryLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   summaryValue: {
     fontSize: 14,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   summaryNetworkLogo: {
     width: 24,
     height: 24,
     resizeMode: 'contain',
   },
-
   summaryDivider: {
     height: 1,
     backgroundColor: '#e8e8e8',
     marginVertical: 12,
   },
-
   summaryLabelTotal: {
     fontSize: 16,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueTotal: {
     fontSize: 20,
     color: '#ff3b30',
     fontWeight: '700',
   },
-
   loader: {
     marginTop: 40,
   },
-
   emptyState: {
     paddingVertical: 60,
     alignItems: 'center',
   },
-
   emptyStateText: {
     fontSize: 16,
     color: '#666',
     fontWeight: '500',
     marginBottom: 8,
   },
-
   emptyStateSubtext: {
     fontSize: 14,
     color: '#999',
   },
-
   transactionCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1490,77 +1425,65 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 1,
   },
-
   transactionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   transactionNetwork: {
     fontWeight: '700',
     color: '#1a1a1a',
     fontSize: 15,
   },
-
   transactionAmount: {
     fontWeight: '700',
     color: '#ff3b30',
     fontSize: 15,
   },
-
   transactionType: {
     color: '#666',
     fontSize: 13,
     marginBottom: 12,
   },
-
   pinContainer: {
     backgroundColor: '#f8f9fa',
     padding: 12,
     borderRadius: 8,
     marginBottom: 8,
   },
-
   pinRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
   },
-
   pinLabel: {
     fontSize: 12,
     color: '#666',
     fontWeight: '500',
   },
-
   pinCode: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1a1a1a',
     letterSpacing: 1,
   },
-
   pinSerial: {
     fontSize: 13,
     color: '#666',
     fontWeight: '600',
   },
-
   transactionDate: {
     color: '#999',
     fontSize: 12,
     marginTop: 8,
   },
-
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-
   pinBottomSheet: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
@@ -1574,7 +1497,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-
   dragHandle: {
     width: 40,
     height: 4,
@@ -1583,7 +1505,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 20,
   },
-
   pinTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -1591,14 +1512,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-
   pinSubtitle: {
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
     marginBottom: 24,
   },
-
   attemptsWarning: {
     backgroundColor: '#fff3e0',
     paddingVertical: 8,
@@ -1607,13 +1526,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignSelf: 'center',
   },
-
   attemptsWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '600',
   },
-
   pinInputArea: {
     backgroundColor: '#f8f8f8',
     borderRadius: 16,
@@ -1623,21 +1540,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
-
   pinDotsContainer: {
     flexDirection: 'row',
     gap: 20,
     justifyContent: 'center',
     marginBottom: 12,
   },
-
   pinInputHint: {
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
   },
-
   pinDot: {
     width: 16,
     height: 16,
@@ -1646,24 +1561,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#d0d0d0',
   },
-
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
-
-  hiddenPinInput: {
+  overlayPinInput: {
     position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
   },
-
   pinErrorText: {
     color: '#ff3b30',
     fontSize: 13,
@@ -1672,7 +1586,6 @@ const styles = StyleSheet.create({
     marginTop: -12,
     marginBottom: 20,
   },
-
   successModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1680,7 +1593,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-
   successModalContent: {
     backgroundColor: '#fff',
     borderRadius: 24,
@@ -1692,14 +1604,12 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 10,
   },
-
   successHeader: {
     alignItems: 'center',
     padding: 24,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-
   successIcon: {
     width: 64,
     height: 64,
@@ -1709,31 +1619,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 16,
   },
-
   successIconText: {
     fontSize: 32,
     color: '#fff',
     fontWeight: 'bold',
   },
-
   successTitle: {
     fontSize: 22,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 8,
   },
-
   successSubtitle: {
     fontSize: 14,
     color: '#666',
     textAlign: 'center',
   },
-
   pinsScrollView: {
     maxHeight: 300,
     padding: 16,
   },
-
   generatedPinCard: {
     backgroundColor: '#f8f9fa',
     borderRadius: 12,
@@ -1742,40 +1647,34 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',
   },
-
   generatedPinLabel: {
     fontSize: 14,
     fontWeight: '600',
     color: '#666',
     marginBottom: 12,
   },
-
   pinDataRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   pinDataLabel: {
     fontSize: 13,
     fontWeight: '500',
     color: '#666',
   },
-
   pinValue: {
     fontSize: 18,
     fontWeight: '700',
     color: '#ff3b30',
     letterSpacing: 2,
   },
-
   serialValue: {
     fontSize: 14,
     fontWeight: '600',
     color: '#333',
   },
-
   noPinsCard: {
     backgroundColor: '#fff3cd',
     borderRadius: 12,
@@ -1783,14 +1682,12 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#ff8c00',
   },
-
   noPinsText: {
     color: '#856404',
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
   },
-
   successActions: {
     padding: 16,
     borderTopWidth: 1,

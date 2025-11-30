@@ -1,30 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-
-const STYLES = {
-  searchInput: {
-    width: '100%',
-    padding: '12px 16px 12px 40px',
-    border: '2px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '14px',
-    backgroundColor: '#fff',
-    boxSizing: 'border-box'
-  },
-  formInput: {
-    width: '100%',
-    padding: '8px 12px',
-    border: '2px solid #e2e8f0',
-    borderRadius: '6px',
-    fontSize: '14px'
-  },
-  select: {
-    padding: '12px 16px',
-    border: '2px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '14px',
-    backgroundColor: '#fff'
-  }
-};
+import { API_CONFIG } from "../config/api.config";
 
 // AdminModal component
 const AdminModal = ({ 
@@ -110,11 +85,11 @@ const AdminModal = ({
         <div style={{ padding: '24px' }}>
           <div style={gridStyle}>
             <div>
-              <label style={labelStyle}>Full Name *</label>
+              <label style={labelStyle}>Username *</label>
               <input
                 type="text"
-                value={adminForm.name}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, name: e.target.value }))}
+                value={adminForm.username}
+                onChange={(e) => setAdminForm(prev => ({ ...prev, username: e.target.value }))}
                 style={inputStyle}
                 required
               />
@@ -187,13 +162,12 @@ const AdminModal = ({
           <div style={{ marginBottom: '24px' }}>
             <label style={labelStyle}>Status</label>
             <select
-              value={adminForm.status}
-              onChange={(e) => setAdminForm(prev => ({ ...prev, status: e.target.value }))}
+              value={adminForm.isActive ? 'active' : 'inactive'}
+              onChange={(e) => setAdminForm(prev => ({ ...prev, isActive: e.target.value === 'active' }))}
               style={inputStyle}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
             </select>
           </div>
 
@@ -216,7 +190,7 @@ const AdminModal = ({
             </button>
             <button
               onClick={handleAdminSubmit}
-              disabled={actionLoading || !adminForm.name || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password)}
+              disabled={actionLoading || !adminForm.username || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password)}
               style={{
                 padding: '10px 20px',
                 border: 'none',
@@ -226,7 +200,7 @@ const AdminModal = ({
                 fontSize: '14px',
                 fontWeight: '600',
                 cursor: actionLoading ? 'not-allowed' : 'pointer',
-                opacity: actionLoading || !adminForm.name || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password) ? 0.7 : 1
+                opacity: actionLoading || !adminForm.username || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password) ? 0.7 : 1
               }}
             >
               {actionLoading ? 'Saving...' : selectedAdmin ? 'Update Admin' : 'Create Admin'}
@@ -505,17 +479,17 @@ const AdminManagement = () => {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(null);
   const [activeTab, setActiveTab] = useState('admins');
-  const [isMobile, setIsMobile] = useState(false); // Added isMobile state
+  const [isMobile, setIsMobile] = useState(false);
 
   // Form states
   const [adminForm, setAdminForm] = useState({
-    name: '',
+    username: '',
     email: '',
     phone: '',
     role: '',
     password: '',
     confirmPassword: '',
-    status: 'active'
+    isActive: true
   });
 
   const [roleForm, setRoleForm] = useState({
@@ -531,7 +505,7 @@ const AdminManagement = () => {
     status: '',
     page: 1,
     limit: 25,
-    sortBy: 'name',
+    sortBy: 'username',
     sortOrder: 'asc'
   });
 
@@ -551,12 +525,8 @@ const AdminManagement = () => {
   });
 
   // API Base URL Configuration
- const isDevelopment = window.location.hostname === 'localhost' || 
-                     window.location.hostname === '127.0.0.1';
-const API_BASE_URL = isDevelopment 
-  ? 'http://localhost:5002' 
-  : 'https://vtu-application.onrender.com';
-
+// Use the BASE_URL from your API_CONFIG
+const API_BASE_URL = API_CONFIG.BASE_URL;
   // Role and permission configurations
   const ROLE_CONFIG = {
     super_admin: { color: '#ff3b30', name: 'Super Admin', priority: 1 },
@@ -611,16 +581,20 @@ const API_BASE_URL = isDevelopment
     }, 5000);
   }, []);
 
-  const makeApiCall = useCallback(async (endpoint, options = {}) => {
+const makeApiCall = useCallback(async (endpoint, options = {}) => {
+  try {
+    const url = `${API_BASE_URL}${endpoint}`;
+    
     const defaultOptions = {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         ...options.headers
-      }
+      },
+      credentials: 'include', // Add this line
     };
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(url, {
       ...defaultOptions,
       ...options
     });
@@ -630,8 +604,17 @@ const API_BASE_URL = isDevelopment
       throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return response.json();
-  }, [token, API_BASE_URL]);
+    return await response.json();
+  } catch (error) {
+    console.error('API Call failed:', error);
+    
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new Error('Network error. Please check your internet connection and ensure the backend is running.');
+    }
+    
+    throw error;
+  }
+}, [token, API_BASE_URL]);
 
   // Check mobile screen
   useEffect(() => {
@@ -660,7 +643,7 @@ const API_BASE_URL = isDevelopment
       fetchRoles();
       fetchActivityLogs();
     }
-  }, [token, activeTab]);
+  }, [token, activeTab, filters]);
 
   // API Functions
   const fetchStats = useCallback(async () => {
@@ -855,16 +838,17 @@ const API_BASE_URL = isDevelopment
     }
   }, [token, makeApiCall, showNotification, fetchAdmins, fetchStats]);
 
-  const toggleAdminStatus = useCallback(async (adminId, newStatus) => {
+  const toggleAdminStatus = useCallback(async (adminId, currentStatus) => {
     if (!token) return;
     
     try {
       setActionLoading(true);
+      const newStatus = !currentStatus;
       await makeApiCall(`/api/admin/management/admins/${adminId}/status`, {
         method: 'PUT',
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify({ isActive: newStatus })
       });
-      showNotification(`Admin ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully`);
+      showNotification(`Admin ${newStatus ? 'activated' : 'deactivated'} successfully`);
       await fetchAdmins();
       await fetchStats();
     } catch (error) {
@@ -911,11 +895,11 @@ const API_BASE_URL = isDevelopment
     }
     
     const adminData = {
-      name: adminForm.name,
+      username: adminForm.username,
       email: adminForm.email,
       phone: adminForm.phone,
       role: adminForm.role,
-      status: adminForm.status
+      isActive: adminForm.isActive
     };
     
     if (adminForm.password) {
@@ -930,13 +914,13 @@ const API_BASE_URL = isDevelopment
     
     setShowAdminModal(false);
     setAdminForm({
-      name: '',
+      username: '',
       email: '',
       phone: '',
       role: '',
       password: '',
       confirmPassword: '',
-      status: 'active'
+      isActive: true
     });
     setSelectedAdmin(null);
   }, [adminForm, selectedAdmin, updateAdmin, createAdmin, showNotification]);
@@ -966,13 +950,13 @@ const API_BASE_URL = isDevelopment
   const handleEditAdmin = useCallback((admin) => {
     setSelectedAdmin(admin);
     setAdminForm({
-      name: admin.name,
+      username: admin.username,
       email: admin.email,
       phone: admin.phone || '',
       role: admin.role,
       password: '',
       confirmPassword: '',
-      status: admin.status
+      isActive: admin.isActive
     });
     setShowAdminModal(true);
   }, []);
@@ -980,13 +964,13 @@ const API_BASE_URL = isDevelopment
   const handleNewAdmin = useCallback(() => {
     setSelectedAdmin(null);
     setAdminForm({
-      name: '',
+      username: '',
       email: '',
       phone: '',
       role: '',
       password: '',
       confirmPassword: '',
-      status: 'active'
+      isActive: true
     });
     setShowAdminModal(true);
   }, []);
@@ -1012,14 +996,13 @@ const API_BASE_URL = isDevelopment
   }, []);
 
   // Status badges and utilities
-  const getStatusBadge = useCallback((status) => {
+  const getStatusBadge = useCallback((isActive) => {
     const statusConfig = {
-      active: { bg: '#28a745', text: 'Active' },
-      inactive: { bg: '#6c757d', text: 'Inactive' },
-      suspended: { bg: '#dc3545', text: 'Suspended' }
+      true: { bg: '#28a745', text: 'Active' },
+      false: { bg: '#6c757d', text: 'Inactive' }
     };
 
-    const config = statusConfig[status] || statusConfig.inactive;
+    const config = statusConfig[isActive] || statusConfig.false;
 
     return (
       <span style={{
@@ -1055,6 +1038,7 @@ const API_BASE_URL = isDevelopment
   }, []);
 
   const formatDate = useCallback((dateString) => {
+    if (!dateString) return 'Never';
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
@@ -1063,6 +1047,7 @@ const API_BASE_URL = isDevelopment
       minute: '2-digit'
     });
   }, []);
+
   // Notification Component
   const NotificationBanner = () => {
     if (!success && !error) return null;
@@ -1258,7 +1243,14 @@ const API_BASE_URL = isDevelopment
         <select
           value={filters.role}
           onChange={(e) => handleFilterChange('role', e.target.value)}
-          style={{...STYLES.select, minWidth: '140px'}}
+          style={{
+            padding: '12px 16px',
+            border: '2px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '14px',
+            backgroundColor: '#fff',
+            minWidth: '140px'
+          }}
         >
           <option value="">All Roles</option>
           {Object.entries(ROLE_CONFIG).map(([key, config]) => (
@@ -1282,7 +1274,6 @@ const API_BASE_URL = isDevelopment
           <option value="">All Status</option>
           <option value="active">Active</option>
           <option value="inactive">Inactive</option>
-          <option value="suspended">Suspended</option>
         </select>
 
         {/* Add Admin Button */}
@@ -1347,7 +1338,7 @@ const API_BASE_URL = isDevelopment
                   Status
                 </th>
                 <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                  Last Active
+                  Last Login
                 </th>
                 <th style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0', width: '150px' }}>
                   Actions
@@ -1385,11 +1376,11 @@ const API_BASE_URL = isDevelopment
                         color: '#fff',
                         fontWeight: 'bold'
                       }}>
-                        {admin.name.split(' ').map(n => n[0]).join('').toUpperCase()}
+                        {admin.username.split(' ').map(n => n[0]).join('').toUpperCase()}
                       </div>
                       <div>
                         <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
-                          {admin.name}
+                          {admin.username}
                         </div>
                         <div style={{ color: '#718096', fontSize: '12px' }}>
                           {admin.email}
@@ -1401,11 +1392,11 @@ const API_BASE_URL = isDevelopment
                     {getRoleBadge(admin.role)}
                   </td>
                   <td style={{ padding: '16px' }}>
-                    {getStatusBadge(admin.status)}
+                    {getStatusBadge(admin.isActive)}
                   </td>
                   <td style={{ padding: '16px' }}>
                     <div style={{ color: '#1a202c', fontSize: '14px' }}>
-                      {admin.lastActive ? formatDate(admin.lastActive) : 'Never'}
+                      {formatDate(admin.lastLogin)}
                     </div>
                   </td>
                   <td style={{ padding: '16px', textAlign: 'right' }}>
@@ -1426,11 +1417,11 @@ const API_BASE_URL = isDevelopment
                         Edit
                       </button>
                       <button
-                        onClick={() => toggleAdminStatus(admin._id, admin.status === 'active' ? 'inactive' : 'active')}
+                        onClick={() => toggleAdminStatus(admin._id, admin.isActive)}
                         disabled={actionLoading}
                         style={{
                           padding: '4px 8px',
-                          backgroundColor: admin.status === 'active' ? '#ff8c00' : '#28a745',
+                          backgroundColor: admin.isActive ? '#ff8c00' : '#28a745',
                           color: '#fff',
                           border: 'none',
                           borderRadius: '4px',
@@ -1440,7 +1431,7 @@ const API_BASE_URL = isDevelopment
                           opacity: actionLoading ? 0.7 : 1
                         }}
                       >
-                        {admin.status === 'active' ? 'Deactivate' : 'Activate'}
+                        {admin.isActive ? 'Deactivate' : 'Activate'}
                       </button>
                       <button
                         onClick={() => deleteAdmin(admin._id)}

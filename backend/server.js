@@ -47,6 +47,7 @@ console.log('🔍 Loading routes...');
 let authRoutes, balanceRoutes, userRoutes, walletRoutes, purchaseRoutes;
 let dataRoutes, cableRoutes, transactionRoutes, adminAuthRoutes;
 let adminRoutes, dashboardRoutes, notificationRoutes, userManagementRoutes;
+let accountRoutes; // FIXED: Declare accountRoutes variable
 
 try {
   authRoutes = require('./routes/auth');
@@ -89,7 +90,7 @@ try {
 }
 
 try {
- dataRoutes = require('./routes/dataplan');
+  dataRoutes = require('./routes/dataplan');
   console.log('✅ Data routes loaded');
 } catch (err) {
   console.error('❌ Data routes error:', err.message);
@@ -110,6 +111,15 @@ try {
 } catch (err) {
   console.error('❌ Transaction routes error:', err.message);
   transactionRoutes = null;
+}
+
+// FIXED: Add accountRoutes import with proper error handling
+try {
+  accountRoutes = require('./routes/accountRoutes');
+  console.log('✅ Account routes loaded');
+} catch (err) {
+  console.error('❌ Account routes error:', err.message);
+  accountRoutes = null;
 }
 
 // === ADMIN AUTH DEBUG SECTION ===
@@ -282,7 +292,6 @@ app.get('/api/get-server-ip', (req, res) => {
   });
 });
 
-
 // === DIRECT TEST ROUTE FOR ADMIN AUTH ===
 app.get('/api/admin/auth/direct-test', (req, res) => {
   console.log('📍 Direct admin auth test hit');
@@ -323,8 +332,7 @@ if (userRoutes) {
   }
 }
 
-
-
+// FIXED: Proper accountRoutes check
 if (accountRoutes) {
   try {
     app.use('/api/account', accountRoutes);
@@ -336,6 +344,8 @@ if (accountRoutes) {
   } catch (err) {
     console.error('❌ Account routes registration error:', err.message);
   }
+} else {
+  console.log('ℹ️  Account routes not available - skipping registration');
 }
 
 if (walletRoutes) {
@@ -486,7 +496,6 @@ try {
   console.error('❌ Monnify routes error:', err.message);
 }
 
-
 // === PAYSTACK ROUTES ===
 try {
   const paystackRoutes = require('./routes/paystack');
@@ -536,7 +545,6 @@ if (userManagementRoutes) {
     console.error('❌ User management routes registration error:', err.message);
   }
 }
-
 
 // === 404 HANDLER ===
 app.use((req, res) => {

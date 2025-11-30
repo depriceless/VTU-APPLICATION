@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // Add this import
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Loader from './ui/Loader';
 
 import { API_CONFIG } from "../config/api.config";
 const API_BASE_URL = API_CONFIG.ADMIN_AUTH;
+
+// Import your logo
+import Logo from '../assets/logo.png';
 
 interface LoginCredentials {
   username: string;
@@ -24,7 +27,7 @@ interface AppError {
 
 const AdminLogin: React.FC = () => {
   const { login } = useAuth();
-  const navigate = useNavigate(); // Add this hook
+  const navigate = useNavigate();
 
   const [credentials, setCredentials] = useState<LoginCredentials>({
     username: '',
@@ -42,7 +45,7 @@ const AdminLogin: React.FC = () => {
       setCredentials(prev => ({ ...prev, username: savedUsername, rememberMe: true }));
     }
 
-    // Add CSS animation keyframes
+    // Add CSS animation keyframes and input styles
     if (!document.querySelector('#admin-login-animations')) {
       const style = document.createElement('style');
       style.id = 'admin-login-animations';
@@ -50,6 +53,14 @@ const AdminLogin: React.FC = () => {
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        .admin-login-input::placeholder {
+          color: #999999;
+          opacity: 0.8;
+        }
+        .admin-login-input {
+          color: #000000 !important;
+          font-weight: 500 !important;
         }
       `;
       document.head.appendChild(style);
@@ -113,7 +124,7 @@ const AdminLogin: React.FC = () => {
 
       if (response.success && response.token && response.admin) {
         login(response.admin, response.token, credentials.rememberMe);
-        navigate('/dashboard'); // Add this line to redirect after login
+        navigate('/dashboard');
       } else {
         setError({ 
           message: response.message || 'Authentication failed. Please check your credentials.', 
@@ -157,9 +168,13 @@ const AdminLogin: React.FC = () => {
         {/* Header Section */}
         <div style={styles.header}>
           <div style={styles.logo}>
-            <div style={styles.logoIcon}>🔐</div>
+            <img 
+              src={Logo} 
+              alt="ConnectPay Logo" 
+              style={styles.logoImage}
+            />
           </div>
-          <h1 style={styles.title}>Connectpay Admin Portal</h1>
+          <h1 style={styles.title}>ConnectPay Admin Portal</h1>
           <p style={styles.subtitle}>Sign in to access the admin dashboard</p>
         </div>
 
@@ -185,6 +200,7 @@ const AdminLogin: React.FC = () => {
                 }}
                 autoComplete="username"
                 autoFocus
+                className="admin-login-input"
               />
               <span style={styles.inputIcon}>👤</span>
             </div>
@@ -212,6 +228,7 @@ const AdminLogin: React.FC = () => {
                   ...(getFieldError('password') ? styles.inputError : {})
                 }}
                 autoComplete="current-password"
+                className="admin-login-input"
               />
               <button
                 type="button"
@@ -280,7 +297,7 @@ const AdminLogin: React.FC = () => {
   );
 };
 
-// Updated styles with enhanced centering
+// Updated styles with increased logo size
 const styles = {
   container: {
     display: 'flex',
@@ -301,35 +318,43 @@ const styles = {
   } as React.CSSProperties,
 
   loginCard: {
-    width: '100%',
-    maxWidth: '440px',
-    backgroundColor: '#ffffff',
-    borderRadius: '16px',
-    padding: '48px 40px',
-    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
-    border: '1px solid #e1e1e1',
-    margin: 'auto',
-    transform: 'translateY(-5vh)' // Slight upward adjustment for better visual centering
-  } as React.CSSProperties,
+  width: '100%',
+  maxWidth: '440px',
+  backgroundColor: '#ffffff',
+  borderRadius: '16px',
+  padding: '48px 40px',
+  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+  border: '1px solid #e1e1e1',
+  margin: 'auto',
+  transform: 'translateY(-14vh)' // Changed from -17vh to -10vh
+} as React.CSSProperties,
 
-  header: {
-    textAlign: 'center' as const,
-    marginBottom: '40px'
-  },
+header: {
+  textAlign: 'center' as const,
+  marginBottom: '40px',
+  position: 'relative' as const, // Add this
+  paddingTop: '120px' // Create space for the logo
+},
+logo: {
+  position: 'absolute' as const, // Absolute positioning
+  top: '0px', // Position at the top of header
+  left: '50%', // Center horizontally
+  transform: 'translateX(-50%)', // Center horizontally
+  display: 'flex',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 10
+},
 
-  logo: {
-    marginBottom: '16px'
-  },
-
-  logoIcon: {
-    fontSize: '48px',
-    marginBottom: '8px'
-  },
-
+logoImage: {
+  width: '190px', // Extra large
+  height: '190px', // Extra large
+  objectFit: 'contain' as const
+},
   title: {
     fontSize: '28px',
     fontWeight: '700',
-    color: '#333333',
+    color: '#ff2b2b',
     margin: '0 0 8px 0',
     letterSpacing: '-0.5px'
   },
@@ -367,13 +392,16 @@ const styles = {
     width: '100%',
     padding: '16px 50px 16px 16px',
     fontSize: '16px',
-    border: '1px solid #ddd',
+    border: '2px solid #e1e5e9',
     borderRadius: '12px',
     outline: 'none',
     transition: 'all 0.2s ease-in-out',
     backgroundColor: '#ffffff',
-    boxSizing: 'border-box' as const
-  },
+    boxSizing: 'border-box' as const,
+    color: '#000000',
+    fontWeight: '500',
+    fontFamily: 'inherit',
+  } as React.CSSProperties,
 
   inputError: {
     borderColor: '#ff3b30',
@@ -385,7 +413,8 @@ const styles = {
     right: '16px',
     fontSize: '18px',
     color: '#666666',
-    pointerEvents: 'none' as const
+    pointerEvents: 'none' as const,
+    zIndex: 1
   },
 
   passwordToggle: {
@@ -399,7 +428,8 @@ const styles = {
     padding: '0',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center'
+    justifyContent: 'center',
+    zIndex: 2
   },
 
   checkboxGroup: {
@@ -465,9 +495,9 @@ const styles = {
   },
 
   submitButtonEnabled: {
-    backgroundColor: '#ff3b30',
+    backgroundColor: '#ff2b2b',
     color: '#ffffff',
-    boxShadow: '0 4px 14px 0 rgba(255, 59, 48, 0.3)'
+    boxShadow: '0 4px 14px 0 rgba(255, 43, 43, 0.3)'
   },
 
   submitButtonDisabled: {

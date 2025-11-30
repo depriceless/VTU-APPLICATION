@@ -31,14 +31,20 @@ export default {
       [
         "expo-splash-screen",
         {
-          image: "./assets/icon.png",
-          imageWidth: 200,
-          resizeMode: "contain",
-          backgroundColor: "#ffffff",
-        },
+          "image": "./assets/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
       ],
       "expo-asset",
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow ConnectPay to use Face ID."
+        }
+      ]
     ],
     experiments: {
       typedRoutes: true,

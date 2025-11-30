@@ -59,9 +59,10 @@ interface DataPlan {
   validity: string;
   dataSize: string;
   network: string;
+  type?: 'regular' | 'sme' | 'gift';
 }
 
-type PlanCategory = 'daily' | 'short' | 'weekly' | 'monthly';
+type PlanCategory = 'regular' | 'sme' | 'gift';
 
 export default function BuyData() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
@@ -70,7 +71,7 @@ export default function BuyData() {
   const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<DataPlan | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<PlanCategory>('daily');
+  const [selectedCategory, setSelectedCategory] = useState<PlanCategory>('regular');
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [contactsList, setContactsList] = useState<Contact[]>([]);
@@ -92,60 +93,33 @@ export default function BuyData() {
   const [showPlans, setShowPlans] = useState(false);
 
   const categorizePlans = (plans: DataPlan[]) => {
-    const daily = plans.filter(p => {
+    // Categorize by plan type (regular, SME, gift)
+    const regular = plans.filter(p => {
+      const name = p.name.toLowerCase();
       const validity = p.validity.toLowerCase();
-      return validity.includes('1 day') || 
-             validity.includes('24 hours') ||
-             validity.includes('1day') ||
-             (validity.match(/^1\s*day/));
-    });
-    
-    const short = plans.filter(p => {
-      const validity = p.validity.toLowerCase();
-      return validity.includes('2 days') ||
-             validity.includes('3 days') ||
-             validity.includes('2days') ||
-             validity.includes('3days');
-    });
-    
-    const weekly = plans.filter(p => {
-      const validity = p.validity.toLowerCase();
-      const dayMatch = validity.match(/(\d+)\s*days?/);
-      const dayCount = dayMatch ? parseInt(dayMatch[1]) : 0;
       
-      return validity.includes('week') ||
-             (dayCount >= 4 && dayCount <= 21) ||
-             validity.includes('7 days') ||
-             validity.includes('14 days') ||
-             validity.includes('7days') ||
-             validity.includes('14days');
+      // Check if it's SME or Gift first
+      const isSME = name.includes('sme') || name.includes('corporate');
+      const isGift = name.includes('gift') || name.includes('gifting');
+      
+      // Regular data should have validity periods and not be SME/Gift
+      return !isSME && !isGift;
     });
     
-    const monthly = plans.filter(p => {
-      const validity = p.validity.toLowerCase();
-      const dayMatch = validity.match(/(\d+)\s*days?/);
-      const dayCount = dayMatch ? parseInt(dayMatch[1]) : 0;
-      
-      return validity.includes('month') ||
-             (dayCount >= 22) ||
-             validity.includes('30 days') ||
-             validity.includes('60 days') ||
-             validity.includes('90 days') ||
-             validity.includes('30days') ||
-             validity.includes('60days') ||
-             validity.includes('90days') ||
-             validity.includes('365 days') ||
-             validity.includes('365days');
+    const sme = plans.filter(p => {
+      const name = p.name.toLowerCase();
+      return name.includes('sme') || name.includes('corporate');
+    });
+    
+    const gift = plans.filter(p => {
+      const name = p.name.toLowerCase();
+      return name.includes('gift') || name.includes('gifting');
     });
 
-    const categorized = new Set([...daily, ...short, ...weekly, ...monthly]);
-    const uncategorized = plans.filter(p => !categorized.has(p));
-    
     return { 
-      daily, 
-      short,
-      weekly, 
-      monthly: [...monthly, ...uncategorized] 
+      regular, 
+      sme,
+      gift
     };
   };
 
@@ -225,9 +199,16 @@ export default function BuyData() {
       
       setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 100);
+      }, 300);
     }
   }, [showPinEntry]);
+
+  const handlePinAreaPress = () => {
+    console.log('PIN area pressed - attempting to focus input');
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
+  };
 
   useEffect(() => {
     saveFormState();
@@ -783,10 +764,9 @@ export default function BuyData() {
                 <>
                   <View style={styles.categoryTabs}>
                     {[
-                      { key: 'daily', label: 'Daily' },
-                      { key: 'short', label: '2-3 Days' },
-                      { key: 'weekly', label: 'Weekly' },
-                      { key: 'monthly', label: 'Monthly' }
+                      { key: 'regular', label: 'Regular Data' },
+                      { key: 'sme', label: 'SME Data' },
+                      { key: 'gift', label: 'Gift Data' }
                     ].map(({ key, label }) => (
                       <TouchableOpacity
                         key={key}
@@ -843,8 +823,15 @@ export default function BuyData() {
                   ) : (
                     <View style={styles.emptyState}>
                       <Text style={styles.emptyStateText}>
-                        No {selectedCategory} plans available
+                        {selectedCategory === 'gift' 
+                          ? '🎁 Gift data plans coming soon!' 
+                          : `No ${selectedCategory} plans available`}
                       </Text>
+                      {selectedCategory === 'gift' && (
+                        <Text style={styles.emptyStateSubtext}>
+                          We're working on adding gift data options for this network
+                        </Text>
+                      )}
                     </View>
                   )}
                 </>
@@ -1013,7 +1000,7 @@ export default function BuyData() {
         </ScrollView>
       )}
 
-      {/* PIN Entry Modal - Bottom Sheet (Like Airtime) */}
+      {/* PIN Entry Modal - Bottom Sheet */}
       <Modal 
         visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
         animationType="slide"
@@ -1052,10 +1039,8 @@ export default function BuyData() {
             {/* PIN Input Area - Pressable */}
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -1069,22 +1054,29 @@ export default function BuyData() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+              Tap here to enter PIN
+              </Text>
+              
+              {/* Actual Input - Transparent overlay */}
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                  console.log('PIN changed:', cleaned);
+                  setPin(cleaned);
+                  setPinError('');
+                }}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
@@ -1236,16 +1228,13 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#f5f5f5' 
   },
-
   scrollContent: { 
     flex: 1 
   },
-
   scrollContentContainer: {
     padding: 16,
     paddingBottom: 40,
   },
-
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1257,19 +1246,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   quickActions: {
     flexDirection: 'row',
     gap: 10,
   },
-
   quickActionBtn: {
     flex: 1,
     alignItems: 'center',
@@ -1281,18 +1267,15 @@ const styles = StyleSheet.create({
     borderColor: '#e8e8e8',
     position: 'relative',
   },
-
   quickActionIcon: {
     fontSize: 20,
     marginBottom: 2,
   },
-
   quickActionText: {
     fontSize: 12,
     fontWeight: '500',
     color: '#333',
   },
-
   badge: {
     position: 'absolute',
     top: 6,
@@ -1305,20 +1288,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-
   badgeText: {
     color: '#fff',
     fontSize: 10,
     fontWeight: '600',
   },
-
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
     color: '#666',
     marginBottom: 8,
   },
-
   textInput: {
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1328,14 +1308,12 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
-
   validationError: {
     color: '#ff3b30',
     fontSize: 13,
     marginTop: 8,
     fontWeight: '500',
   },
-
   validationSuccess: {
     marginTop: 8,
     paddingVertical: 6,
@@ -1344,18 +1322,15 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignSelf: 'flex-start',
   },
-
   validationSuccessText: {
     color: '#2e7d32',
     fontSize: 13,
     fontWeight: '500',
   },
-
   networkGrid: {
     flexDirection: 'row',
     gap: 10,
   },
-
   networkItem: {
     flex: 1,
     aspectRatio: 1,
@@ -1368,29 +1343,24 @@ const styles = StyleSheet.create({
     position: 'relative',
     padding: 8,
   },
-
   networkItemSelected: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-
   networkLogo: {
     width: 40,
     height: 40,
     resizeMode: 'contain',
     marginBottom: 6,
   },
-
   networkName: {
     fontSize: 10,
     fontWeight: '600',
     color: '#666',
   },
-
   networkNameSelected: {
     color: '#ff3b30',
   },
-
   checkmark: {
     position: 'absolute',
     top: 6,
@@ -1402,30 +1372,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   checkmarkText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: 'bold',
   },
-
   categoryTabs: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     marginBottom: 16,
     backgroundColor: '#f0f0f0',
     borderRadius: 10,
     padding: 4,
   },
-
   categoryTab: {
     flex: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 4,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-
   categoryTabActive: {
     backgroundColor: '#fff',
     shadowColor: '#000',
@@ -1434,22 +1401,19 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 2,
   },
-
   categoryTabText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '500',
     color: '#666',
+    textAlign: 'center',
   },
-
   categoryTabTextActive: {
     color: '#ff3b30',
     fontWeight: '700',
   },
-
   plansScrollView: {
     maxHeight: 320,
   },
-
   planCard: {
     backgroundColor: '#fafafa',
     borderRadius: 12,
@@ -1459,51 +1423,42 @@ const styles = StyleSheet.create({
     borderColor: '#e8e8e8',
     position: 'relative',
   },
-
   planCardSelected: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-
   planCardContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-
   planInfo: {
     flex: 1,
   },
-
   planDataSize: {
     fontSize: 18,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 4,
   },
-
   planName: {
     fontSize: 12,
     fontWeight: '500',
     color: '#666',
     marginBottom: 4,
   },
-
   planValidity: {
     fontSize: 11,
     color: '#999',
   },
-
   planPriceContainer: {
     alignItems: 'flex-end',
   },
-
   planPrice: {
     fontSize: 18,
     fontWeight: '700',
     color: '#2e7d32',
   },
-
   planCheckmark: {
     position: 'absolute',
     top: 8,
@@ -1515,36 +1470,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   planCheckmarkText: {
     color: '#fff',
     fontSize: 13,
     fontWeight: 'bold',
   },
-
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     padding: 20,
   },
-
   loadingText: {
     marginLeft: 8,
     color: '#666',
     fontSize: 14,
   },
-
   emptyState: {
     padding: 40,
     alignItems: 'center',
   },
-
   emptyStateText: {
     color: '#999',
     fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 8,
   },
-
+  emptyStateSubtext: {
+    color: '#bbb',
+    fontSize: 12,
+    textAlign: 'center',
+  },
   primaryButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 16,
@@ -1552,17 +1508,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-
   primaryButtonDisabled: {
     backgroundColor: '#d0d0d0',
   },
-
   primaryButtonText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
-
   secondaryButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
@@ -1571,23 +1524,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
-
   secondaryButtonText: {
     color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
-
   buttonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   buttonLoadingText: {
     marginLeft: 0,
   },
-
   balanceOverview: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1599,160 +1548,133 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-
   balanceLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   refreshButton: {
     padding: 4,
   },
-
   refreshIcon: {
     fontSize: 18,
     color: '#ff3b30',
   },
-
   balanceAmount: {
     fontSize: 36,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   balanceCalculation: {
     backgroundColor: '#f8f8f8',
     borderRadius: 12,
     padding: 16,
   },
-
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-
   balanceRowLabel: {
     fontSize: 14,
     color: '#666',
   },
-
   balanceRowValue: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   balanceRowLabelBold: {
     fontSize: 15,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   balanceRowValueBold: {
     fontSize: 15,
     color: '#2e7d32',
     fontWeight: '700',
   },
-
   negativeAmount: {
     color: '#ff3b30',
   },
-
   balanceDivider: {
     height: 1,
     backgroundColor: '#e0e0e0',
     marginVertical: 12,
   },
-
   insufficientWarning: {
     marginTop: 12,
     padding: 12,
     backgroundColor: '#fff3e0',
     borderRadius: 8,
   },
-
   insufficientWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
   },
-
   balanceLoading: {
     paddingVertical: 20,
     alignItems: 'center',
   },
-
   balanceLoadingText: {
     color: '#999',
     fontSize: 14,
   },
-
   summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-
   summaryLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   summaryValue: {
     fontSize: 14,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   summaryNetworkLogo: {
     width: 24,
     height: 24,
     resizeMode: 'contain',
   },
-
   summaryDivider: {
     height: 1,
     backgroundColor: '#e8e8e8',
     marginVertical: 12,
   },
-
   summaryLabelTotal: {
     fontSize: 16,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueTotal: {
     fontSize: 20,
     color: '#ff3b30',
     fontWeight: '700',
   },
-
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-
   pinBottomSheet: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
@@ -1766,7 +1688,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-
   dragHandle: {
     width: 40,
     height: 4,
@@ -1775,7 +1696,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 20,
   },
-
   pinTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -1783,14 +1703,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-
   pinSubtitle: {
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
     marginBottom: 24,
   },
-
   attemptsWarning: {
     backgroundColor: '#fff3e0',
     paddingVertical: 8,
@@ -1799,13 +1717,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignSelf: 'center',
   },
-
   attemptsWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '600',
   },
-
   pinInputArea: {
     backgroundColor: '#f8f8f8',
     borderRadius: 16,
@@ -1815,21 +1731,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
-
   pinDotsContainer: {
     flexDirection: 'row',
     gap: 20,
     justifyContent: 'center',
     marginBottom: 12,
   },
-
   pinInputHint: {
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
   },
-
   pinDot: {
     width: 16,
     height: 16,
@@ -1838,24 +1752,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#d0d0d0',
   },
-
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
-
-  hiddenPinInput: {
+  overlayPinInput: {
     position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
   },
-
   pinErrorText: {
     color: '#ff3b30',
     fontSize: 13,
@@ -1864,13 +1777,11 @@ const styles = StyleSheet.create({
     marginTop: -12,
     marginBottom: 20,
   },
-
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
-
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1880,26 +1791,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#e8e8e8',
   },
-
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#1a1a1a',
   },
-
   modalCloseButton: {
     width: 32,
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   modalCloseText: {
     fontSize: 20,
     color: '#666',
     fontWeight: '600',
   },
-
   listItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1908,7 +1815,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
-
   contactAvatar: {
     width: 36,
     height: 36,
@@ -1918,29 +1824,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 12,
   },
-
   contactAvatarText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#666',
   },
-
   contactDetails: {
     flex: 1,
   },
-
   contactName: {
     fontSize: 14,
     fontWeight: '500',
     color: '#1a1a1a',
     marginBottom: 2,
   },
-
   contactPhone: {
     fontSize: 12,
     color: '#999',
   },
-
   dateText: {
     fontSize: 11,
     color: '#999',

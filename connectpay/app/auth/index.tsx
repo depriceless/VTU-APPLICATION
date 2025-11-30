@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ImageBackground,
+  Image,
   SafeAreaView,
   Animated,
   Dimensions,
@@ -150,34 +151,34 @@ export default function WelcomeScreen() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.contentWrapper}>
-              {/* App Logo/Icon */}
-              <Animated.View
-                style={[
-                  styles.logoContainer,
-                  {
-                    opacity: logoAnim,
-                    transform: [
-                      {
-                        translateY: logoAnim.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: [-50, 0],
-                        }),
-                      },
-                      {
-                        scale: scaleAnim,
-                      },
-                    ],
-                  },
-                ]}
-              >
-                <View style={styles.logoWrapper}>
-                  <Ionicons 
-                    name="card-outline" 
-                    size={SCREEN_WIDTH < 360 ? 40 : 50} 
-                    color="#ff2b2b" 
-                  />
-                </View>
-              </Animated.View>
+{/* App Logo/Icon */}
+<Animated.View
+  style={[
+    styles.logoContainer,
+    {
+      opacity: logoAnim,
+      transform: [
+        {
+          translateY: logoAnim.interpolate({
+            inputRange: [0, 1],
+            outputRange: [-50, 0],
+          }),
+        },
+        {
+          scale: scaleAnim,
+        },
+      ],
+    },
+  ]}
+>
+  <View style={styles.logoWrapper}>
+    <Image 
+      source={require('../../assets/images/logo.png')}
+      style={styles.logoImage}
+      resizeMode="contain"
+    />
+  </View>
+</Animated.View>
 
               {/* Animated Title */}
               <Animated.View
@@ -355,32 +356,34 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     paddingHorizontal: SCREEN_WIDTH < 360 ? 20 : 30,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
+    paddingTop: Platform.OS === 'ios' ? 40 : 20, // Reduced padding top
     paddingBottom: 40,
   },
   logoContainer: {
-    marginBottom: SCREEN_HEIGHT * 0.02,
+    marginBottom: SCREEN_HEIGHT * -0.03, // Reduced margin
   },
   logoWrapper: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: SCREEN_WIDTH < 360 ? 30 : 35,
-    padding: SCREEN_WIDTH < 360 ? 15 : 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 5 },
     shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
   },
+  logoImage: {
+    width: SCREEN_WIDTH < 360 ? 120 : 150, // Increased logo size
+    height: SCREEN_WIDTH < 360 ? 120 : 150, // Increased logo size
+  },
   title: {
-    fontSize: SCREEN_WIDTH < 360 ? 28 : 32,
+    fontSize: SCREEN_WIDTH < 360 ? 24 : 28, // Reduced font size
     color: '#fff',
     textAlign: 'center',
     fontWeight: 'bold',
-    lineHeight: SCREEN_WIDTH < 360 ? 36 : 40,
+    lineHeight: SCREEN_WIDTH < 360 ? 32 : 36, // Adjusted line height
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
     fontFamily: Platform.OS === 'ios' ? 'System' : 'Roboto',
+    marginTop: SCREEN_HEIGHT * -0.02, // Negative margin to bring title closer to logo
   },
   highlight: {
     color: '#ff2b2b',

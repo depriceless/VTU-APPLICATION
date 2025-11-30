@@ -22,7 +22,7 @@ import { AuthContext } from '../contexts/AuthContext';
 export default function Settings() {
   const router = useRouter();
   const { isDark, toggleTheme, colors } = useContext(ThemeContext);
-  const { token } = useContext(AuthContext);
+  const { token, logout } = useContext(AuthContext);
   
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [emailNotifications, setEmailNotifications] = useState(true);
@@ -141,6 +141,35 @@ export default function Settings() {
                   text: 'Delete', 
                   style: 'destructive', 
                   onPress: () => {}
+                },
+              ]
+            );
+          },
+          showChevron: true,
+          isDanger: true,
+        },
+        {
+          icon: 'log-out-outline',
+          label: 'Logout',
+          subtitle: 'Sign out of your account',
+          onPress: () => {
+            Alert.alert(
+              'Logout',
+              'Are you sure you want to logout?',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                { 
+                  text: 'Logout', 
+                  style: 'destructive', 
+                  onPress: async () => {
+                    try {
+                      await logout();
+                      router.replace('/auth/login');
+                    } catch (error) {
+                      console.error('Logout error:', error);
+                      router.replace('/auth/login');
+                    }
+                  }
                 },
               ]
             );

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useContext, useCallback, useMemo, useRef } from 'react';
 import BetFundingSuccessModal from './BetFundingSuccessModal';
-
 import {
   View,
   Text,
@@ -190,12 +189,9 @@ export default function FundBetting() {
       setPin('');
       setPinError('');
       checkPinStatus();
-      // Focus the PIN input after a short delay
       setTimeout(() => {
-        if (pinInputRef.current) {
-          pinInputRef.current.focus();
-        }
-      }, 100);
+        pinInputRef.current?.focus();
+      }, 300);
     }
   }, [showPinEntry]);
 
@@ -584,6 +580,12 @@ export default function FundBetting() {
       return;
     }
     setShowPinEntry(true);
+  };
+
+  const handlePinAreaPress = () => {
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
   };
 
   const validatePinAndPurchase = useCallback(async () => {
@@ -1146,10 +1148,8 @@ export default function FundBetting() {
 
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -1163,22 +1163,27 @@ export default function FundBetting() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+                Tap here to enter PIN
+              </Text>
+              
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                  setPin(cleaned);
+                  setPinError('');
+                }}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
@@ -1246,16 +1251,13 @@ const styles = StyleSheet.create({
     flex: 1, 
     backgroundColor: '#f5f5f5' 
   },
-
   scrollContent: { 
     flex: 1 
   },
-
   scrollContentContainer: {
     padding: 16,
     paddingBottom: 40,
   },
-
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1267,19 +1269,16 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-
   sectionTitle: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   buttonRow: { 
     flexDirection: 'row',
     gap: 12,
   },
-  
   actionBtn: {
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1289,19 +1288,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     flex: 1,
   },
-  
   actionBtnText: { 
     color: '#666', 
     fontSize: 14, 
     fontWeight: '600' 
   },
-
   providersContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
-  
   providerCard: {
     flex: 1,
     minWidth: '30%',
@@ -1316,30 +1312,25 @@ const styles = StyleSheet.create({
     position: 'relative',
     padding: 8,
   },
-  
   providerSelected: { 
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-  
   providerLogo: { 
     width: 40, 
     height: 40, 
     resizeMode: 'contain', 
     marginBottom: 6 
   },
-  
   providerLabel: { 
     fontSize: 10, 
     fontWeight: '600', 
     color: '#666', 
     textAlign: 'center',
   },
-
   providerLabelSelected: {
     color: '#ff3b30',
   },
-
   checkmark: {
     position: 'absolute',
     top: 6,
@@ -1351,19 +1342,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   checkmarkText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: 'bold',
   },
-
   quickAmountGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10,
   },
-  
   quickAmountBtn: {
     paddingVertical: 12,
     paddingHorizontal: 18,
@@ -1373,23 +1361,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#fafafa',
     minWidth: '22%',
   },
-  
   quickAmountSelected: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-  
   quickAmountText: {
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '600',
     color: '#666',
   },
-  
   quickAmountTextSelected: {
     color: '#fff',
   },
-
   input: {
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1399,26 +1383,22 @@ const styles = StyleSheet.create({
     color: '#1a1a1a',
     backgroundColor: '#fafafa',
   },
-
   inputError: {
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
   },
-  
   validationError: { 
     color: '#ff3b30', 
     fontSize: 13, 
     marginTop: 8,
     fontWeight: '500',
   },
-  
   validationSuccess: {
     color: '#28a745',
     fontSize: 13,
     marginTop: 8,
     fontWeight: '600',
   },
-
   primaryButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 16,
@@ -1426,17 +1406,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  
   primaryButtonDisabled: { 
     backgroundColor: '#d0d0d0',
   },
-  
   primaryButtonText: { 
     color: '#fff', 
     fontSize: 16, 
     fontWeight: '600' 
   },
-
   secondaryButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
@@ -1445,23 +1422,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e8e8e8',
   },
-  
   secondaryButtonText: {
     color: '#666',
     fontSize: 16,
     fontWeight: '600',
   },
-
   buttonLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   buttonLoadingText: {
     marginLeft: 0,
   },
-
   balanceOverview: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1473,172 +1446,143 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  
   balanceHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  
   balanceLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-  
   refreshButton: {
     padding: 4,
   },
-  
   refreshIcon: {
     fontSize: 18,
     color: '#ff3b30',
   },
-  
   balanceAmount: {
     fontSize: 36,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 16,
   },
-
   balanceCalculation: {
     backgroundColor: '#f8f8f8',
     borderRadius: 12,
     padding: 16,
   },
-
   balanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
   },
-
   balanceRowLabel: {
     fontSize: 14,
     color: '#666',
   },
-
   balanceRowValue: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   balanceRowLabelBold: {
     fontSize: 15,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   balanceRowValueBold: {
     fontSize: 15,
     color: '#2e7d32',
     fontWeight: '700',
   },
-
   negativeAmount: {
     color: '#ff3b30',
   },
-
   balanceDivider: {
     height: 1,
     backgroundColor: '#e0e0e0',
     marginVertical: 12,
   },
-
   insufficientWarning: {
     marginTop: 12,
     padding: 12,
     backgroundColor: '#fff3e0',
     borderRadius: 8,
   },
-
   insufficientWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '500',
     textAlign: 'center',
   },
-
   balanceLoading: {
     paddingVertical: 20,
     alignItems: 'center',
   },
-
   balanceLoadingText: {
     color: '#999',
     fontSize: 14,
   },
-
   summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
-
   summaryLabel: {
     fontSize: 14,
     color: '#666',
     fontWeight: '500',
   },
-
   summaryValue: {
     fontSize: 14,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-
   summaryNetworkLogo: {
     width: 24,
     height: 24,
     resizeMode: 'contain',
   },
-
   summaryAmountValue: {
     fontSize: 15,
     color: '#ff3b30',
     fontWeight: '700',
   },
-
   summaryDivider: {
     height: 1,
     backgroundColor: '#e8e8e8',
     marginVertical: 12,
   },
-
   summaryLabelTotal: {
     fontSize: 16,
     color: '#1a1a1a',
     fontWeight: '600',
   },
-
   summaryValueTotal: {
     fontSize: 20,
     color: '#ff3b30',
     fontWeight: '700',
   },
-
   summaryBalance: {
     fontSize: 15,
     fontWeight: '700',
     color: '#2e7d32',
   },
-
   modalContainer: { 
     flex: 1, 
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'ios' ? 50 : 20,
   },
-  
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1648,25 +1592,21 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e8e8e8',
     backgroundColor: '#f8f8f8',
   },
-  
   modalTitle: { 
     fontSize: 20, 
     fontWeight: '700', 
     color: '#1a1a1a' 
   },
-  
   modalCloseBtn: {
     padding: 8,
     borderRadius: 8,
     backgroundColor: '#fff',
   },
-  
   modalCloseBtnText: {
     fontSize: 24,
     color: '#666',
     fontWeight: '700',
   },
-
   contactItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1676,30 +1616,25 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f0f0f0',
     backgroundColor: '#fff',
   },
-  
   contactInfo: {
     flex: 1,
   },
-  
   contactName: { 
     fontSize: 16, 
     fontWeight: '600', 
     color: '#1a1a1a',
     marginBottom: 4,
   },
-  
   contactNumber: { 
     color: '#666', 
     fontSize: 14,
     fontWeight: '500',
   },
-  
   recentTime: {
     fontSize: 13,
     color: '#999',
     fontWeight: '500',
   },
-
   emptyText: {
     textAlign: 'center',
     color: '#999',
@@ -1707,13 +1642,11 @@ const styles = StyleSheet.create({
     marginTop: 60,
     fontWeight: '500',
   },
-
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-end',
   },
-
   pinBottomSheet: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 24,
@@ -1727,7 +1660,6 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 8,
   },
-
   dragHandle: {
     width: 40,
     height: 4,
@@ -1736,7 +1668,6 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     marginBottom: 20,
   },
-
   pinTitle: {
     fontSize: 20,
     fontWeight: '700',
@@ -1744,14 +1675,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-
   pinSubtitle: {
     fontSize: 14,
     color: '#999',
     textAlign: 'center',
     marginBottom: 24,
   },
-
   attemptsWarning: {
     backgroundColor: '#fff3e0',
     paddingVertical: 8,
@@ -1760,13 +1689,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignSelf: 'center',
   },
-
   attemptsWarningText: {
     color: '#e65100',
     fontSize: 13,
     fontWeight: '600',
   },
-
   pinInputArea: {
     backgroundColor: '#f8f8f8',
     borderRadius: 16,
@@ -1776,21 +1703,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
-
   pinDotsContainer: {
     flexDirection: 'row',
     gap: 20,
     justifyContent: 'center',
     marginBottom: 12,
   },
-
   pinInputHint: {
     fontSize: 13,
     color: '#999',
     textAlign: 'center',
   },
-
   pinDot: {
     width: 16,
     height: 16,
@@ -1799,24 +1724,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#d0d0d0',
   },
-
   pinDotFilled: {
     backgroundColor: '#ff3b30',
     borderColor: '#ff3b30',
   },
-
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
   },
-
-  hiddenPinInput: {
+  overlayPinInput: {
     position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
   },
-
   pinErrorText: {
     color: '#ff3b30',
     fontSize: 13,

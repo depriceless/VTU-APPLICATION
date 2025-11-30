@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -7,12 +7,51 @@ import {
   StyleSheet, 
   ActivityIndicator, 
   ScrollView, 
-  Alert 
+  Alert,
+  Clipboard,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+// ============================================================================
+// Constants & Configuration
+// ============================================================================
+
+const AMOUNT_LIMITS = {
+  MIN: 100,
+  MAX: 1000000,
+} as const;
+
+const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 20000, 50000, 100000] as const;
+
+const STORAGE_KEYS = {
+  AUTH_TOKEN: 'userToken',
+  CACHED_ACCOUNT: 'cachedVirtualAccount',
+} as const;
+
+const API_CONFIG = {
+  BASE_URL: Platform.OS === 'web' 
+    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
+    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+  FALLBACK_URL: 'https://vtu-application.onrender.com/api',
+  ENDPOINTS: {
+    VIRTUAL_ACCOUNT: '/payment/virtual-account',
+    CARD_PAYMENT: '/card/pay',
+    ACTIVE_GATEWAY: '/payment/active-gateway',
+  },
+  TIMEOUT: 30000, // 30 seconds
+} as const;
+
+const GATEWAY_NAMES = {
+  paystack: 'Paystack',
+  monnify: 'Monnify',
+} as const;
+
+// ============================================================================
 // Types
+// ============================================================================
+
 interface FundWalletProps {
   token: string;
   currentBalance?: number;
@@ -26,12 +65,9 @@ interface BankAccount {
 }
 
 interface BankData {
-  accounts?: BankAccount[];
+  accounts: BankAccount[];
   reference?: string;
-  bankName?: string;
-  accountName?: string;
-  accountNumber?: string;
-  gateway?: string;
+  gateway: 'paystack' | 'monnify';
 }
 
 interface CardInfo {
@@ -40,313 +76,634 @@ interface CardInfo {
   cvv: string;
 }
 
+type PaymentMethodType = 'bank' | 'card';
+
 interface PaymentMethod {
-  id: 'bank' | 'card';
+  id: PaymentMethodType;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }
 
-// API Configuration
-const API_CONFIG = {
-  BASE_URL: Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL 
-    ? `${Constants.expoConfig.extra.EXPO_PUBLIC_API_URL}/api`
-    : 'https://vtu-application.onrender.com/api',
-  ENDPOINTS: {
-    GET_VIRTUAL_ACCOUNT: '/payment/virtual-account',
-    CARD_PAYMENT: '/card/pay',
-    ACTIVE_GATEWAY: '/payment/active-gateway'
-  }
-};
-console.log('🔧 FundWallet API URL:', API_CONFIG.BASE_URL);
-
 const PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'bank', label: 'BANK TRANSFER', icon: 'business-outline' },
-  { id: 'card', label: 'DEBIT CARD', icon: 'card-outline' }
+  { id: 'card', label: 'DEBIT CARD', icon: 'card-outline' },
 ];
 
-export default function FundWallet({ token, currentBalance = 0, onSuccess }: FundWalletProps) {
-  const [amount, setAmount] = useState<string>('');
-  const [paymentMethod, setPaymentMethod] = useState<'bank' | 'card'>('bank');
-  const [loading, setLoading] = useState<boolean>(true);
-  const [bankData, setBankData] = useState<BankData | null>(null);
-  const [cardInfo, setCardInfo] = useState<CardInfo>({ cardNumber: '', expiry: '', cvv: '' });
-  const [error, setError] = useState<string>('');
-  const [success, setSuccess] = useState<string>('');
-  const [activeGateway, setActiveGateway] = useState<string>('');
+// ============================================================================
+// Validation Utilities
+// ============================================================================
 
-  useEffect(() => {
-    if (token) {
-      checkActiveGateway();
-      fetchAccountDetails();
-    } else {
-      setError('Please login to continue');
-      setLoading(false);
-    }
-  }, [token]);
+const validators = {
+  amount: (value: string): boolean => {
+    const num = Number(value);
+    return value.trim() !== '' && 
+           !isNaN(num) && 
+           num >= AMOUNT_LIMITS.MIN && 
+           num <= AMOUNT_LIMITS.MAX;
+  },
 
-  const makeAPICall = async (url: string, options: RequestInit = {}): Promise<any> => {
-    const method = options.method || 'GET';
-    console.log(`\n📡 === API REQUEST ===`);
-    console.log(`Method: ${method}`);
-    console.log(`URL: ${url}`);
-    console.log(`Time: ${new Date().toISOString()}`);
-    
-    try {
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` }),
-          ...options.headers,
-        },
-      });
-
-      const responseText = await response.text();
-      console.log(`📄 Response Status: ${response.status}`);
-      console.log(`📄 Response (first 300 chars):`, responseText.substring(0, 300));
-
-      let data: any;
-      try {
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch (parseError) {
-        console.error('❌ JSON Parse Error:', parseError);
-        throw new Error('Invalid server response');
-      }
-
-      if (!response.ok) {
-        console.error('❌ Request failed:', data);
-        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      console.log('✅ Request successful\n');
-      return data;
-
-    } catch (error) {
-      console.error('❌ API Error:', error);
-      
-      if (error instanceof Error && error.message === 'Network request failed') {
-        throw new Error('Cannot connect to server. Please check your internet connection.');
-      }
-      
-      throw error;
-    }
-  };
-
-  const checkActiveGateway = async () => {
-    try {
-      const response = await makeAPICall(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.ACTIVE_GATEWAY}`,
-        { method: 'GET' }
-      );
-
-      if (response.success) {
-        setActiveGateway(response.activeGateway);
-        console.log('💳 Active Gateway:', response.activeGateway);
-      }
-    } catch (error) {
-      console.error('❌ Failed to check active gateway:', error);
-    }
-  };
-
-  const processAccounts = (data: any) => {
-    console.log('📋 Processing account data...');
-    console.log('Gateway:', data.gateway);
-    
-    if (data.gateway === 'paystack') {
-      // Paystack has single account
-      setBankData({
-        accounts: [{
-          bankName: data.bankName,
-          accountNumber: data.accountNumber,
-          accountName: data.accountName
-        }],
-        bankName: data.bankName,
-        accountName: data.accountName,
-        accountNumber: data.accountNumber,
-        gateway: 'paystack'
-      });
-      console.log('✅ Loaded Paystack account');
-    } else if (data.gateway === 'monnify') {
-      // Monnify has multiple accounts
-      const allAccounts: BankAccount[] = data.accounts.map((acc: any) => ({
-        bankName: acc.bankName || acc.bank_name,
-        accountNumber: acc.accountNumber || acc.account_number,
-        accountName: acc.accountName || acc.account_name
-      }));
-
-      setBankData({
-        accounts: allAccounts,
-        reference: data.accountReference,
-        bankName: allAccounts[0]?.bankName,
-        accountName: allAccounts[0]?.accountName,
-        accountNumber: allAccounts[0]?.accountNumber,
-        gateway: 'monnify'
-      });
-      console.log('✅ Loaded', allAccounts.length, 'Monnify accounts');
-    }
-  };
-
-  const fetchAccountDetails = async () => {
-    setLoading(true);
-    setError('');
-    
-    try {
-      console.log('🔍 Fetching virtual account details...');
-      
-      // Use unified endpoint - automatically returns active gateway account
-      const response = await makeAPICall(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.GET_VIRTUAL_ACCOUNT}`,
-        { method: 'GET' }
-      );
-
-      if (response.success && response.data) {
-        processAccounts(response.data);
-      } else {
-        throw new Error(response.message || 'Failed to load account');
-      }
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load account details';
-      console.error('❌ Fetch error:', errorMessage);
-      
-      // Check if account doesn't exist
-      if (errorMessage.includes('404') || errorMessage.includes('not found')) {
-        setError('Virtual account not created yet. Please contact support.');
-        
-        Alert.alert(
-          'Account Setup Required',
-          'Your virtual account needs to be set up. Please contact support or try again later.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        setError(errorMessage);
-        
-        Alert.alert(
-          'Error Loading Account',
-          errorMessage,
-          [
-            { text: 'Retry', onPress: fetchAccountDetails },
-            { text: 'Cancel', style: 'cancel' }
-          ]
-        );
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const validateAmount = (value: string): boolean => {
-    const numericAmount = Number(value);
-    return value.trim() !== '' && !isNaN(numericAmount) && numericAmount > 0 && numericAmount <= 1000000;
-  };
-
-  const validateCardNumber = (cardNumber: string): boolean => {
+  cardNumber: (cardNumber: string): boolean => {
     const cleaned = cardNumber.replace(/\s/g, '');
     return /^\d{13,19}$/.test(cleaned);
-  };
+  },
 
-  const validateExpiry = (expiry: string): boolean => {
+  expiry: (expiry: string): boolean => {
     const regex = /^(0[1-9]|1[0-2])\/\d{2}$/;
     if (!regex.test(expiry)) return false;
 
     const [month, year] = expiry.split('/');
     const currentYear = new Date().getFullYear() % 100;
     const currentMonth = new Date().getMonth() + 1;
-    const expYear = parseInt(year);
-    const expMonth = parseInt(month);
+    const expYear = parseInt(year, 10);
+    const expMonth = parseInt(month, 10);
 
     if (expYear < currentYear) return false;
     if (expYear === currentYear && expMonth < currentMonth) return false;
 
     return true;
-  };
+  },
 
-  const validateCVV = (cvv: string): boolean => {
+  cvv: (cvv: string): boolean => {
     return /^\d{3,4}$/.test(cvv);
-  };
+  },
+};
 
-  const formatCardNumber = (text: string): string => {
+// ============================================================================
+// Formatting Utilities
+// ============================================================================
+
+const formatters = {
+  cardNumber: (text: string): string => {
     const cleaned = text.replace(/\s/g, '');
     const match = cleaned.match(/.{1,4}/g);
-    return match ? match.join(' ').substr(0, 19) : cleaned;
-  };
+    return match ? match.join(' ').substring(0, 19) : cleaned;
+  },
 
-  const formatExpiry = (text: string): string => {
+  expiry: (text: string): string => {
     const cleaned = text.replace(/\D/g, '');
     if (cleaned.length >= 2) {
       return cleaned.substring(0, 2) + '/' + cleaned.substring(2, 4);
     }
     return cleaned;
+  },
+
+  currency: (amount: number): string => {
+    return `₦${amount.toLocaleString()}`;
+  },
+};
+
+// ============================================================================
+// Custom Hooks
+// ============================================================================
+
+const useAPI = (token?: string) => {
+  const makeRequest = useCallback(async (
+    endpoint: string, 
+    options: RequestInit = {}
+  ): Promise<any> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
+
+    const urls = [
+      `${API_CONFIG.BASE_URL}${endpoint}`,
+      `${API_CONFIG.FALLBACK_URL}${endpoint}`,
+    ];
+
+    const errors: string[] = [];
+
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
+      try {
+        console.log(`[API] Attempting request ${i + 1}/${urls.length}: ${url}`);
+        
+        const response = await fetch(url, {
+          ...options,
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token && token.trim() && { Authorization: `Bearer ${token.trim()}` }),
+            ...options.headers,
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+        console.log(`[API] Response status: ${response.status}`);
+
+        const responseText = await response.text();
+        console.log(`[API] Response received: ${responseText.substring(0, 200)}...`);
+        
+        const data = responseText ? JSON.parse(responseText) : {};
+
+        if (!response.ok) {
+          const errorMsg = data.message || data.error || `HTTP ${response.status}: ${response.statusText}`;
+          console.log(`[API] Request failed: ${errorMsg}`);
+          errors.push(`URL ${i + 1}: ${errorMsg}`);
+          
+          // Don't retry on 401/403 errors
+          if (response.status === 401 || response.status === 403) {
+            throw new Error(`Authentication failed: ${errorMsg}`);
+          }
+          
+          continue; // Try next URL
+        }
+
+        console.log(`[API] Request successful`);
+        return data;
+        
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        
+        if (error.name === 'AbortError') {
+          console.log(`[API] Request timeout at URL ${i + 1}`);
+          errors.push(`URL ${i + 1}: Request timeout`);
+        } else {
+          console.log(`[API] Error at URL ${i + 1}:`, error.message);
+          errors.push(`URL ${i + 1}: ${error.message}`);
+        }
+        
+        // If this was an auth error or last URL, throw
+        if (error.message.includes('Authentication') || i === urls.length - 1) {
+          throw new Error(errors.join('; ') || error.message);
+        }
+      }
+    }
+
+    throw new Error(errors.join('; ') || 'All API endpoints failed');
+  }, [token]);
+
+  return { makeRequest };
+};
+
+const useVirtualAccount = (token: string) => {
+  const [bankData, setBankData] = useState<BankData | null>(null);
+  const [activeGateway, setActiveGateway] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string>('');
+  const { makeRequest } = useAPI(token);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const loadFromCache = useCallback(async () => {
+    try {
+      const cached = await AsyncStorage.getItem(STORAGE_KEYS.CACHED_ACCOUNT);
+      if (cached) {
+        const data = JSON.parse(cached);
+        if (Date.now() - data.timestamp < 3600000) { // 1 hour cache
+          console.log('[Cache] Loaded account from cache');
+          setBankData(data.bankData);
+          setActiveGateway(data.gateway);
+          return true;
+        } else {
+          console.log('[Cache] Cache expired');
+        }
+      }
+    } catch (error) {
+      console.log('[Cache] Load failed:', error);
+    }
+    return false;
+  }, []);
+
+  const saveToCache = useCallback(async (data: BankData, gateway: string) => {
+    try {
+      await AsyncStorage.setItem(
+        STORAGE_KEYS.CACHED_ACCOUNT,
+        JSON.stringify({
+          bankData: data,
+          gateway,
+          timestamp: Date.now(),
+        })
+      );
+      console.log('[Cache] Account saved to cache');
+    } catch (error) {
+      console.log('[Cache] Save failed:', error);
+    }
+  }, []);
+
+  const fetchActiveGateway = useCallback(async () => {
+    try {
+      console.log('[Gateway] Fetching active gateway...');
+      const response = await makeRequest(API_CONFIG.ENDPOINTS.ACTIVE_GATEWAY);
+      if (response.success && response.activeGateway) {
+        console.log('[Gateway] Active gateway:', response.activeGateway);
+        setActiveGateway(response.activeGateway);
+        return response.activeGateway;
+      }
+    } catch (error: any) {
+      console.log('[Gateway] Fetch failed:', error.message);
+    }
+    return null;
+  }, [makeRequest]);
+
+  const processAccountData = useCallback((data: any): BankData => {
+    console.log('[Process] Processing account data for gateway:', data.gateway);
+    
+    if (data.gateway === 'paystack') {
+      return {
+        accounts: [{
+          bankName: data.bankName,
+          accountNumber: data.accountNumber,
+          accountName: data.accountName,
+        }],
+        gateway: 'paystack',
+      };
+    } else {
+      // Monnify
+      const accounts = data.accounts.map((acc: any) => ({
+        bankName: acc.bankName || acc.bank_name,
+        accountNumber: acc.accountNumber || acc.account_number,
+        accountName: acc.accountName || acc.account_name,
+      }));
+
+      return {
+        accounts,
+        reference: data.accountReference,
+        gateway: 'monnify',
+      };
+    }
+  }, []);
+
+  const fetchAccountDetails = useCallback(async (useCache = true) => {
+    if (!mountedRef.current) return;
+    
+    console.log('[Account] Starting fetch, useCache:', useCache);
+    setLoading(true);
+    setError('');
+
+    try {
+      // Try cache first
+      if (useCache && await loadFromCache()) {
+        if (mountedRef.current) {
+          setLoading(false);
+        }
+        return;
+      }
+
+      // Fetch from API
+      console.log('[Account] Fetching from API...');
+      const [accountResponse] = await Promise.all([
+        makeRequest(API_CONFIG.ENDPOINTS.VIRTUAL_ACCOUNT),
+        fetchActiveGateway(),
+      ]);
+
+      if (!mountedRef.current) return;
+
+      console.log('[Account] API response:', accountResponse);
+
+      if (accountResponse.success && accountResponse.data) {
+        const processed = processAccountData(accountResponse.data);
+        setBankData(processed);
+        await saveToCache(processed, accountResponse.data.gateway);
+        console.log('[Account] Successfully loaded account details');
+      } else {
+        throw new Error(accountResponse.message || 'Failed to load account details');
+      }
+    } catch (error: any) {
+      if (!mountedRef.current) return;
+      
+      console.error('[Account] Error:', error.message);
+      const errorMessage = error.message || 'Failed to load account details';
+      setError(errorMessage);
+
+      if (errorMessage.includes('Authentication') || errorMessage.includes('401') || errorMessage.includes('403')) {
+        Alert.alert(
+          'Authentication Error',
+          'Your session may have expired. Please log in again.',
+          [{ text: 'OK' }]
+        );
+      } else if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+        Alert.alert(
+          'Account Setup Required',
+          'Your virtual account needs to be set up. Please contact support.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Connection Error',
+          errorMessage,
+          [{ text: 'OK' }]
+        );
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [makeRequest, fetchActiveGateway, loadFromCache, saveToCache, processAccountData]);
+
+  useEffect(() => {
+    if (token && token.trim()) {
+      console.log('[Account] Token available, fetching account details');
+      fetchAccountDetails();
+    } else {
+      console.log('[Account] No valid token available');
+      setError('No authentication token available');
+      setLoading(false);
+    }
+  }, [token]);
+
+  return {
+    bankData,
+    activeGateway,
+    loading,
+    error,
+    refetch: () => fetchAccountDetails(false),
   };
+};
 
-  const handleCardPayment = async () => {
-    const numericAmount = Number(amount);
+// ============================================================================
+// Main Component
+// ============================================================================
 
+export default function FundWallet({ token, currentBalance = 0, onSuccess }: FundWalletProps) {
+  const [amount, setAmount] = useState<string>('');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodType>('bank');
+  const [cardInfo, setCardInfo] = useState<CardInfo>({ 
+    cardNumber: '', 
+    expiry: '', 
+    cvv: '' 
+  });
+  const [error, setError] = useState<string>('');
+  const [success, setSuccess] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const { makeRequest } = useAPI(token);
+  const { bankData, activeGateway, loading, error: accountError, refetch } = useVirtualAccount(token);
+
+  // Debug token on mount
+  useEffect(() => {
+    console.log('[FundWallet] Component mounted with token:', token ? 'Available' : 'Missing');
+    console.log('[FundWallet] Token length:', token?.length || 0);
+  }, []);
+
+  const copyToClipboard = useCallback((text: string, label: string) => {
+    Clipboard.setString(text);
+    Alert.alert('Copied!', `${label} copied to clipboard`);
+  }, []);
+
+  const handleQuickAmount = useCallback((quickAmount: number) => {
+    setAmount(quickAmount.toString());
+    setError('');
+  }, []);
+
+  const handleCardPayment = useCallback(async () => {
     setError('');
     setSuccess('');
 
-    if (!validateAmount(amount)) {
-      setError('Please enter a valid amount (₦1 - ₦1,000,000)');
+    // Validation
+    if (!validators.amount(amount)) {
+      setError(`Amount must be between ${formatters.currency(AMOUNT_LIMITS.MIN)} and ${formatters.currency(AMOUNT_LIMITS.MAX)}`);
       return;
     }
 
-    if (!validateCardNumber(cardInfo.cardNumber)) {
+    if (!validators.cardNumber(cardInfo.cardNumber)) {
       setError('Please enter a valid card number');
       return;
     }
-    if (!validateExpiry(cardInfo.expiry)) {
+
+    if (!validators.expiry(cardInfo.expiry)) {
       setError('Please enter a valid expiry date (MM/YY)');
       return;
     }
-    if (!validateCVV(cardInfo.cvv)) {
+
+    if (!validators.cvv(cardInfo.cvv)) {
       setError('Please enter a valid CVV (3-4 digits)');
       return;
     }
 
-    setLoading(true);
+    setIsProcessing(true);
 
     try {
       const [expiry_month, expiry_year] = cardInfo.expiry.split('/');
       const cleanedCardNumber = cardInfo.cardNumber.replace(/\s/g, '');
 
-      const response = await makeAPICall(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.CARD_PAYMENT}`, 
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            amount: numericAmount,
-            card_number: cleanedCardNumber,
-            cvv: cardInfo.cvv,
-            expiry_month,
-            expiry_year: `20${expiry_year}`,
-          }),
-        }
-      );
+      console.log('[Payment] Processing card payment...');
+
+      const response = await makeRequest(API_CONFIG.ENDPOINTS.CARD_PAYMENT, {
+        method: 'POST',
+        body: JSON.stringify({
+          amount: Number(amount),
+          card_number: cleanedCardNumber,
+          cvv: cardInfo.cvv,
+          expiry_month,
+          expiry_year: `20${expiry_year}`,
+        }),
+      });
 
       if (response.status === 'success' || response.success) {
-        setSuccess(`Wallet funded successfully with ₦${numericAmount.toLocaleString()}!`);
-
+        console.log('[Payment] Payment successful');
+        setSuccess(`Wallet funded successfully with ${formatters.currency(Number(amount))}!`);
+        
+        // Reset form and callback
         setTimeout(() => {
           setAmount('');
           setCardInfo({ cardNumber: '', expiry: '', cvv: '' });
-          if (onSuccess) onSuccess();
+          setSuccess('');
+          onSuccess?.();
         }, 2000);
       } else {
-        setError(response.message || 'Card payment failed');
+        throw new Error(response.message || 'Card payment failed');
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Payment processing failed';
-      setError(errorMessage);
+    } catch (error: any) {
+      console.error('[Payment] Payment failed:', error.message);
+      setError(error.message || 'Payment processing failed');
     } finally {
-      setLoading(false);
+      setIsProcessing(false);
     }
-  };
+  }, [amount, cardInfo, makeRequest, onSuccess]);
 
-  const getGatewayName = () => {
-    if (bankData?.gateway === 'paystack') return 'Paystack';
-    if (bankData?.gateway === 'monnify') return 'Monnify';
-    return activeGateway === 'paystack' ? 'Paystack' : 'Monnify';
-  };
+  const getGatewayName = useCallback(() => {
+    const gateway = bankData?.gateway || activeGateway;
+    return GATEWAY_NAMES[gateway as keyof typeof GATEWAY_NAMES] || 'Payment Gateway';
+  }, [bankData, activeGateway]);
+
+  const renderBankTransferSection = () => (
+    <View style={styles.section}>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>Your Virtual Account Details</Text>
+        {bankData?.gateway && (
+          <View style={styles.gatewayBadge}>
+            <Text style={styles.gatewayText}>{getGatewayName()}</Text>
+          </View>
+        )}
+      </View>
+
+      <View style={styles.bankCard}>
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator color="#ff3b30" size="small" />
+            <Text style={styles.loadingText}>Loading account...</Text>
+          </View>
+        ) : bankData && bankData.accounts.length > 0 ? (
+          <>
+            {bankData.accounts.map((account, index) => (
+              <View 
+                key={index} 
+                style={[
+                  styles.accountBlock,
+                  index < bankData.accounts.length - 1 && styles.accountWithBorder
+                ]}
+              >
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Bank:</Text>
+                  <Text style={styles.accountValue}>{account.bankName}</Text>
+                </View>
+
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Account Name:</Text>
+                  <Text style={styles.accountValue}>{account.accountName}</Text>
+                </View>
+
+                <TouchableOpacity 
+                  style={styles.accountRow}
+                  onPress={() => copyToClipboard(account.accountNumber, 'Account number')}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.accountLabel}>Account Number:</Text>
+                  <View style={styles.accountNumberRow}>
+                    <Text style={[styles.accountValue, styles.accountNumber]}>
+                      {account.accountNumber}
+                    </Text>
+                    <Ionicons name="copy-outline" size={16} color="#ff3b30" />
+                  </View>
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            <View style={styles.infoBox}>
+              <Ionicons name="information-circle-outline" size={16} color="#666" />
+              <Text style={styles.infoText}>
+                {bankData.accounts.length > 1 
+                  ? 'Transfer to any account above. Your wallet updates automatically within minutes.'
+                  : 'Transfer to this account. Your wallet updates automatically within minutes.'
+                }
+              </Text>
+            </View>
+
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={refetch}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="refresh-outline" size={18} color="#ff3b30" />
+              <Text style={styles.refreshButtonText}>Refresh Account</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle-outline" size={48} color="#ff3b30" />
+            <Text style={styles.errorContainerText}>
+              {accountError || 'Failed to load account'}
+            </Text>
+            <TouchableOpacity style={styles.retryButton} onPress={refetch}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+
+  const renderCardPaymentSection = () => (
+    <>
+      {/* Amount Input - Moved to top for card */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Enter Amount</Text>
+        <TextInput
+          style={[styles.input, error && error.includes('amount') && styles.inputError]}
+          placeholder={`Enter amount (${formatters.currency(AMOUNT_LIMITS.MIN)} - ${formatters.currency(AMOUNT_LIMITS.MAX)})`}
+          placeholderTextColor="#aaa"
+          keyboardType="numeric"
+          value={amount}
+          onChangeText={(text) => { 
+            setAmount(text.replace(/[^0-9]/g, '')); 
+            setError(''); 
+            setSuccess(''); 
+          }}
+        />
+        {amount !== '' && !validators.amount(amount) && (
+          <Text style={styles.validationError}>
+            Amount must be between {formatters.currency(AMOUNT_LIMITS.MIN)} and {formatters.currency(AMOUNT_LIMITS.MAX)}
+          </Text>
+        )}
+        {amount !== '' && validators.amount(amount) && (
+          <Text style={styles.validationSuccess}>✓ Valid amount</Text>
+        )}
+      </View>
+
+      {/* Card Details */}
+      <View style={styles.section}>
+        <Text style={styles.label}>Card Details</Text>
+        <TextInput
+          style={[styles.input, error && error.includes('card') && styles.inputError]}
+          placeholder="1234 5678 9012 3456"
+          placeholderTextColor="#aaa"
+          value={cardInfo.cardNumber}
+          keyboardType="numeric"
+          maxLength={19}
+          onChangeText={(text) => {
+            setCardInfo({...cardInfo, cardNumber: formatters.cardNumber(text)});
+            setError('');
+          }}
+        />
+        
+        <View style={styles.cardRow}>
+          <TextInput
+            style={[styles.inputHalf, error && error.includes('expiry') && styles.inputError]}
+            placeholder="MM/YY"
+            placeholderTextColor="#aaa"
+            value={cardInfo.expiry}
+            keyboardType="numeric"
+            maxLength={5}
+            onChangeText={(text) => {
+              setCardInfo({...cardInfo, expiry: formatters.expiry(text)});
+              setError('');
+            }}
+          />
+          <TextInput
+            style={[styles.inputHalf, error && error.includes('CVV') && styles.inputError]}
+            placeholder="CVV"
+            placeholderTextColor="#aaa"
+            value={cardInfo.cvv}
+            keyboardType="numeric"
+            maxLength={4}
+            secureTextEntry
+            onChangeText={(text) => {
+              setCardInfo({...cardInfo, cvv: text.replace(/[^0-9]/g, '')});
+              setError('');
+            }}
+          />
+        </View>
+      </View>
+
+      {/* Pay Button */}
+      <TouchableOpacity 
+        style={[styles.proceedBtn, (isProcessing || !amount) && styles.proceedDisabled]} 
+        onPress={handleCardPayment} 
+        disabled={isProcessing || !amount}
+        activeOpacity={0.8}
+      >
+        {isProcessing ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color="#fff" size="small" />
+            <Text style={[styles.proceedText, { marginLeft: 8 }]}>Processing...</Text>
+          </View>
+        ) : (
+          <>
+            <Ionicons name="card-outline" size={20} color="#fff" />
+            <Text style={styles.proceedText}>
+              Pay with Card{amount ? ` • ${formatters.currency(Number(amount))}` : ''}
+            </Text>
+          </>
+        )}
+      </TouchableOpacity>
+    </>
+  );
 
   return (
     <View style={styles.container}>
@@ -362,19 +719,26 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
             {PAYMENT_METHODS.map((method) => (
               <TouchableOpacity
                 key={method.id}
-                style={[styles.methodButton, paymentMethod === method.id && styles.methodButtonActive]}
+                style={[
+                  styles.methodButton, 
+                  paymentMethod === method.id && styles.methodButtonActive
+                ]}
                 onPress={() => {
                   setPaymentMethod(method.id);
                   setError('');
                   setSuccess('');
                 }}
+                activeOpacity={0.7}
               >
                 <Ionicons 
                   name={method.icon} 
                   size={20} 
                   color={paymentMethod === method.id ? '#ff3b30' : '#666'} 
                 />
-                <Text style={[styles.methodText, paymentMethod === method.id && styles.methodTextActive]}>
+                <Text style={[
+                  styles.methodText, 
+                  paymentMethod === method.id && styles.methodTextActive
+                ]}>
                   {method.label}
                 </Text>
               </TouchableOpacity>
@@ -382,188 +746,27 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
           </View>
         </View>
 
-        {/* Error/Success Messages */}
-        {error ? (
+        {/* Messages */}
+        {error && (
           <View style={styles.messageContainer}>
             <Text style={styles.errorText}>⚠️ {error}</Text>
           </View>
-        ) : null}
+        )}
         
-        {success ? (
+        {success && (
           <View style={styles.messageContainer}>
             <Text style={styles.successText}>✅ {success}</Text>
           </View>
-        ) : null}
-
-        {/* Bank Transfer Section */}
-        {paymentMethod === 'bank' && (
-          <View style={styles.section}>
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>Your Virtual Account Details</Text>
-              {bankData?.gateway && (
-                <View style={styles.gatewayBadge}>
-                  <Text style={styles.gatewayText}>{getGatewayName()}</Text>
-                </View>
-              )}
-            </View>
-            <View style={styles.bankCard}>
-              {loading ? (
-                <View style={styles.loadingContainer}>
-                  <ActivityIndicator color="#ff3b30" size="small" />
-                  <Text style={styles.loadingText}>Loading account...</Text>
-                </View>
-              ) : bankData && bankData.accounts && bankData.accounts.length > 0 ? (
-                <>
-                  {bankData.accounts.map((account, index) => (
-                    <View 
-                      key={index} 
-                      style={[
-                        styles.accountBlock,
-                        index < bankData.accounts!.length - 1 && styles.accountWithBorder
-                      ]}
-                    >
-                      <View style={styles.accountRow}>
-                        <Text style={styles.accountLabel}>Bank:</Text>
-                        <Text style={styles.accountValue}>{account.bankName}</Text>
-                      </View>
-                      <View style={styles.accountRow}>
-                        <Text style={styles.accountLabel}>Account Name:</Text>
-                        <Text style={styles.accountValue}>{account.accountName}</Text>
-                      </View>
-                      <View style={styles.accountRow}>
-                        <Text style={styles.accountLabel}>Account Number:</Text>
-                        <Text style={[styles.accountValue, styles.accountNumber]}>
-                          {account.accountNumber}
-                        </Text>
-                      </View>
-                    </View>
-                  ))}
-
-                  <View style={styles.infoBox}>
-                    <Ionicons name="information-circle-outline" size={16} color="#666" />
-                    <Text style={styles.infoText}>
-                      {bankData.accounts.length > 1 
-                        ? 'Transfer any amount to any account above. Your wallet will be credited automatically within minutes.'
-                        : 'Transfer any amount to this account. Your wallet will be credited automatically within minutes.'
-                      }
-                    </Text>
-                  </View>
-                </>
-              ) : (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle-outline" size={48} color="#ff3b30" />
-                  <Text style={styles.errorContainerText}>
-                    {error || 'Failed to load account'}
-                  </Text>
-                  <TouchableOpacity style={styles.retryButton} onPress={fetchAccountDetails}>
-                    <Text style={styles.retryButtonText}>Retry</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          </View>
         )}
 
-        {/* Card Payment Section */}
-        {paymentMethod === 'card' && (
-          <>
-            <View style={styles.section}>
-              <Text style={styles.label}>Enter Card Details</Text>
-              <TextInput
-                style={[styles.input, error && error.includes('card') && styles.inputError]}
-                placeholder="1234 5678 9012 3456"
-                placeholderTextColor="#aaa"
-                value={cardInfo.cardNumber}
-                keyboardType="numeric"
-                maxLength={19}
-                onChangeText={(text) => {
-                  const formatted = formatCardNumber(text);
-                  setCardInfo({...cardInfo, cardNumber: formatted});
-                  setError('');
-                }}
-              />
-              
-              <View style={styles.cardRow}>
-                <TextInput
-                  style={[styles.inputHalf, error && error.includes('expiry') && styles.inputError]}
-                  placeholder="MM/YY"
-                  placeholderTextColor="#aaa"
-                  value={cardInfo.expiry}
-                  keyboardType="numeric"
-                  maxLength={5}
-                  onChangeText={(text) => {
-                    const formatted = formatExpiry(text);
-                    setCardInfo({...cardInfo, expiry: formatted});
-                    setError('');
-                  }}
-                />
-                <TextInput
-                  style={[styles.inputHalf, error && error.includes('CVV') && styles.inputError]}
-                  placeholder="CVV"
-                  placeholderTextColor="#aaa"
-                  value={cardInfo.cvv}
-                  keyboardType="numeric"
-                  maxLength={4}
-                  secureTextEntry
-                  onChangeText={(text) => {
-                    const numericText = text.replace(/[^0-9]/g, '');
-                    setCardInfo({...cardInfo, cvv: numericText});
-                    setError('');
-                  }}
-                />
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <Text style={styles.label}>Enter Amount</Text>
-              <TextInput
-                style={[styles.input, error && error.includes('amount') && styles.inputError]}
-                placeholder="Enter amount (₦1 - ₦1,000,000)"
-                placeholderTextColor="#aaa"
-                keyboardType="numeric"
-                value={amount}
-                onChangeText={(text) => { 
-                  const numericText = text.replace(/[^0-9]/g, '');
-                  setAmount(numericText); 
-                  setError(''); 
-                  setSuccess(''); 
-                }}
-              />
-              {amount !== '' && !validateAmount(amount) && (
-                <Text style={styles.validationError}>Amount must be between ₦1 and ₦1,000,000</Text>
-              )}
-              {amount !== '' && validateAmount(amount) && (
-                <Text style={styles.validationSuccess}>✓ Valid amount</Text>
-              )}
-            </View>
-
-            <TouchableOpacity 
-              style={[styles.proceedBtn, (loading || !amount) && styles.proceedDisabled]} 
-              onPress={handleCardPayment} 
-              disabled={loading || !amount}
-            >
-              {loading ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color="#fff" size="small" />
-                  <Text style={[styles.proceedText, { marginLeft: 8 }]}>Processing...</Text>
-                </View>
-              ) : (
-                <>
-                  <Ionicons name="card-outline" size={20} color="#fff" />
-                  <Text style={styles.proceedText}>
-                    Pay with Card{amount ? ` • ₦${Number(amount).toLocaleString()}` : ''}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </>
-        )}
+        {/* Content based on payment method */}
+        {paymentMethod === 'bank' ? renderBankTransferSection() : renderCardPaymentSection()}
 
         {/* Help Text */}
         <View style={styles.helpContainer}>
           <Text style={styles.helpText}>
             {paymentMethod === 'bank' 
-              ? `This account ${bankData?.accounts && bankData.accounts.length > 1 ? 'numbers are' : 'number is'} permanent and can be used anytime to fund your wallet.`
+              ? 'This account is permanent and can be used anytime to fund your wallet.'
               : 'Your wallet will be credited immediately after successful payment.'
             }
           </Text>
@@ -572,6 +775,10 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
     </View>
   );
 }
+
+// ============================================================================
+// Styles
+// ============================================================================
 
 const styles = StyleSheet.create({
   container: { 
@@ -589,33 +796,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   label: { 
     fontSize: 16, 
     fontWeight: '600', 
-    color: '#333' 
+    color: '#333',
+    marginBottom: 12,
   },
   gatewayBadge: {
     backgroundColor: '#ff3b30',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: 12,
   },
   gatewayText: {
     color: '#fff',
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   methodGrid: { 
     flexDirection: 'row', 
-    gap: 8 
+    gap: 12 
   },
   methodButton: { 
-    paddingVertical: 14, 
-    paddingHorizontal: 12, 
-    borderWidth: 1, 
-    borderColor: '#ddd', 
+    paddingVertical: 16, 
+    paddingHorizontal: 16, 
+    borderWidth: 2, 
+    borderColor: '#e8e8e8', 
     borderRadius: 12, 
     backgroundColor: '#fff', 
     flexDirection: 'row',
@@ -627,13 +836,12 @@ const styles = StyleSheet.create({
   methodButtonActive: { 
     backgroundColor: '#fff5f5', 
     borderColor: '#ff3b30',
-    borderWidth: 2 
   },
   methodText: { 
     fontWeight: '600', 
     textAlign: 'center', 
-    color: '#333', 
-    fontSize: 12 
+    color: '#666', 
+    fontSize: 13 
   },
   methodTextActive: { 
     color: '#ff3b30', 
@@ -649,8 +857,8 @@ const styles = StyleSheet.create({
     textAlign: 'center', 
     fontWeight: '500',
     backgroundColor: '#fff5f5',
-    padding: 12,
-    borderRadius: 8,
+    padding: 14,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#ffdddd',
   },
@@ -660,27 +868,27 @@ const styles = StyleSheet.create({
     fontWeight: '600', 
     textAlign: 'center',
     backgroundColor: '#f0f9f4',
-    padding: 12,
-    borderRadius: 8,
+    padding: 14,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#c3e6cb',
   },
   bankCard: {
     padding: 20,
-    borderRadius: 12,
+    borderRadius: 16,
     backgroundColor: '#fff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
     elevation: 3,
   },
   loadingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 20,
-    gap: 10,
+    paddingVertical: 30,
+    gap: 12,
   },
   loadingText: {
     color: '#666',
@@ -699,7 +907,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   accountLabel: {
     fontSize: 14,
@@ -708,11 +916,18 @@ const styles = StyleSheet.create({
   },
   accountValue: {
     fontSize: 14,
-    color: '#333',
+    color: '#1a1a1a',
     fontWeight: '600',
     textAlign: 'right',
     flex: 1,
     marginLeft: 12,
+  },
+  accountNumberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    justifyContent: 'flex-end',
   },
   accountNumber: {
     fontSize: 16,
@@ -722,32 +937,50 @@ const styles = StyleSheet.create({
   infoBox: {
     flexDirection: 'row',
     backgroundColor: '#f8f9fa',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8,
+    padding: 14,
+    borderRadius: 10,
+    gap: 10,
     marginTop: 8,
+    marginBottom: 12,
   },
   infoText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 13,
     color: '#666',
-    lineHeight: 18,
+    lineHeight: 19,
+  },
+  refreshButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#e8e8e8',
+    borderRadius: 10,
+    backgroundColor: '#fafafa',
+  },
+  refreshButtonText: {
+    color: '#ff3b30',
+    fontSize: 14,
+    fontWeight: '600',
   },
   errorContainer: {
     alignItems: 'center',
-    paddingVertical: 30,
-    gap: 12,
+    paddingVertical: 40,
+    gap: 14,
   },
   errorContainerText: {
     color: '#666',
     fontSize: 14,
     textAlign: 'center',
+    maxWidth: '80%',
   },
   retryButton: {
     backgroundColor: '#ff3b30',
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 10,
     marginTop: 8,
   },
   retryButtonText: {
@@ -755,61 +988,91 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
+  quickAmountGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  quickAmountBtn: {
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#e8e8e8',
+    backgroundColor: '#fafafa',
+    minWidth: '22%',
+  },
+  quickAmountSelected: {
+    backgroundColor: '#ff3b30',
+    borderColor: '#ff3b30',
+  },
+  quickAmountText: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+  },
+  quickAmountTextSelected: {
+    color: '#fff',
+  },
   input: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e8e8e8',
     borderRadius: 12,
-    padding: 14,
+    padding: 16,
     fontSize: 16,
     backgroundColor: '#fff',
     marginBottom: 12,
+    color: '#1a1a1a',
   },
   inputError: { 
     borderColor: '#ff3b30', 
-    borderWidth: 2 
+    borderWidth: 2,
+    backgroundColor: '#fff5f5',
   },
   inputHalf: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: '#e8e8e8',
     borderRadius: 12,
-    padding: 14,
+    padding: 16,
     fontSize: 16,
     backgroundColor: '#fff',
+    color: '#1a1a1a',
   },
   cardRow: { 
     flexDirection: 'row', 
-    gap: 8,
+    gap: 12,
     marginBottom: 12,
   },
   validationError: {
     color: '#ff3b30',
-    fontSize: 12,
+    fontSize: 13,
     marginTop: -8,
     marginBottom: 8,
     fontWeight: '500',
   },
   validationSuccess: {
     color: '#28a745',
-    fontSize: 12,
+    fontSize: 13,
     marginTop: -8,
     marginBottom: 8,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   proceedBtn: {
     margin: 16,
-    padding: 16,
+    padding: 18,
     borderRadius: 12,
     backgroundColor: '#ff3b30',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: 10,
     shadowColor: '#ff3b30',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
-    elevation: 4,
+    elevation: 5,
   },
   proceedDisabled: { 
     backgroundColor: '#ccc',
@@ -819,26 +1082,26 @@ const styles = StyleSheet.create({
   proceedText: { 
     color: '#fff', 
     fontSize: 16, 
-    fontWeight: '600' 
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   loadingRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
   },
   helpContainer: {
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 24,
+    paddingHorizontal: 20,
   },
   helpText: { 
     textAlign: 'center', 
     color: '#666', 
-    fontSize: 12, 
+    fontSize: 13, 
     fontStyle: 'italic',
-    lineHeight: 18,
+    lineHeight: 20,
   },
 });
-
-
-

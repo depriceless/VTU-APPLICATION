@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { Platform, Alert } from 'react-native';
+import { Platform } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 const AuthContext = createContext();
@@ -48,6 +48,7 @@ const AuthProvider = ({ children }) => {
   const [balance, setBalance] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Load token when app starts
   useEffect(() => {
@@ -56,11 +57,17 @@ const AuthProvider = ({ children }) => {
 
   // Fetch user profile and balance when token is available
   useEffect(() => {
-    if (token) {
-      fetchUserProfile();
-      fetchBalance();
+    if (token && !isLoggingOut) {
+      console.log('🔄 Token detected, fetching user data...');
+      // Add delay to ensure token is ready
+      const timer = setTimeout(() => {
+        fetchUserProfile();
+        fetchBalance();
+      }, 500); // Increased delay to 500ms
+      
+      return () => clearTimeout(timer);
     }
-  }, [token]);
+  }, [token, isLoggingOut]);
 
   const loadToken = async () => {
     try {
@@ -69,7 +76,7 @@ const AuthProvider = ({ children }) => {
         setToken(savedToken);
         console.log('✅ Token loaded from storage');
       } else {
-        console.log('❌ No token found in storage');
+        console.log('ℹ️ No saved token found (user not logged in)');
       }
     } catch (error) {
       console.error('Error loading token:', error);
@@ -79,13 +86,14 @@ const AuthProvider = ({ children }) => {
   };
 
   const fetchUserProfile = async () => {
+    // STRONG validation - don't fetch if any of these conditions
+    if (isLoggingOut || !token || token === 'undefined' || token === 'null' || token.length < 10) {
+      console.log('🚫 Skipping profile fetch - invalid token state');
+      return;
+    }
+
     try {
       console.log('🔄 Fetching user profile...');
-      
-      if (!token) {
-        console.log('❌ No token available for profile fetch');
-        return;
-      }
 
       const response = await fetch(
         `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PROFILE}`,
@@ -144,13 +152,14 @@ const AuthProvider = ({ children }) => {
   };
 
   const fetchBalance = async () => {
+    // STRONG validation
+    if (isLoggingOut || !token || token === 'undefined' || token === 'null' || token.length < 10) {
+      console.log('🚫 Skipping balance fetch - invalid token state');
+      return;
+    }
+
     try {
       console.log('🔄 Fetching user balance...');
-      
-      if (!token) {
-        console.log('❌ No token available for balance fetch');
-        return;
-      }
 
       const response = await fetch(
         `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.BALANCE}`,
@@ -203,7 +212,7 @@ const AuthProvider = ({ children }) => {
   const updateProfile = async (updatedData) => {
     try {
       if (!token) {
-        Alert.alert('Error', 'No authentication token found');
+        console.log('ℹ️ Cannot update profile: No authentication token');
         return false;
       }
 
@@ -238,52 +247,79 @@ const AuthProvider = ({ children }) => {
         console.log('✅ Profile updated successfully');
         return true;
       } else {
-        Alert.alert('Error', data.message || 'Failed to update profile');
+        console.log('❌ Profile update failed:', data.message);
         return false;
       }
     } catch (error) {
       console.log('❌ Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile');
       return false;
     }
   };
 
   const login = async (newToken) => {
     try {
+      // Validate the token first
+      if (!newToken || typeof newToken !== 'string' || newToken.length < 10) {
+        console.error('❌ Invalid token received');
+        return;
+      }
+      
+      console.log('🔐 Starting login process...');
+      setIsLoggingOut(false);
+      
+      // Save to storage first
       await storage.setItem('userToken', newToken);
+      console.log('✅ Token saved to storage');
+      
+      // Then set token to state
       setToken(newToken);
-      console.log('✅ Login successful, token saved');
+      console.log('✅ Token set in state');
+      
     } catch (error) {
-      console.error('Error saving token:', error);
+      console.error('❌ Login error:', error);
     }
   };
 
   const logout = async () => {
     try {
-      await storage.removeItem('userToken');
+      setIsLoggingOut(true);
+      
+      // Clear state first to prevent any API calls
       setToken(null);
       setUser(null);
       setBalance(null);
+      
+      // Then clear storage
+      await storage.removeItem('userToken');
+      await storage.removeItem('user');
+      await storage.removeItem('balance');
+      
       console.log('✅ Logout successful');
     } catch (error) {
-      console.error('Error removing token:', error);
+      console.error('Logout error:', error);
+      // Ensure state is cleared even if storage clear fails
+      setToken(null);
+      setUser(null);
+      setBalance(null);
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
   const refreshProfile = () => {
-    if (token) {
+    if (token && !isLoggingOut) {
       fetchUserProfile();
     }
   };
 
   const refreshBalance = () => {
-    if (token) {
+    if (token && !isLoggingOut) {
       fetchBalance();
     }
   };
 
   const refreshAll = () => {
-    if (token) {
+    if (token && !isLoggingOut) {
       fetchUserProfile();
       fetchBalance();
     }
@@ -317,6 +353,7 @@ const AuthProvider = ({ children }) => {
     login,
     logout,
     loading,
+    isLoggingOut,
     updateProfile,
     refreshProfile,
     refreshBalance,

@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, useCallback, useRef } from 'react';
 import FundWallet from './fund-wallet'; 
 import TransactionDetails from './TransactionDetails';
 import { Share } from 'react-native';
@@ -12,7 +12,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
-  Animated,
   Dimensions,
   Modal,
   RefreshControl,
@@ -22,7 +21,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
+import { ThemeContext } from '../contexts/ThemeContext';
 import { useRouter } from 'expo-router';
+
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 const API_CONFIG = {
@@ -33,203 +34,110 @@ const API_CONFIG = {
     PROFILE: '/auth/profile',
     BALANCE: '/balance',
     TRANSACTIONS: '/transactions',
-  }
-};
-
-// Enhanced Sidebar Component
-const ImprovedSidebar = ({ 
-  sidebarAnim, 
-  user, 
-  isLoading, 
-  activeMenu, 
-  onMenuPress, 
-  onProfilePress, 
-  onClose 
-}) => {
-  const getFirstName = (fullName) => {
-    if (!fullName) return 'User';
-    const nameParts = fullName.trim().split(' ');
-    return nameParts[0];
-  };
-
-  const menuItems = [
-    { name: 'Dashboard', icon: 'home', route: '/dashboard', category: 'main' },
-    { name: 'Profile', icon: 'person', route: '/profile', category: 'main' },
-    { name: 'Buy Airtime', icon: 'call', route: '/buy-airtime', category: 'services' },
-    { name: 'Buy Data', icon: 'wifi', route: '/buy-data', category: 'services' },
-    { name: 'Electricity', icon: 'flash', route: '/electricity', category: 'services' },
-    { name: 'Cable TV', icon: 'tv', route: '/cable-tv', category: 'services' },
-    { name: 'Internet', icon: 'globe', route: '/internet', category: 'services' },
-    { name: 'Transfer', icon: 'send', route: '/transfer', category: 'financial' },
-    { name: 'Transaction History', icon: 'receipt', route: '/transaction-history', category: 'financial' },
-    { name: 'Settings', icon: 'settings', route: '/settings', category: 'account' },
-    { name: 'Help & Support', icon: 'help-circle', route: '/need-help', category: 'account' },
-    { name: 'Logout', icon: 'log-out', category: 'account' },
-  ];
-
-  const getCategoryTitle = (category) => {
-    switch (category) {
-      case 'main': return 'Overview';
-      case 'services': return 'Services';
-      case 'financial': return 'Financial';
-      case 'account': return 'Account';
-      default: return '';
-    }
-  };
-
-  const groupedMenuItems = menuItems.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = [];
-    }
-    acc[item.category].push(item);
-    return acc;
-  }, {});
-
-  const getMenuItemStyle = (item) => {
-    if (item.name === 'Logout') {
-      return [sidebarStyles.sidebarItem, sidebarStyles.logoutItem];
-    }
-    if (activeMenu === item.name) {
-      return [sidebarStyles.sidebarItem, sidebarStyles.activeSidebarItem];
-    }
-    return sidebarStyles.sidebarItem;
-  };
-
-  const getTextStyle = (item) => {
-    if (item.name === 'Logout') {
-      return [sidebarStyles.sidebarText, sidebarStyles.logoutText];
-    }
-    if (activeMenu === item.name) {
-      return [sidebarStyles.sidebarText, sidebarStyles.activeText];
-    }
-    return sidebarStyles.sidebarText;
-  };
-
-  const getIconColor = (item) => {
-    if (item.name === 'Logout') return '#fff';
-    if (activeMenu === item.name) return '#fff';
-    return '#666';
-  };
-
-  return (
-    <Animated.View style={[sidebarStyles.sidebar, { left: sidebarAnim }]}>
-      <SafeAreaView style={sidebarStyles.sidebarContent}>
-        <View style={sidebarStyles.sidebarHeader}>
-          <TouchableOpacity style={sidebarStyles.closeButton} onPress={onClose}>
-            <Ionicons name="close" size={24} color="#666" />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity style={sidebarStyles.profileSection} onPress={onProfilePress}>
-          <View style={sidebarStyles.profileContainer}>
-            <View style={sidebarStyles.profileAvatar}>
-              {user?.name ? (
-                <Text style={sidebarStyles.avatarText}>
-                  {user.name.charAt(0).toUpperCase()}
-                </Text>
-              ) : (
-                <Ionicons name="person" size={24} color="#ff2b2b" />
-              )}
-            </View>
-            <View style={sidebarStyles.profileInfo}>
-              <Text style={sidebarStyles.profileName}>
-                {getFirstName(user?.name) || (isLoading ? 'Loading...' : 'User')}
-              </Text>
-              <Text style={sidebarStyles.profileEmail}>
-                {user?.email || (isLoading ? 'Loading...' : 'user@example.com')}
-              </Text>
-              <View style={sidebarStyles.profileBadge}>
-                <Text style={sidebarStyles.profileBadgeText}>View Profile</Text>
-                <Ionicons name="chevron-forward" size={14} color="#ff2b2b" />
-              </View>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        <ScrollView style={sidebarStyles.menuContainer}>
-          {Object.entries(groupedMenuItems).map(([category, items]) => (
-            <View key={category} style={sidebarStyles.menuCategory}>
-              <Text style={sidebarStyles.categoryTitle}>{getCategoryTitle(category)}</Text>
-              
-              {items.map((item) => (
-                <TouchableOpacity
-                  key={item.name}
-                  style={getMenuItemStyle(item)}
-                  onPress={() => onMenuPress(item)}
-                  activeOpacity={0.7}
-                >
-                  <View style={sidebarStyles.menuItemContent}>
-                    <View style={[
-                      sidebarStyles.iconContainer,
-                      activeMenu === item.name && sidebarStyles.activeIconContainer,
-                      item.name === 'Logout' && sidebarStyles.logoutIconContainer
-                    ]}>
-                      <Ionicons
-                        name={item.icon}
-                        size={20}
-                        color={getIconColor(item)}
-                      />
-                    </View>
-                    <Text style={getTextStyle(item)}>{item.name}</Text>
-                  </View>
-                  
-                  {activeMenu === item.name && item.name !== 'Logout' && (
-                    <View style={sidebarStyles.activeIndicator} />
-                  )}
-                </TouchableOpacity>
-              ))}
-            </View>
-          ))}
-        </ScrollView>
-
-        <View style={sidebarStyles.sidebarFooter}>
-          <Text style={sidebarStyles.footerText}>Version 1.0.0</Text>
-          <Text style={sidebarStyles.footerText}>© 2025 Connectpay</Text>
-        </View>
-      </SafeAreaView>
-    </Animated.View>
-  );
+  },
+  TIMEOUT: 10000,
 };
 
 export default function Dashboard() {
-  const { logout, token, isLoggedIn, user: contextUser, balance: contextBalance } = useContext(AuthContext);
+  const { logout, token, user: contextUser, balance: contextBalance, isLoggingOut } = useContext(AuthContext);
+  const { isDark, colors } = useContext(ThemeContext);
   const router = useRouter();
 
+  // State management
   const [user, setUser] = useState(null);
   const [accountBalance, setAccountBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeMenu, setActiveMenu] = useState('Dashboard');
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [balanceVisible, setBalanceVisible] = useState(true);
   const [showFundWallet, setShowFundWallet] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
-  const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [notificationCount, setNotificationCount] = useState(3);
+  const [apiError, setApiError] = useState(null);
 
-  const sidebarAnim = useState(new Animated.Value(-SCREEN_WIDTH * 0.85))[0];
+  const lastRefreshRef = useRef(0);
+  const REFRESH_COOLDOWN = 30000;
+  const abortControllersRef = useRef(new Set());
 
-  const makeApiCall = async (endpoint, fallbackValue = null) => {
+  // Debug useEffect
+  useEffect(() => {
+    console.log('🔍 Dashboard Debug:', {
+      token: token ? 'Present' : 'Missing',
+      isLoggingOut,
+      transactionsCount: transactions.length
+    });
+  }, [token, isLoggingOut, transactions.length]);
+
+  // Cancel all API calls when logout starts
+  useEffect(() => {
+    if (isLoggingOut) {
+      console.log('🚫 Logout started - Cancelling all ongoing API calls');
+      abortControllersRef.current.forEach(controller => {
+        controller.abort();
+      });
+      abortControllersRef.current.clear();
+    }
+  }, [isLoggingOut]);
+
+  // API call with timeout - FIXED VERSION
+  const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
+    // IMMEDIATE CHECK - return early if logging out
+    if (isLoggingOut) {
+      console.log(`🚫 API call BLOCKED - Logging out: ${endpoint}`);
+      return fallbackValue;
+    }
+
     try {
+      // Check if token exists
       if (!token) {
-        console.warn(`No token available for ${endpoint}`);
+        console.log(`Skipping API call to ${endpoint}: No token`);
         return fallbackValue;
       }
 
-      console.log(`Making API call to: ${API_CONFIG.BASE_URL}${endpoint}`);
+      const controller = new AbortController();
+      abortControllersRef.current.add(controller);
       
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, API_CONFIG.TIMEOUT);
+
+      // Check again right before making the request
+      if (isLoggingOut) {
+        console.log(`🚫 API call CANCELLED - Logging out started: ${endpoint}`);
+        clearTimeout(timeoutId);
+        controller.abort();
+        abortControllersRef.current.delete(controller);
+        return fallbackValue;
+      }
+
       const response = await fetch(`${API_CONFIG.BASE_URL}${endpoint}`, {
         method: 'GET',
         headers: { 
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
       });
 
-      console.log(`API Response status for ${endpoint}:`, response.status);
+      clearTimeout(timeoutId);
+      abortControllersRef.current.delete(controller);
+
+      // Check again after response
+      if (isLoggingOut) {
+        console.log(`🚫 API response IGNORED - Logging out: ${endpoint}`);
+        return fallbackValue;
+      }
+
+      if (response.status === 401) {
+        console.log('Session expired, logging out...');
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [{ text: 'OK', onPress: () => logout() }]
+        );
+        return fallbackValue;
+      }
 
       if (!response.ok) {
         console.error(`API call failed for ${endpoint}:`, response.status);
@@ -238,112 +146,96 @@ export default function Dashboard() {
 
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        console.log(`Successfully received data from ${endpoint}`);
-        return data;
-      } else {
-        console.warn(`${endpoint} returned non-JSON response`);
+        return await response.json();
+      }
+      
+      return fallbackValue;
+    } catch (error) {
+      // Don't show errors if we're logging out or request was aborted
+      if (isLoggingOut || error.name === 'AbortError') {
+        console.log(`🚫 API call ABORTED - Logging out: ${endpoint}`);
         return fallbackValue;
       }
-    } catch (error) {
+      
       console.error(`${endpoint} API error:`, error.message);
+      setApiError('Unable to connect. Please check your internet connection.');
       return fallbackValue;
     }
-  };
+  }, [token, logout, isLoggingOut]);
 
-  const fetchBalanceOnly = async () => {
-    try {
-      console.log('=== BALANCE FETCH START ===');
-      const balanceResponse = await makeApiCall(API_CONFIG.ENDPOINTS.BALANCE, null);
-      
-      if (balanceResponse && balanceResponse.success && balanceResponse.balance) {
-        let balance = 0;
-        
-        if (balanceResponse.balance.amount !== undefined) {
-          balance = balanceResponse.balance.amount;
-        } else if (typeof balanceResponse.balance === 'number') {
-          balance = balanceResponse.balance;
-        }
-        
-        const finalBalance = parseFloat(balance);
-        
-        if (!isNaN(finalBalance) && finalBalance >= 0) {
-          console.log('Setting balance to:', finalBalance);
-          setAccountBalance(finalBalance);
-        }
-      }
-    } catch (error) {
-      console.error('Balance fetch error:', error);
+  const extractBalance = useCallback((balanceData) => {
+    if (balanceData === null || balanceData === undefined) return 0;
+    if (typeof balanceData === 'number') return balanceData;
+    if (typeof balanceData === 'object') {
+      const balance = balanceData.amount || balanceData.balance || balanceData.current || balanceData.value || 0;
+      return parseFloat(balance) || 0;
     }
-  };
+    return parseFloat(balanceData) || 0;
+  }, []);
 
-  const formatTransactionDate = (dateString) => {
+  useEffect(() => {
+    if (contextBalance !== undefined && contextBalance !== null) {
+      const finalBalance = extractBalance(contextBalance);
+      setAccountBalance(finalBalance);
+    }
+  }, [contextBalance, extractBalance]);
+
+  useEffect(() => {
+    if (contextUser) {
+      setUser({
+        name: contextUser.name || 'User',
+        email: contextUser.email || 'user@example.com',
+        phone: contextUser.phone,
+        username: contextUser.username,
+      });
+    }
+  }, [contextUser]);
+
+  const formatTransactionDate = useCallback((dateString) => {
     const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMins / 60);
-    const diffDays = Math.floor(diffHours / 24);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    
     return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric'
     });
-  };
+  }, []);
 
-  const getTransactionIcon = (transaction) => {
-    switch (transaction.category) {
-      case 'funding':
-        return 'wallet-outline';
-      case 'betting':
-        return 'football-outline';
-      case 'transfer':
-        return transaction.type === 'transfer_out' ? 'send-outline' : 'download-outline';
-      case 'payment':
-        return 'card-outline';
-      case 'withdrawal':
-        return 'cash-outline';
-      default:
-        return transaction.type === 'credit' ? 'add-circle-outline' : 'remove-circle-outline';
+  const getTransactionIcon = useCallback((transaction) => {
+    if (transaction.status === 'failed') {
+      return { name: 'close', bg: '#fee2e2', color: '#dc3545' };
     }
-  };
+    
+    if (transaction.type === 'credit' || transaction.type === 'transfer_in') {
+      return { name: 'arrow-down', bg: '#e8f5e9', color: '#28a745' };
+    }
+    
+    return { name: 'arrow-up', bg: '#fee2e2', color: '#dc3545' };
+  }, []);
 
-  const getStatusColor = (transaction) => {
-    if (transaction.status === 'failed') return '#dc3545';
-    if (transaction.status === 'pending') return '#ffc107';
-    if (transaction.status === 'completed') return '#28a745';
-    return '#6c757d';
-  };
-
-  const getTransactionColor = (transaction) => {
+  const getTransactionColor = useCallback((transaction) => {
     if (transaction.status === 'failed') return '#dc3545';
     
-    switch (transaction.type) {
-      case 'credit':
-      case 'transfer_in':
-        return '#28a745';
-      case 'debit':
-      case 'transfer_out':
-        return '#ff2b2b';
-      default:
-        return '#6c757d';
+    if (transaction.type === 'credit' || transaction.type === 'transfer_in') {
+      return '#28a745';
     }
-  };
+    
+    return '#ff2b2b';
+  }, []);
 
-  const fetchTransactionsOnly = async () => {
+  const fetchTransactions = useCallback(async () => {
+    if (isLoggingOut) {
+      console.log('🚫 fetchTransactions blocked - logging out');
+      return;
+    }
+
     try {
-      setIsLoading(true);
+      const response = await makeApiCall(API_CONFIG.ENDPOINTS.TRANSACTIONS, { 
+        success: false, 
+        transactions: [] 
+      });
       
-      const transactionsResponse = await makeApiCall(API_CONFIG.ENDPOINTS.TRANSACTIONS, { success: false, transactions: [] });
-      
-      if (transactionsResponse?.success) {
-        const txData = transactionsResponse.transactions || [];
+      if (response?.success) {
+        const txData = response.transactions || [];
         const formattedTransactions = txData.map((tx, index) => ({
           _id: tx._id || tx.id || `tx_${Date.now()}_${index}`,
           type: tx.type || 'credit',
@@ -361,6 +253,7 @@ export default function Dashboard() {
         }));
         
         setTransactions(formattedTransactions);
+        setApiError(null);
       } else {
         setTransactions([]);
       }
@@ -370,509 +263,131 @@ export default function Dashboard() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [makeApiCall, isLoggingOut]);
 
   useEffect(() => {
-    if (contextUser) {
-      setUser({
-        name: contextUser.name || 'User',
-        email: contextUser.email || 'user@example.com',
-        phone: contextUser.phone,
-        username: contextUser.username,
-      });
+    if (token && !isLoggingOut) {
+      fetchTransactions();
     }
-    
-    if (contextBalance !== undefined && contextBalance !== null) {
-      let finalBalance = 0;
-      
-      if (typeof contextBalance === 'number') {
-        finalBalance = contextBalance;
-      } else if (typeof contextBalance === 'object') {
-        finalBalance = contextBalance.amount || 
-                       contextBalance.balance || 
-                       contextBalance.current || 
-                       contextBalance.value || 
-                       Object.values(contextBalance).find(val => typeof val === 'number') || 0;
-      } else {
-        finalBalance = parseFloat(contextBalance) || 0;
-      }
-      
-      setAccountBalance(finalBalance);
-    }
-    
-    fetchTransactionsOnly();
-  }, [token, contextUser, contextBalance]);
+  }, [token, fetchTransactions, isLoggingOut]);
 
   useEffect(() => {
-    let lastRefresh = 0;
-    const REFRESH_COOLDOWN = 30000;
-    
     const handleAppStateChange = (nextAppState) => {
-      if (nextAppState === 'active') {
+      // Don't refresh if logging out or no token
+      if (nextAppState === 'active' && token && !isLoggingOut) {
         const now = Date.now();
-        if (now - lastRefresh > REFRESH_COOLDOWN) {
-          console.log('App became active - refreshing balance');
-          lastRefresh = now;
-          fetchBalanceOnly();
+        if (now - lastRefreshRef.current > REFRESH_COOLDOWN) {
+          lastRefreshRef.current = now;
+          fetchTransactions();
         }
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
-    
-    return () => {
-      subscription?.remove();
-    };
-  }, []);
+    return () => subscription?.remove();
+  }, [fetchTransactions, token, isLoggingOut]);
 
-  const handleRefresh = async () => {
-    console.log('Manual refresh triggered');
-    setIsRefreshing(true);
+  const handleRefresh = useCallback(async () => {
+    // Don't refresh if logging out
+    if (isLoggingOut) {
+      console.log('🚫 Refresh blocked - logging out');
+      return;
+    }
     
+    setIsRefreshing(true);
+    setApiError(null);
     try {
-      await Promise.all([
-        fetchBalanceOnly(),
-        fetchTransactionsOnly()
-      ]);
+      await fetchTransactions();
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
       setIsRefreshing(false);
     }
-  };
+  }, [fetchTransactions, isLoggingOut]);
 
-  const handleTransactionPress = (transaction) => {
+  const handleTransactionPress = useCallback((transaction) => {
     setSelectedTransaction(transaction);
     setShowTransactionDetails(true);
-  };
+  }, []);
 
-  const navigateToProfile = () => {
-    if (sidebarOpen) toggleSidebar();
-    const profileRoutes = ['/profile', '/(app)/profile', '/user-profile'];
-    for (const route of profileRoutes) {
-      try {
-        router.push(route);
-        return;
-      } catch (error) {
-        console.log(`Failed to navigate to ${route}:`, error);
-      }
+  const navigateToProfile = useCallback(() => {
+    try {
+      router.push('/profile');
+    } catch (error) {
+      console.error('Navigation error:', error);
+      Alert.alert('Navigation Error', 'Could not open profile. Please try again.');
     }
-    Alert.alert('Navigation Error', 'Could not open profile. Please check if profile screen exists.');
-  };
+  }, [router]);
 
-  const handleLogout = async () => {
+  const handleQuickAction = useCallback((route) => {
+    try {
+      router.push(route);
+    } catch (error) {
+      console.error('Navigation error:', error);
+      Alert.alert('Navigation Error', 'Could not open service. Please try again.');
+    }
+  }, [router]);
+
+  const handleLogout = useCallback(() => {
     setShowLogoutConfirm(true);
-  };
+  }, []);
 
-  const confirmLogout = async () => {
+  const confirmLogout = useCallback(async () => {
     setShowLogoutConfirm(false);
-
     try {
       await logout();
-      const loginRoutes = ['/', '/login', '/(auth)/login', '/signin'];
-
-      for (const route of loginRoutes) {
-        try {
-          router.replace(route);
-          return;
-        } catch (error) {
-          console.log(`Failed to navigate to ${route}:`, error);
-        }
-      }
+      router.replace('/auth/login');
     } catch (error) {
       console.error('Logout error:', error);
-      Alert.alert('Logout Error', 'An error occurred during logout. Please restart the app.');
+      router.replace('/auth/login');
     }
-  };
+  }, [logout, router]);
 
-  const toggleSidebar = () => {
-    Animated.timing(sidebarAnim, {
-      toValue: sidebarOpen ? -SCREEN_WIDTH * 0.85 : 0,
-      duration: 300,
-      useNativeDriver: false,
-    }).start();
-    setSidebarOpen(!sidebarOpen);
-  };
-
-  const handleMenuPress = (item) => {
-    if (item.name === 'Logout') {
-      toggleSidebar();
-      setTimeout(() => {
-        handleLogout();
-      }, 100);
-    } else {
-      setActiveMenu(item.name);
-      if (item.route) router.push(item.route);
-      toggleSidebar();
-    }
-  };
-
-  const handleQuickAction = (route) => {
-    router.push(route);
-  };
-
-  const handleFundWallet = () => {
+  const handleFundWallet = useCallback(() => {
     setShowFundWallet(true);
-  };
+  }, []);
 
-  const toggleBalanceVisibility = () => {
-    setBalanceVisible(!balanceVisible);
-  };
+  const toggleBalanceVisibility = useCallback(() => {
+    setBalanceVisible(prev => !prev);
+  }, []);
 
-  const handleFundWalletSuccess = async () => {
+  const handleFundWalletSuccess = useCallback(async () => {
     setShowFundWallet(false);
     setTimeout(async () => {
-      await fetchBalanceOnly();
-      await fetchTransactionsOnly();
+      await fetchTransactions();
     }, 2000);
-  };
+  }, [fetchTransactions]);
 
-  const getFilteredTransaction = (transaction) => {
-    const {
-      previousBalance,
-      newBalance,
-      metadata,
-      ...filteredTransaction
-    } = transaction;
+  const shareReceipt = useCallback(async () => {
+    if (!selectedTransaction) return;
 
-    const filteredMetadata = metadata ? {
-      source: metadata.source,
-      notes: metadata.notes,
-    } : {};
-
-    return {
-      ...filteredTransaction,
-      metadata: filteredMetadata,
-      previousBalance: undefined,
-      newBalance: undefined,
+    const formatDate = (dateString) => {
+      return new Date(dateString).toLocaleString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
     };
-  };
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#ff2b2b" />
-      
-      <ImprovedSidebar
-        sidebarAnim={sidebarAnim}
-        user={user}
-        isLoading={isLoading}
-        activeMenu={activeMenu}
-        onMenuPress={handleMenuPress}
-        onProfilePress={navigateToProfile}
-        onClose={toggleSidebar}
-      />
+    const getStatusIcon = () => {
+      const iconMap = {
+        completed: '✅',
+        pending: '⏳',
+        failed: '❌',
+      };
+      return iconMap[selectedTransaction.status.toLowerCase()] || '📋';
+    };
 
-      {sidebarOpen && (
-        <TouchableOpacity 
-          style={styles.overlay} 
-          activeOpacity={1} 
-          onPress={toggleSidebar}
-        />
-      )}
-
-      <View style={styles.headerCard}>
-        <View style={styles.headerTop}>
-          <TouchableOpacity onPress={toggleSidebar} style={styles.menuButton}>
-            <Ionicons name="menu" size={28} color="#fff" />
-          </TouchableOpacity>
-          
-          <View style={styles.headerRight}>
-            <TouchableOpacity 
-              style={styles.notificationButton}
-              onPress={() => router.push('/notifications')}
-            >
-              <Ionicons name="notifications-outline" size={18} color="#fff" />
-              {notificationCount > 0 && (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>
-                    {notificationCount > 99 ? '9+' : notificationCount}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity onPress={navigateToProfile} style={styles.headerProfileButton}>
-              <Text style={styles.greeting}>Hello, {user?.name?.split(' ')[0] || 'User'}</Text>
-              <Ionicons name="chevron-forward" size={12} color="#fff" style={{ marginLeft: 4 }} />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.balanceSection}>
-          <View style={styles.balanceInfo}>
-            <View style={styles.balanceTitleRow}>
-              <Text style={styles.balanceTitle}>Wallet Balance</Text>
-              <TouchableOpacity onPress={toggleBalanceVisibility} style={styles.balanceToggle}>
-                <Ionicons 
-                  name={balanceVisible ? "eye" : "eye-off"} 
-                  size={20} 
-                  color="#fff" 
-                />
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleRefresh} style={styles.refreshButton} disabled={isRefreshing}>
-                <Ionicons 
-                  name={isRefreshing ? "reload" : "refresh"} 
-                  size={18} 
-                  color="#fff" 
-                />
-              </TouchableOpacity>
-            </View>
-            <Text style={styles.balanceAmount}>
-              {balanceVisible ? `₦${accountBalance.toLocaleString()}` : '₦****'}
-            </Text>
-          </View>
-          <TouchableOpacity style={styles.fundButton} onPress={handleFundWallet}>
-            <Ionicons name="add-circle" size={20} color="#fff" />
-            <Text style={styles.fundButtonText}>Fund Wallet</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={['#ff2b2b']}
-            tintColor='#ff2b2b'
-            title="Pull to refresh..."
-          />
-        }
-      >
-        <Text style={styles.servicesHeader}>What would you like to do?</Text>
-
-        <View style={styles.quickActions}>
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#E3F2FD' }]}
-              onPress={() => handleQuickAction('/buy-airtime')}
-            >
-              <Ionicons name="call" size={24} color="#2196F3" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Airtime</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#FFF3E0' }]}
-              onPress={() => handleQuickAction('/buy-data')}
-            >
-              <Ionicons name="wifi" size={24} color="#FF9800" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Data</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#E8F5E9' }]}
-              onPress={() => handleQuickAction('/cable-tv')}
-            >
-              <Ionicons name="tv" size={24} color="#4CAF50" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>TV</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#E1F5FE' }]}
-              onPress={() => handleQuickAction('/electricity')}
-            >
-              <Ionicons name="flash" size={24} color="#03A9F4" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Electricity</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#F3E5F5' }]}
-              onPress={() => handleQuickAction('/print-recharge')}
-            >
-              <Ionicons name="print" size={24} color="#9C27B0" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Print recharge</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#FFF9C4' }]}
-              onPress={() => handleQuickAction('/fund-betting')}
-            >
-              <Ionicons name="football" size={24} color="#FBC02D" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Betting</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#E0F2F1' }]}
-              onPress={() => handleQuickAction('/internet')}
-            >
-              <Ionicons name="globe" size={24} color="#009688" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Internet</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#FCE4EC' }]}
-              onPress={() => handleQuickAction('/education')}
-            >
-              <Ionicons name="school" size={24} color="#E91E63" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Education</Text>
-          </View>
-
-          <View style={styles.actionButtonWrapper}>
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#F1F8E9' }]}
-              onPress={() => handleQuickAction('/transfer')}
-            >
-              <Ionicons name="send" size={24} color="#689F38" />
-            </TouchableOpacity>
-            <Text style={styles.actionText}>Transfer</Text>
-          </View>
-        </View>
-
-        <View style={styles.needHelpContainer}>
-          <TouchableOpacity
-            style={styles.needHelpButton}
-            onPress={() => handleQuickAction('/need-help')}
-          >
-            <View style={styles.needHelpLeft}>
-              <View style={styles.needHelpIconContainer}>
-                <Ionicons name="help-circle" size={28} color="#fff" />
-              </View>
-              <View style={styles.needHelpTextContainer}>
-                <Text style={styles.needHelpTitle}>Need Help?</Text>
-                <Text style={styles.needHelpSubtitle}>Try our self service or open a ticket</Text>
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.transactionsContainer}>
-          <View style={styles.transactionsHeader}>
-            <Text style={styles.transactionsTitle}>Recent Transactions</Text>
-            {transactions.length > 4 && (
-              <TouchableOpacity 
-                style={styles.viewAllButton}
-                onPress={() => router.push('/transaction-history')}
-              >
-                <Text style={styles.viewAllText}>View All</Text>
-                <Ionicons name="chevron-forward" size={14} color="#ff2b2b" />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {transactions.length === 0 ? (
-            <View style={styles.noTransactionsContainer}>
-              <Ionicons name="receipt" size={48} color="#ccc" />
-              <Text style={styles.noTransactions}>
-                {isLoading ? 'Loading transactions...' : 'No recent transactions'}
-              </Text>
-              <Text style={styles.noTransactionsSubtext}>
-                Your transaction history will appear here
-              </Text>
-            </View>
-          ) : (
-            <View style={styles.transactionsList}>
-              {transactions.slice(0, showAllTransactions ? transactions.length : 3).map((tx) => (
-                <TouchableOpacity
-                  key={tx._id}
-                  style={styles.transactionItem}
-                  onPress={() => handleTransactionPress(tx)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.transactionLeft}>
-                    <View style={[styles.transactionIconContainer, { backgroundColor: `${getTransactionColor(tx)}15` }]}>
-                      <Ionicons 
-                        name={getTransactionIcon(tx)} 
-                        size={20} 
-                        color={getTransactionColor(tx)} 
-                      />
-                    </View>
-                    <View style={styles.transactionInfo}>
-                      <Text style={styles.transactionDescription}>
-                        {tx.description || `${tx.type} transaction`}
-                      </Text>
-                      <Text style={styles.transactionDate}>
-                        {formatTransactionDate(tx.createdAt)}
-                      </Text>
-                      <View style={styles.transactionMeta}>
-                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(tx) }]}>
-                          <Text style={styles.statusText}>{tx.status}</Text>
-                        </View>
-                        <Text style={styles.transactionReference}>#{tx.reference.slice(-6)}</Text>
-                      </View>
-                    </View>
-                  </View>
-                  <View style={styles.transactionRight}>
-                    <Text style={[styles.transactionAmount, { color: getTransactionColor(tx) }]}>
-                      {tx.type === 'credit' || tx.type === 'transfer_in' ? '+' : '-'}₦{tx.amount.toLocaleString()}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color="#ccc" />
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )}
-        </View>
-      </ScrollView>
-
-      <Modal
-        visible={showTransactionDetails}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowTransactionDetails(false)}
-      >
-        {selectedTransaction && (
-          <View style={{ flex: 1 }}>
-            <TransactionDetails
-              transaction={getFilteredTransaction(selectedTransaction)}
-              onClose={() => setShowTransactionDetails(false)}
-              userInfo={null}
-            />
-            <View style={{ padding: 20 }}>
-              <TouchableOpacity 
-                style={{
-                  backgroundColor: '#ff2b2b',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingVertical: 12,
-                  borderRadius: 10,
-                  marginBottom: 10,
-                }}
-                onPress={() => {
-                  const formatDate = (dateString) => {
-                    return new Date(dateString).toLocaleString('en-US', {
-                      weekday: 'long',
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit'
-                    });
-                  };
-
-                  const getStatusIcon = () => {
-                    switch (selectedTransaction.status.toLowerCase()) {
-                      case 'completed': return '✅';
-                      case 'pending': return '⏳';
-                      case 'failed': return '❌';
-                      default: return '📋';
-                    }
-                  };
-
-                  const formattedReceiptContent = `
+    const receiptContent = `
 ╔══════════════════════════════════════════════════════╗
 ║                  TRANSACTION RECEIPT                 ║
 ╚══════════════════════════════════════════════════════╝
 
-🏦 YOUR APP NAME
-📧 support@yourapp.com | 📞 +234-XXX-XXXX-XXX
+🏦 CONNECTPAY
+📧 support@connectpay.com | 📞 +234-XXX-XXXX-XXX
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -894,24 +409,6 @@ ${selectedTransaction.description ? `📋 DESCRIPTION: ${selectedTransaction.des
 🔢 Transaction ID: #${selectedTransaction._id.slice(-8).toUpperCase()}
 📅 Date: ${formatDate(selectedTransaction.createdAt)}
 
-${selectedTransaction.gateway?.provider ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💳 PAYMENT GATEWAY
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🏛️  Provider: ${selectedTransaction.gateway.provider.toUpperCase()}
-${selectedTransaction.gateway.gatewayReference ? `🔗 Gateway Ref: ${selectedTransaction.gateway.gatewayReference}` : ''}
-` : ''}
-
-${selectedTransaction.metadata?.source || selectedTransaction.metadata?.notes ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ℹ️  ADDITIONAL INFORMATION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${selectedTransaction.metadata?.source ? `📱 Source: ${selectedTransaction.metadata.source}` : ''}
-${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metadata.notes}` : ''}
-` : ''}
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👤 ACCOUNT INFORMATION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -921,25 +418,264 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🙏 Thank you for using our services!
-📞 For support: support@yourapp.com
-🌐 Visit: www.yourapp.com
+🙏 Thank you for using Connectpay!
+📞 For support: support@connectpay.com
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🕐 Generated: ${new Date().toLocaleString()}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          `.trim();
+    `.trim();
 
-                  Share.share({
-                    message: formattedReceiptContent,
-                    title: `Receipt - ${selectedTransaction.reference}`,
-                  }).then(() => {
-                    Alert.alert('Success', 'Receipt shared successfully! You can save it to your device.');
-                  }).catch((error) => {
-                    console.error('Share error:', error);
-                    Alert.alert('Share Error', 'Unable to share receipt. Please try again.');
-                  });
+    try {
+      await Share.share({
+        message: receiptContent,
+        title: `Receipt - ${selectedTransaction.reference}`,
+      });
+      Alert.alert('Success', 'Receipt shared successfully!');
+    } catch (error) {
+      console.error('Share error:', error);
+      Alert.alert('Share Error', 'Unable to share receipt. Please try again.');
+    }
+  }, [selectedTransaction, user]);
+
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+      
+      {/* Modern Header */}
+      <View style={[styles.modernHeader, { backgroundColor: colors.background }]}>
+        <View style={styles.modernHeaderTop}>
+          <TouchableOpacity 
+            style={styles.modernProfileSection}
+            onPress={navigateToProfile}
+          >
+            <View style={styles.modernAvatar}>
+              {user?.name ? (
+                <Text style={styles.modernAvatarText}>
+                  {user.name.charAt(0).toUpperCase()}
+                </Text>
+              ) : (
+                <Ionicons name="person" size={20} color="#ff2b2b" />
+              )}
+            </View>
+            <Text style={[styles.modernGreetingText, { color: colors.text }]}>
+              Hello, {user?.name?.split(' ')[0] || 'User'}
+            </Text>
+          </TouchableOpacity>
+          
+          <View style={styles.modernHeaderIcons}>
+            <TouchableOpacity 
+              style={[styles.modernIconButton, { backgroundColor: isDark ? colors.border : '#f5f5f5' }]}
+              onPress={handleRefresh}
+              disabled={isRefreshing || isLoggingOut}
+            >
+              <Ionicons name={isRefreshing ? "reload" : "notifications-outline"} size={22} color={colors.text} />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.modernIconButton, { backgroundColor: isDark ? colors.border : '#f5f5f5' }]}
+              onPress={() => router.push('/need-help')}
+            >
+              <Ionicons name="help-circle-outline" size={22} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={isLoggingOut ? undefined : handleRefresh}
+            colors={['#ff2b2b']}
+            tintColor={isDark ? '#ffffff' : '#ff2b2b'}
+            title="Pull to refresh..."
+            titleColor={colors.textSecondary}
+          />
+        }
+      >
+        {/* Modern Balance Card */}
+        <View style={[styles.modernBalanceCard, { backgroundColor: '#ff2b2b' }]}>
+          <View style={styles.balanceCardHeader}>
+            <View>
+              <View style={styles.balanceTypeRow}>
+                <Text style={styles.balanceType}>Wallet Balance</Text>
+                <TouchableOpacity onPress={toggleBalanceVisibility} style={styles.eyeButton}>
+                  <Ionicons 
+                    name={balanceVisible ? "eye-outline" : "eye-off-outline"} 
+                    size={18} 
+                    color="#fff" 
+                  />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.modernBalanceAmount}>
+                {balanceVisible ? `₦${accountBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '₦****'}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.fundWalletButton} onPress={handleFundWallet}>
+              <Ionicons name="add" size={18} color="#ff2b2b" />
+              <Text style={styles.fundWalletText}>Fund wallet</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {/* Decorative Pattern */}
+          <View style={styles.cardPattern}>
+            <View style={styles.patternCircle1} />
+            <View style={styles.patternCircle2} />
+          </View>
+        </View>
+
+        {/* Top Services Section */}
+        <View style={styles.servicesSection}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Top services</Text>
+          
+          <View style={styles.topServicesGrid}>
+            {[
+              { name: 'Airtime', icon: 'call', color: '#E3F2FD', iconColor: '#2196F3', route: '/buy-airtime' },
+              { name: 'Data', icon: 'wifi', color: '#FFF3E0', iconColor: '#FF9800', route: '/buy-data' },
+              { name: 'TV', icon: 'tv', color: '#E8F5E9', iconColor: '#4CAF50', route: '/cable-tv' },
+              { name: 'Electricity', icon: 'flash', color: '#E1F5FE', iconColor: '#03A9F4', route: '/electricity' },
+              { name: 'Print', icon: 'print', color: '#F3E5F5', iconColor: '#9C27B0', route: '/print-recharge' },
+              { name: 'Betting', icon: 'football', color: '#FFF9C4', iconColor: '#FBC02D', route: '/fund-betting' },
+              { name: 'Internet', icon: 'globe', color: '#E0F2F1', iconColor: '#009688', route: '/internet' },
+              { name: 'Education', icon: 'school', color: '#FCE4EC', iconColor: '#E91E63', route: '/education' },
+            ].map((service) => (
+              <View key={service.name} style={styles.topServiceWrapper}>
+                <TouchableOpacity
+                  style={[styles.topServiceItem, { backgroundColor: service.color }]}
+                  onPress={() => handleQuickAction(service.route)}
+                >
+                  <Ionicons name={service.icon} size={22} color={service.iconColor} />
+                </TouchableOpacity>
+                <Text style={[styles.topServiceText, { color: colors.text }]}>{service.name}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Promotions Banner */}
+        <View style={styles.promotionsSection}>
+          <View style={[styles.promotionBanner, { backgroundColor: '#ffffff' }]}>
+            <View style={styles.promotionContent}>
+              <Text style={[styles.promotionTitle, { color: '#ff2b2b' }]}>Special Offer! 🎉</Text>
+              <Text style={[styles.promotionSubtitle, { color: '#666666' }]}>Get 10% cashback on all bills payment</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#ff2b2b" />
+          </View>
+        </View>
+
+        {/* Recent Transactions */}
+        <View style={styles.recentTransactionsSection}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent transactions</Text>
+            {transactions.length > 0 && (
+              <TouchableOpacity 
+                style={styles.seeAllButton}
+                onPress={() => router.push('/transaction-history')}
+              >
+                <Text style={styles.seeAllText}>View all</Text>
+                <Ionicons name="arrow-forward" size={16} color="#ff2b2b" />
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {transactions.length === 0 ? (
+            <View style={[styles.emptyTransactions, { backgroundColor: isDark ? colors.border : '#fff' }]}>
+              <Ionicons name="receipt-outline" size={48} color={colors.textSecondary} />
+              <Text style={[styles.emptyTransactionsText, { color: colors.textSecondary }]}>
+                {isLoading ? 'Loading transactions...' : 'No transactions yet'}
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.transactionsList}>
+             {transactions.slice(0, 2).map((tx) => {
+                const icon = getTransactionIcon(tx);
+                
+                return (
+                  <TouchableOpacity
+                    key={tx._id}
+                    style={[styles.modernTransactionItem, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}
+                    onPress={() => handleTransactionPress(tx)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.transactionItemLeft}>
+                      <View style={[styles.modernTransactionIcon, { backgroundColor: icon.bg }]}>
+                        <Ionicons 
+                          name={icon.name} 
+                          size={20} 
+                          color={icon.color} 
+                        />
+                      </View>
+                      <View style={styles.transactionItemInfo}>
+                        <Text style={[styles.modernTransactionTitle, { color: colors.text }]} numberOfLines={1}>
+                          {tx.description || `${tx.type} transaction`}
+                        </Text>
+                        <Text style={[styles.modernTransactionDate, { color: colors.textSecondary }]}>
+                          {formatTransactionDate(tx.createdAt)}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.transactionItemRight}>
+                      <Text style={[styles.modernTransactionAmount, { color: getTransactionColor(tx) }]}>
+                        {tx.type === 'credit' || tx.type === 'transfer_in' ? '+' : '−'} {tx.amount.toFixed(2)} ₦
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+
+      {/* Bottom Navigation */}
+      <View style={[styles.bottomNav, { backgroundColor: colors.cardBg, borderTopColor: colors.border }]}>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/dashboard')}>
+          <Ionicons name="home" size={24} color="#ff2b2b" />
+          <Text style={[styles.navText, { color: '#ff2b2b' }]}>Home</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/services')}>
+          <Ionicons name="apps-outline" size={24} color={colors.textSecondary} />
+          <Text style={[styles.navText, { color: colors.textSecondary }]}>Services</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/transaction-history')}>
+          <Ionicons name="receipt-outline" size={24} color={colors.textSecondary} />
+          <Text style={[styles.navText, { color: colors.textSecondary }]}>Transactions</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity style={styles.navItem} onPress={navigateToProfile}>
+          <Ionicons name="person-outline" size={24} color={colors.textSecondary} />
+          <Text style={[styles.navText, { color: colors.textSecondary }]}>Profile</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Transaction Details Modal */}
+      <Modal
+        visible={showTransactionDetails}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowTransactionDetails(false)}
+      >
+        {selectedTransaction && (
+          <View style={{ flex: 1, backgroundColor: colors.background }}>
+            <TransactionDetails
+              transaction={selectedTransaction}
+              onClose={() => setShowTransactionDetails(false)}
+              userInfo={null}
+            />
+            <View style={{ padding: 20 }}>
+              <TouchableOpacity 
+                style={{
+                  backgroundColor: '#ff2b2b',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingVertical: 12,
+                  borderRadius: 10,
+                  marginBottom: 10,
                 }}
+                onPress={shareReceipt}
               >
                 <Ionicons name="download" size={20} color="#fff" />
                 <Text style={{ color: '#fff', marginLeft: 8, fontWeight: '600' }}>
@@ -951,6 +687,7 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
         )}
       </Modal>
 
+      {/* Logout Confirmation Modal */}
       <Modal
         visible={showLogoutConfirm}
         animationType="fade"
@@ -958,16 +695,16 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
         onRequestClose={() => setShowLogoutConfirm(false)}
       >
         <View style={styles.confirmationOverlay}>
-          <View style={styles.confirmationModal}>
-            <Text style={styles.confirmationTitle}>Logout Confirmation</Text>
-            <Text style={styles.confirmationMessage}>Are you sure you want to logout?</Text>
+          <View style={[styles.confirmationModal, { backgroundColor: colors.cardBg }]}>
+            <Text style={[styles.confirmationTitle, { color: colors.text }]}>Logout Confirmation</Text>
+            <Text style={[styles.confirmationMessage, { color: colors.textSecondary }]}>Are you sure you want to logout?</Text>
 
             <View style={styles.confirmationButtons}>
               <TouchableOpacity 
-                style={styles.cancelButton} 
+                style={[styles.cancelButton, { backgroundColor: isDark ? colors.border : '#f3f4f6' }]} 
                 onPress={() => setShowLogoutConfirm(false)}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity 
@@ -981,27 +718,28 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
         </View>
       </Modal>
 
+      {/* Fund Wallet Modal */}
       <Modal
         visible={showFundWallet}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => setShowFundWallet(false)}
       >
-        <SafeAreaView style={{ flex: 1, backgroundColor: '#f8f9fa' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
           <View style={{ 
             flexDirection: 'row', 
             alignItems: 'center', 
             justifyContent: 'space-between',
             paddingHorizontal: 16,
             paddingVertical: 16,
-            backgroundColor: '#fff',
+            backgroundColor: colors.cardBg,
             borderBottomWidth: 1,
-            borderBottomColor: '#eee'
+            borderBottomColor: colors.border
           }}>
             <TouchableOpacity onPress={() => setShowFundWallet(false)}>
-              <Ionicons name="arrow-back" size={28} color="#333" />
+              <Ionicons name="arrow-back" size={28} color={colors.text} />
             </TouchableOpacity>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>Fund Wallet</Text>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Fund Wallet</Text>
             <View style={{ width: 24 }} />
           </View>
           
@@ -1017,52 +755,32 @@ ${selectedTransaction.metadata?.notes ? `📝 Notes: ${selectedTransaction.metad
   );
 }
 
-const sidebarStyles = StyleSheet.create({
-  sidebar: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: SCREEN_WIDTH * 0.85,
-    backgroundColor: '#fff',
-    zIndex: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 2, height: 0 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 10,
+const styles = StyleSheet.create({
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f8f9fa' 
   },
-  sidebarContent: {
+  
+  // Modern Header Styles
+  modernHeader: {
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : StatusBar.currentHeight + 10,
+    paddingBottom: 15,
+  },
+  modernHeaderTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modernProfileSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
     flex: 1,
-    paddingTop: Platform.OS === 'ios' ? 0 : StatusBar.currentHeight,
   },
-  sidebarHeader: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
-  closeButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: '#f8f9fa',
-  },
-  profileSection: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
-  profileContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  profileAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  modernAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: '#fff5f5',
     justifyContent: 'center',
     alignItems: 'center',
@@ -1070,304 +788,148 @@ const sidebarStyles = StyleSheet.create({
     borderColor: '#ff2b2b',
     marginRight: 12,
   },
-  avatarText: {
-    fontSize: 20,
+  modernAvatarText: {
+    fontSize: 18,
     fontWeight: '700',
     color: '#ff2b2b',
   },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
+  modernGreetingText: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '600',
     color: '#1f2937',
-    marginBottom: 3,
   },
-  profileEmail: {
-    fontSize: 13,
-    color: '#6b7280',
-    marginBottom: 6,
-  },
-  profileBadge: {
+  modernHeaderIcons: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: '#fff5f5',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ffe5e5',
+    gap: 10,
   },
-  profileBadgeText: {
-    fontSize: 12,
-    color: '#ff2b2b',
-    fontWeight: '600',
-    marginRight: 4,
-  },
-  menuContainer: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-  },
-  menuCategory: {
-    marginBottom: 18,
-  },
-  categoryTitle: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#9ca3af',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
-    paddingHorizontal: 4,
-  },
-  sidebarItem: {
-    flexDirection: 'row',
+  modernIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    marginBottom: 3,
-    position: 'relative',
   },
-  activeSidebarItem: {
+  
+  // Scroll Content
+  scrollContent: {
+    paddingBottom: 100,
+  },
+  
+  // Modern Balance Card
+  modernBalanceCard: {
+    marginHorizontal: 20,
+    marginVertical: 20,
+    borderRadius: 20,
+    padding: 16,
     backgroundColor: '#ff2b2b',
     shadowColor: '#ff2b2b',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  logoutItem: {
-    backgroundColor: '#dc2626',
-    marginTop: 10,
-    shadowColor: '#dc2626',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  menuItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  iconContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    marginRight: 10,
-  },
-  activeIconContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  logoutIconContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  sidebarText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#374151',
-    flex: 1,
-  },
-  activeText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  logoutText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  activeIndicator: {
-    width: 4,
-    height: 20,
-    backgroundColor: '#fff',
-    borderRadius: 2,
-  },
-  sidebarFooter: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#f5f5f5',
-    alignItems: 'center',
-  },
-  footerText: {
-    fontSize: 11,
-    color: '#9ca3af',
-    textAlign: 'center',
-    marginBottom: 1,
-  },
-});
-
-const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: '#fafafa' 
-  },
-  overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    zIndex: 5,
-  },
-   headerCard: {
-    backgroundColor: '#ff2b2b',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 50 : 60,
-    paddingBottom: 30,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
     elevation: 8,
+    overflow: 'hidden',
+    minHeight: 100,
   },
-headerTop: {
+  balanceCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 25,
-  },
-  menuButton: {
-    padding: 5,
-    borderRadius: 8,
-  },
-  headerRight: {
-    flexDirection: 'column',
     alignItems: 'flex-end',
-    gap: 4,
-    marginTop: -28,
+    zIndex: 2,
   },
-  notificationButton: {
-    padding: 6,
-    position: 'relative',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 18,
-    alignSelf: 'flex-end',
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 4,
-    borderWidth: 2,
-    borderColor: '#ff2b2b',
-  },
-  notificationBadgeText: {
-    color: '#ff2b2b',
-    fontSize: 9,
-    fontWeight: '700',
-  },
-  headerProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-  },
-  greeting: { 
-    fontSize: 15, 
-    fontWeight: '600', 
-    color: '#fff' 
-  },
-  balanceSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  balanceInfo: {
-    flex: 1,
-  },
-  balanceTitleRow: {
+  balanceTypeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
-  balanceTitle: { 
-    color: '#fff', 
-    fontSize: 16, 
+  balanceType: {
+    color: '#fff',
+    fontSize: 14,
     opacity: 0.9,
-    marginRight: 10,
-  },
-  balanceToggle: {
-    padding: 5,
     marginRight: 8,
   },
-  refreshButton: {
-    padding: 5,
+  eyeButton: {
+    padding: 4,
   },
-  balanceAmount: { 
-    color: '#fff', 
-    fontSize: 28, 
-    fontWeight: '700' 
+  modernBalanceAmount: {
+    color: '#fff',
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
-  fundButton: {
+  fundWalletButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ffffff',
-    paddingVertical: 12,
-    paddingHorizontal: 18,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
+    shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    marginBottom: -40,
-    marginRight: -5,
   },
-  fundButtonText: { 
+  fundWalletText: {
     color: '#ff2b2b',
-    marginLeft: -20,
-    fontWeight: '600', 
-    fontSize: 14,
-    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
-  scrollContent: { 
-    paddingHorizontal: 1, 
-    paddingVertical: 20 
+  cardPattern: {
+    position: 'absolute',
+    right: -20,
+    bottom: -20,
+    width: 200,
+    height: 200,
   },
-  servicesHeader: { 
-    fontSize: 20, 
-    fontWeight: '700', 
-    color: '#1f2937', 
-    marginBottom: 20, 
-    textAlign: 'center' 
+  patternCircle1: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    right: 20,
+    bottom: 20,
   },
-  quickActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    flexWrap: 'wrap',
-    marginBottom: 30,
+  patternCircle2: {
+    position: 'absolute',
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    right: 40,
+    bottom: 60,
+  },
+  
+  // Services Section
+  servicesSection: {
+    marginTop: 10,
     paddingHorizontal: 20,
   },
-  actionButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 10,
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 15,
+  },
+  topServicesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  topServiceWrapper: {
+    width: '23%',
     alignItems: 'center',
+    marginBottom: 16,
+  },
+  topServiceItem: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
     justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1375,217 +937,138 @@ headerTop: {
     shadowRadius: 4,
     elevation: 2,
   },
-  actionText: { 
-    color: '#374151', 
-    fontWeight: '600', 
+  topServiceText: {
     fontSize: 10,
+    color: '#1f2937',
     textAlign: 'center',
-    marginTop: 2,
+    fontWeight: '600',
   },
-  actionButtonWrapper: {
+  
+  // Recent Transactions Section
+  recentTransactionsSection: {
+    marginTop: 30,
+    paddingHorizontal: 20,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
-    width: '23%',
-    marginLeft: '2%',
+    marginBottom: 15,
   },
-  needHelpContainer: {
-    marginBottom: 30,
-    paddingHorizontal: 16,
-  },
-  needHelpButton: {
-    backgroundColor: '#e91515d0',
+  seeAllButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 16,
-    shadowColor: '#ff2b2b',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 4,
   },
-  needHelpLeft: {
+  seeAllText: {
+    color: '#ff2b2b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginRight: 4,
+  },
+  emptyTransactions: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 40,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  emptyTransactionsText: {
+    fontSize: 15,
+    color: '#6b7280',
+    marginTop: 12,
+    fontWeight: '500',
+  },
+  transactionsList: {
+    gap: 8,
+  },
+  modernTransactionItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+    borderBottomWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  transactionItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 12,
   },
-  needHelpIconContainer: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  modernTransactionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
-  needHelpTextContainer: {
+  transactionItemInfo: {
     flex: 1,
   },
-  needHelpTitle: {
-    color: '#fff',
-    fontWeight: '700',
+  modernTransactionTitle: {
     fontSize: 16,
-    marginBottom: 2,
+    fontWeight: '600',
+    color: '#1f2937',
+    marginBottom: 4,
   },
-  needHelpSubtitle: {
-    color: '#fff',
+  modernTransactionDate: {
     fontSize: 12,
-    fontWeight: '500',
-    opacity: 0.9,
-  },
-  transactionsContainer: { 
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    marginHorizontal: 16,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  transactionsHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  transactionsTitle: { 
-    fontSize: 18, 
-    fontWeight: '700', 
-    color: '#1f2937',
-    letterSpacing: -0.3,
-  },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff5f5',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#ffe5e5',
-  },
-  viewAllText: {
-    color: '#ff2b2b',
-    fontSize: 13,
-    fontWeight: '600',
-    marginRight: 2,
-  },
-  noTransactionsContainer: {
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  noTransactions: { 
-    color: '#6b7280', 
-    fontSize: 17,
-    marginTop: 20,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  noTransactionsSubtext: {
     color: '#9ca3af',
-    fontSize: 14,
-    marginTop: 8,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  transactionsList: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  transactionItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    marginBottom: 6,
-    backgroundColor: '#fafafa',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#f0f0f0',
-  },
-  transactionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    marginRight: 8,
-  },
-  transactionIconContainer: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
-  },
-  transactionInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-  transactionDescription: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 3,
-    flexShrink: 1,
-    lineHeight: 18,
-  },
-  transactionDate: {
-    fontSize: 11,
-    color: '#9ca3af',
-    marginBottom: 4,
     fontWeight: '500',
   },
-  transactionMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    marginRight: 6,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '700',
-    textTransform: 'capitalize',
-    letterSpacing: 0.3,
-  },
-  transactionReference: {
-    fontSize: 10,
-    color: '#9ca3af',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
-    fontWeight: '500',
-    letterSpacing: 0.5,
-  },
-  transactionRight: {
+  transactionItemRight: {
     alignItems: 'flex-end',
-    justifyContent: 'center',
-    minWidth: 75,
   },
-  transactionAmount: {
-    fontSize: 15,
+  modernTransactionAmount: {
+    fontSize: 16,
     fontWeight: '700',
-    marginBottom: 4,
-    letterSpacing: -0.3,
   },
+  
+  // Bottom Navigation
+  bottomNav: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingVertical: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  navItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  navText: {
+    fontSize: 11,
+    marginTop: 4,
+    fontWeight: '600',
+  },
+  
+  // Modals
   confirmationOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1594,8 +1077,8 @@ headerTop: {
   },
   confirmationModal: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 25,
+    borderRadius: 20,
+    padding: 24,
     width: '85%',
     maxWidth: 350,
     shadowColor: '#000',
@@ -1609,42 +1092,76 @@ headerTop: {
     fontWeight: '700',
     color: '#1f2937',
     textAlign: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   confirmationMessage: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#6b7280',
     textAlign: 'center',
-    marginBottom: 25,
+    marginBottom: 24,
+    lineHeight: 22,
   },
   confirmationButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 12,
   },
   cancelButton: {
     flex: 1,
     backgroundColor: '#f3f4f6',
-    paddingVertical: 12,
-    marginRight: 10,
-    borderRadius: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
   },
   cancelButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#374151',
     fontWeight: '600',
   },
   logoutConfirmButton: {
     flex: 1,
     backgroundColor: '#ff2b2b',
-    paddingVertical: 12,
-    marginLeft: 10,
-    borderRadius: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
     alignItems: 'center',
   },
   logoutConfirmButtonText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#fff',
     fontWeight: '600',
+  },
+
+  // Promotions Section
+  promotionsSection: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  promotionBanner: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  promotionContent: {
+    flex: 1,
+  },
+  promotionTitle: {
+    color: '#ff2b2b',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  promotionSubtitle: {
+    color: '#666666',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });

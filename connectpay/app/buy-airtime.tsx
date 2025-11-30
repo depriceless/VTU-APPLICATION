@@ -53,7 +53,6 @@ interface PinStatus {
 
 export default function BuyAirtime() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
-  
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
@@ -140,12 +139,18 @@ export default function BuyAirtime() {
       setPinError('');
       checkPinStatus();
       
-      // Focus the input after modal opens
       setTimeout(() => {
         pinInputRef.current?.focus();
-      }, 100);
+      }, 300);
     }
   }, [showPinEntry]);
+
+  const handlePinAreaPress = () => {
+    console.log('PIN area pressed - attempting to focus input');
+    setTimeout(() => {
+      pinInputRef.current?.focus();
+    }, 50);
+  };
 
   useEffect(() => {
     saveFormState();
@@ -876,10 +881,8 @@ export default function BuyAirtime() {
             {/* PIN Input Area - Pressable */}
             <TouchableOpacity 
               style={styles.pinInputArea}
-              activeOpacity={0.7}
-              onPress={() => {
-                pinInputRef.current?.focus();
-              }}
+              activeOpacity={0.6}
+              onPress={handlePinAreaPress}
             >
               <View style={styles.pinDotsContainer}>
                 {[0, 1, 2, 3].map((index) => (
@@ -893,22 +896,29 @@ export default function BuyAirtime() {
                   />
                 ))}
               </View>
-              <Text style={styles.pinInputHint}>Tap to enter PIN</Text>
+              <Text style={styles.pinInputHint}>
+                {pin.length === 0 ? 'Tap here to enter PIN' : `${4 - pin.length} digit${4 - pin.length !== 1 ? 's' : ''} remaining`}
+              </Text>
+              
+              {/* Actual Input - Transparent overlay */}
+              <TextInput
+                ref={pinInputRef}
+                style={styles.overlayPinInput}
+                value={pin}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                  console.log('PIN changed:', cleaned);
+                  setPin(cleaned);
+                  setPinError('');
+                }}
+                keyboardType="number-pad"
+                secureTextEntry={true}
+                maxLength={4}
+                autoFocus={false}
+                caretHidden={true}
+                contextMenuHidden={true}
+              />
             </TouchableOpacity>
-
-            <TextInput
-              ref={pinInputRef}
-              style={styles.hiddenPinInput}
-              value={pin}
-              onChangeText={(text) => {
-                setPin(text.replace(/\D/g, '').substring(0, 4));
-                setPinError('');
-              }}
-              keyboardType="number-pad"
-              secureTextEntry={true}
-              maxLength={4}
-              caretHidden={true}
-            />
 
             {pinError && (
               <Text style={styles.pinErrorText}>{pinError}</Text>
@@ -1069,7 +1079,6 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  // Card Styles
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1089,7 +1098,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Quick Actions
   quickActions: {
     flexDirection: 'row',
     gap: 10,
@@ -1137,7 +1145,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Input Styles
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
@@ -1177,7 +1184,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Network Grid
   networkGrid: {
     flexDirection: 'row',
     gap: 10,
@@ -1236,7 +1242,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  // Amount Selection
   amountGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1277,7 +1282,6 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
 
-  // Buttons
   primaryButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 16,
@@ -1321,7 +1325,6 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
 
-  // Balance Overview
   balanceOverview: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1432,7 +1435,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Summary Styles
   summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1482,7 +1484,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // PIN Entry - Bottom Sheet
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1551,6 +1552,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#e8e8e8',
     alignItems: 'center',
+    minHeight: 120,
   },
 
   pinDotsContainer: {
@@ -1592,6 +1594,16 @@ const styles = StyleSheet.create({
     height: 1,
   },
 
+  overlayPinInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+    fontSize: 1,
+  },
+
   pinErrorText: {
     color: '#ff3b30',
     fontSize: 13,
@@ -1601,7 +1613,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',

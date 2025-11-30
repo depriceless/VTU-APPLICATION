@@ -8,17 +8,22 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Modal,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
+import { ThemeContext } from '../contexts/ThemeContext';
 import { useRouter } from 'expo-router';
 
 export default function Profile() {
-  const { token } = useContext(AuthContext);
+  const { token, logout } = useContext(AuthContext);
+  const { isDark, colors } = useContext(ThemeContext);
   const router = useRouter();
 
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   useEffect(() => {
     fetchUserProfile();
@@ -42,7 +47,6 @@ export default function Profile() {
           }
         }
       );
-      console.log('Response status:', response.status);
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -51,7 +55,6 @@ export default function Profile() {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const data = await response.json();
-        console.log('API Response:', data);
 
         if (data.success && data.user) {
           const userData = {
@@ -64,9 +67,7 @@ export default function Profile() {
           };
 
           setUser(userData);
-          console.log('✅ Profile data loaded:', userData);
         } else {
-          console.log('❌ API response unsuccessful:', data);
           const defaultUser = {
             name: 'User',
             email: 'user@example.com',
@@ -77,8 +78,6 @@ export default function Profile() {
           setUser(defaultUser);
         }
       } else {
-        const text = await response.text();
-        console.log('Non-JSON response:', text);
         throw new Error('Invalid response format');
       }
     } catch (error) {
@@ -111,154 +110,399 @@ export default function Profile() {
     }
   };
 
+  const handleLogout = () => {
+    setShowLogoutConfirm(true);
+  };
+
+  const confirmLogout = async () => {
+  setShowLogoutConfirm(false);
+  try {
+    await logout();
+    router.replace('/auth/login');
+  } catch (error) {
+    console.error('Logout error:', error);
+    router.replace('/auth/login');
+  }
+};
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading profile...</Text>
+          <Text style={[styles.loadingText, { color: colors.text }]}>Loading profile...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        {/* Avatar Section */}
-        <View style={styles.avatarSection}>
-          <View style={styles.avatarContainer}>
-            <Text style={styles.avatarText}>
-              {user?.name?.charAt(0)?.toUpperCase() || 'U'}
-            </Text>
-          </View>
-          <Text style={styles.userName}>{user?.name || 'User'}</Text>
-          <Text style={styles.userEmail}>{user?.email || 'user@example.com'}</Text>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+      
+      {/* Header */}
+      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Ionicons name="arrow-back" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.text }]}>Profile</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
+      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {/* Profile Information */}
-        <View style={styles.infoSection}>
-          <Text style={styles.sectionTitle}>Profile Information</Text>
+        <View style={[styles.infoSection, { backgroundColor: colors.cardBg }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Profile Information</Text>
 
           {/* Full Name */}
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Full Name</Text>
-            <Text style={styles.infoValue}>{user?.name || 'Not provided'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.text }]}>Full Name</Text>
+            <Text style={[styles.infoValue, { color: colors.textSecondary }]}>{user?.name || 'Not provided'}</Text>
           </View>
 
           {/* Username */}
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Username</Text>
-            <Text style={styles.infoValue}>{user?.username || 'Not provided'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.text }]}>Username</Text>
+            <Text style={[styles.infoValue, { color: colors.textSecondary }]}>{user?.username || 'Not provided'}</Text>
           </View>
 
           {/* Email */}
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Email</Text>
-            <Text style={styles.infoValue}>{user?.email || 'Not provided'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.text }]}>Email</Text>
+            <Text style={[styles.infoValue, { color: colors.textSecondary }]}>{user?.email || 'Not provided'}</Text>
           </View>
 
           {/* Phone */}
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Phone Number</Text>
-            <Text style={styles.infoValue}>{user?.phone || 'Not provided'}</Text>
+            <Text style={[styles.infoLabel, { color: colors.text }]}>Phone Number</Text>
+            <Text style={[styles.infoValue, { color: colors.textSecondary }]}>{user?.phone || 'Not provided'}</Text>
           </View>
 
           {/* Date Joined */}
           <View style={styles.infoItem}>
-            <Text style={styles.infoLabel}>Member Since</Text>
-            <Text style={styles.infoValue}>{formatDate(user?.dateJoined)}</Text>
+            <Text style={[styles.infoLabel, { color: colors.text }]}>Member Since</Text>
+            <Text style={[styles.infoValue, { color: colors.textSecondary }]}>{formatDate(user?.dateJoined)}</Text>
           </View>
         </View>
 
-        {/* Additional Options */}
-        <View style={styles.optionsSection}>
-          <Text style={styles.sectionTitle}>Account Options</Text>
+        {/* Account Options */}
+        <View style={[styles.optionsSection, { backgroundColor: colors.cardBg }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Account Options</Text>
 
-          <TouchableOpacity style={styles.optionItem} onPress={() => router.push('/change-password')}>
-            <Ionicons name="lock-closed-outline" size={20} color="#ff2b2b" />
-            <Text style={styles.optionText}>Change Password</Text>
-            <Ionicons name="chevron-forward-outline" size={16} color="#666" />
+          <TouchableOpacity 
+            style={[styles.optionItem, { borderBottomColor: colors.border }]} 
+            onPress={() => router.push('/change-password')}
+          >
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
+                <Ionicons name="lock-closed-outline" size={20} color="#ff2b2b" />
+              </View>
+              <Text style={[styles.optionText, { color: colors.text }]}>Change Password</Text>
+            </View>
+            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.optionItem} onPress={() => router.push('/privacy-settings')}>
-            <Ionicons name="shield-outline" size={20} color="#ff2b2b" />
-            <Text style={styles.optionText}>Privacy Settings</Text>
-            <Ionicons name="chevron-forward-outline" size={16} color="#666" />
+          <TouchableOpacity 
+            style={[styles.optionItem, { borderBottomColor: colors.border }]} 
+            onPress={() => router.push('/privacy-settings')}
+          >
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
+                <Ionicons name="shield-outline" size={20} color="#ff2b2b" />
+              </View>
+              <Text style={[styles.optionText, { color: colors.text }]}>Privacy Settings</Text>
+            </View>
+            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.optionItem} onPress={() => router.push('/notification-settings')}>
-            <Ionicons name="notifications-outline" size={20} color="#ff2b2b" />
-            <Text style={styles.optionText}>Notification Settings</Text>
-            <Ionicons name="chevron-forward-outline" size={16} color="#666" />
+          <TouchableOpacity 
+            style={[styles.optionItem, { borderBottomColor: colors.border }]} 
+            onPress={() => router.push('/notification-settings')}
+          >
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
+                <Ionicons name="notifications-outline" size={20} color="#ff2b2b" />
+              </View>
+              <Text style={[styles.optionText, { color: colors.text }]}>Notification Settings</Text>
+            </View>
+            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {/* Settings Option */}
+          <TouchableOpacity 
+            style={[styles.optionItem, { borderBottomColor: colors.border }]} 
+            onPress={() => router.push('/settings')}
+          >
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
+                <Ionicons name="settings-outline" size={20} color="#ff2b2b" />
+              </View>
+              <Text style={[styles.optionText, { color: colors.text }]}>Settings</Text>
+            </View>
+            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
+          </TouchableOpacity>
+
+          {/* Logout Option */}
+          <TouchableOpacity 
+            style={styles.optionItem} 
+            onPress={handleLogout}
+          >
+            <View style={styles.optionLeft}>
+              <View style={[styles.optionIconContainer, { backgroundColor: '#dc354510' }]}>
+                <Ionicons name="log-out-outline" size={20} color="#dc3545" />
+              </View>
+              <Text style={[styles.optionText, { color: '#dc3545' }]}>Logout</Text>
+            </View>
+            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Logout Confirmation Modal */}
+      <Modal
+        visible={showLogoutConfirm}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setShowLogoutConfirm(false)}
+      >
+        <View style={styles.confirmationOverlay}>
+          <View style={[styles.confirmationModal, { backgroundColor: colors.cardBg }]}>
+            <View style={styles.logoutIconContainer}>
+              <Ionicons name="log-out-outline" size={48} color="#dc3545" />
+            </View>
+            
+            <Text style={[styles.confirmationTitle, { color: colors.text }]}>Logout</Text>
+            <Text style={[styles.confirmationMessage, { color: colors.textSecondary }]}>
+              Are you sure you want to logout?
+            </Text>
+
+            <View style={styles.confirmationButtons}>
+              <TouchableOpacity 
+                style={[styles.cancelButton, { backgroundColor: isDark ? colors.border : '#f3f4f6' }]} 
+                onPress={() => setShowLogoutConfirm(false)}
+              >
+                <Text style={[styles.cancelButtonText, { color: colors.text }]}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.logoutConfirmButton} 
+                onPress={confirmLogout}
+              >
+                <Text style={styles.logoutConfirmButtonText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8f8f8' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { fontSize: 16, color: '#666' },
-  scrollView: { flex: 1 },
-  scrollContent: { paddingBottom: 30 },
+  container: { 
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === 'ios' ? 10 : StatusBar.currentHeight + 10,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+  },
+  backButton: {
+    padding: 5,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  loadingText: { 
+    fontSize: 16,
+  },
+  scrollView: { 
+    flex: 1 
+  },
+  scrollContent: { 
+    paddingBottom: 30 
+  },
   avatarSection: { 
     alignItems: 'center', 
-    backgroundColor: '#fff', 
     paddingVertical: 30, 
-    marginBottom: 20 
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   avatarContainer: { 
     width: 100, 
     height: 100, 
     borderRadius: 50, 
-    backgroundColor: '#f8f8f8', 
+    backgroundColor: '#fff5f5', 
     justifyContent: 'center', 
     alignItems: 'center', 
     borderWidth: 3, 
     borderColor: '#ff2b2b', 
-    marginBottom: 15 
+    marginBottom: 15,
+    shadowColor: '#ff2b2b',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  avatarText: { fontSize: 36, fontWeight: 'bold', color: '#ff2b2b' },
-  userName: { fontSize: 24, fontWeight: 'bold', color: '#333', marginBottom: 5 },
-  userEmail: { fontSize: 16, color: '#666' },
+  avatarText: { 
+    fontSize: 36, 
+    fontWeight: 'bold', 
+    color: '#ff2b2b' 
+  },
+  userName: { 
+    fontSize: 24, 
+    fontWeight: 'bold', 
+    marginBottom: 5 
+  },
+  userEmail: { 
+    fontSize: 16,
+  },
   infoSection: { 
-    backgroundColor: '#fff', 
     marginBottom: 20, 
+    marginHorizontal: 20,
     paddingHorizontal: 20, 
-    paddingVertical: 20 
+    paddingVertical: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   sectionTitle: { 
     fontSize: 18, 
     fontWeight: 'bold', 
-    color: '#333', 
     marginBottom: 20 
   },
-  infoItem: { marginBottom: 20 },
+  infoItem: { 
+    marginBottom: 20 
+  },
   infoLabel: { 
     fontSize: 14, 
     fontWeight: '600', 
-    color: '#333', 
     marginBottom: 8 
   },
-  infoValue: { fontSize: 16, color: '#666', lineHeight: 22 },
+  infoValue: { 
+    fontSize: 16, 
+    lineHeight: 22 
+  },
   optionsSection: { 
-    backgroundColor: '#fff', 
+    marginHorizontal: 20,
     paddingHorizontal: 20, 
-    paddingVertical: 20 
+    paddingVertical: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   optionItem: { 
     flexDirection: 'row', 
     alignItems: 'center', 
+    justifyContent: 'space-between',
     paddingVertical: 15, 
-    borderBottomWidth: 1, 
-    borderBottomColor: '#f0f0f0' 
+    borderBottomWidth: 1,
+  },
+  optionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  optionIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
   optionText: { 
     flex: 1, 
-    fontSize: 16, 
-    color: '#333', 
-    marginLeft: 15 
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  
+  // Logout Modal
+  confirmationOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  confirmationModal: {
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 350,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 10,
+    alignItems: 'center',
+  },
+  logoutIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#dc354510',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  confirmationTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  confirmationMessage: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  confirmationButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  logoutConfirmButton: {
+    flex: 1,
+    backgroundColor: '#dc3545',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  logoutConfirmButtonText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
   },
 });

@@ -9,5 +9,6 @@ export const API_CONFIG = {
   BASE_URL: BASE_URL,
   ADMIN_AUTH: `${BASE_URL}/api/admin/auth`,
   ADMIN: `${BASE_URL}/api/admin`,
-  // ... other endpoints
+  ADMIN_MANAGEMENT: `${BASE_URL}/api/admin/management`,
+  ADMIN_PROFILE: `${BASE_URL}/api/admin/profile`, // Add this
 };

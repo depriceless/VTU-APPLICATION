@@ -10,24 +10,24 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Image,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import axios from 'axios';
 import { AuthContext } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
-// NEW CODE - Add this:
 import Constants from 'expo-constants';
+import * as LocalAuthentication from 'expo-local-authentication';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL = Platform.OS === 'web' 
   ? Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL_WEB 
   : Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL;
 
-// Add this console log to verify the URL
-console.log('🔍 API URL being used:', API_BASE_URL);
-
 export default function LoginScreen() {
   const router = useRouter();
-  const { login, user } = useContext(AuthContext);
+  const { login } = useContext(AuthContext);
 
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
@@ -42,13 +42,240 @@ export default function LoginScreen() {
   const [passwordError, setPasswordError] = useState('');
   const [isEmailFocused, setIsEmailFocused] = useState(false);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  
+  // Biometric states
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [hasBiometricCredentials, setHasBiometricCredentials] = useState(false);
+  const [isBiometricLoading, setIsBiometricLoading] = useState(false);
 
   useEffect(() => {
-    console.log('Current user in context:', user);
+    // Auto-focus email input when screen loads
     setTimeout(() => {
       emailRef.current?.focus();
     }, 100);
-  }, [user]);
+    
+    // Check biometric support
+    checkBiometricSupport();
+  }, []);
+
+  // Check if biometric is available
+  const checkBiometricSupport = async () => {
+    try {
+      const compatible = await LocalAuthentication.hasHardwareAsync();
+      setIsBiometricSupported(compatible);
+      
+      if (compatible) {
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
+        if (enrolled) {
+          // Check if user has previously saved credentials
+          const savedCredentials = await AsyncStorage.getItem('biometric_credentials');
+          setHasBiometricCredentials(!!savedCredentials);
+        }
+      }
+    } catch (error) {
+      console.error('Biometric check error:', error);
+    }
+  };
+
+  // Save credentials for biometric login
+  const saveBiometricCredentials = async (emailOrPhone, password) => {
+    try {
+      const credentials = JSON.stringify({ emailOrPhone, password });
+      await AsyncStorage.setItem('biometric_credentials', credentials);
+      setHasBiometricCredentials(true);
+      Alert.alert('Success', 'Biometric login enabled!');
+    } catch (error) {
+      console.error('Error saving biometric credentials:', error);
+      Alert.alert('Error', 'Failed to enable biometric login.');
+    }
+  };
+// Biometric authentication
+const handleBiometricAuth = async () => {
+  if (!isBiometricSupported || isBiometricLoading || loading) {
+    return; // Prevent multiple clicks
+  }
+
+  setIsBiometricLoading(true);
+  
+  try {
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Authenticate to login to ConnectPay',
+      fallbackLabel: 'Use password',
+      disableDeviceFallback: false,
+    });
+
+    if (result.success) {
+      // Get saved credentials
+      const savedCredentials = await AsyncStorage.getItem('biometric_credentials');
+      if (savedCredentials) {
+        const { emailOrPhone, password } = JSON.parse(savedCredentials);
+        
+        // Use the credentials directly without waiting for state update
+        await handleLoginWithCredentials(emailOrPhone, password);
+      }
+    } else {
+      if (result.error !== 'user_cancel') {
+        Alert.alert('Authentication Failed', 'Please try again or use password.');
+      }
+    }
+  } catch (error) {
+    console.error('Biometric auth error:', error);
+    Alert.alert('Error', 'Biometric authentication failed.');
+  } finally {
+    setIsBiometricLoading(false);
+  }
+};
+
+// Separate login function for biometric that uses credentials directly
+const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue) => {
+  if (loading) {
+    return;
+  }
+
+  setErrorMessage('');
+  setSuccessMessage('');
+
+  const emailValidationError = validateEmailOrPhone(emailOrPhoneValue);
+  const passwordValidationError = validatePassword(passwordValue);
+
+  setEmailError(emailValidationError);
+  setPasswordError(passwordValidationError);
+
+  if (emailValidationError || passwordValidationError) {
+    return;
+  }
+
+  if (!emailOrPhoneValue.trim() || !passwordValue.trim()) {
+    setErrorMessage('Phone/Email and Password are required.');
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    console.log('🔄 Attempting biometric login...');
+
+    const response = await axios({
+      method: 'post',
+      url: `${API_BASE_URL}/api/auth/login`,
+      data: { 
+        emailOrPhone: emailOrPhoneValue.trim(), 
+        password: passwordValue.trim() 
+      },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      timeout: 15000,
+      validateStatus: function (status) {
+        return status < 500;
+      }
+    });
+
+    console.log('✅ Biometric login response received');
+
+    // Handle successful response
+    if (response.status === 200 || response.status === 201) {
+      if (response.data.token) {
+        console.log('✅ Biometric login successful');
+        await login(response.data.token);
+        
+        // Update UI state
+        setEmailOrPhone(emailOrPhoneValue);
+        setPassword(passwordValue);
+        
+        // Ask to enable biometric login if not already enabled
+        if (!hasBiometricCredentials) {
+          setTimeout(() => {
+            enableBiometricLogin();
+          }, 1000);
+        }
+        
+        setSuccessMessage('Login successful! Redirecting...');
+        setTimeout(() => {
+          router.replace('/dashboard');
+        }, 1000);
+      } else if (response.data.success && response.data.data?.token) {
+        console.log('✅ Biometric login successful');
+        await login(response.data.data.token);
+        
+        // Update UI state
+        setEmailOrPhone(emailOrPhoneValue);
+        setPassword(passwordValue);
+        
+        // Ask to enable biometric login if not already enabled
+        if (!hasBiometricCredentials) {
+          setTimeout(() => {
+            enableBiometricLogin();
+          }, 1000);
+        }
+        
+        setSuccessMessage('Login successful! Redirecting...');
+        setTimeout(() => {
+          router.replace('/dashboard');
+        }, 1000);
+      } else {
+        console.log('❌ No token in response');
+        setErrorMessage('Login failed. No authentication token received.');
+      }
+    } else if (response.status === 401) {
+      setErrorMessage('Invalid email/phone or password.');
+    } else if (response.status === 400) {
+      setErrorMessage(response.data.message || 'Invalid login credentials.');
+    } else {
+      setErrorMessage(response.data.message || 'Login failed. Please try again.');
+    }
+
+  } catch (error) {
+    console.error('❌ Biometric login error:', error.message);
+
+    // Better error handling
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      setErrorMessage('Request timed out. Please check your internet connection and try again.');
+    } else if (error.response) {
+      const status = error.response.status;
+      const data = error.response.data;
+      
+      if (status === 401 || status === 400) {
+        setErrorMessage(data.message || 'Invalid email/phone or password.');
+      } else if (status === 422) {
+        setErrorMessage(data.message || 'Invalid input data provided.');
+      } else if (status === 429) {
+        setErrorMessage('Too many login attempts. Please try again later.');
+      } else if (status >= 500) {
+        setErrorMessage('Server error. Please try again later.');
+      } else {
+        setErrorMessage(data.message || 'Login failed. Please try again.');
+      }
+    } else if (error.request) {
+      console.error('❌ No response received from server');
+      setErrorMessage('Cannot reach the server. Please check your internet connection.');
+    } else {
+      console.error('❌ Request setup error:', error.message);
+      setErrorMessage('An unexpected error occurred. Please try again.');
+    }
+  } finally {
+    setLoading(false);
+  }
+};
+
+  // Enable biometric login after successful login
+  const enableBiometricLogin = () => {
+    Alert.alert(
+      'Enable Biometric Login?',
+      'Do you want to enable fingerprint/face ID for faster login?',
+      [
+        {
+          text: 'Not Now',
+          style: 'cancel',
+        },
+        {
+          text: 'Enable',
+          onPress: () => saveBiometricCredentials(emailOrPhone, password),
+        },
+      ]
+    );
+  };
 
   const validateEmailOrPhone = (value) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -106,6 +333,11 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
+    // Prevent multiple submissions
+    if (loading) {
+      return;
+    }
+
     setErrorMessage('');
     setSuccessMessage('');
 
@@ -127,10 +359,8 @@ export default function LoginScreen() {
     setLoading(true);
 
     try {
-      console.log('Attempting login with URL:', `${API_BASE_URL}/api/auth/login`);
-      console.log('Login data:', { emailOrPhone: emailOrPhone.trim() });
+      console.log('🔄 Attempting login...');
 
-      // Enhanced axios configuration with better error handling
       const response = await axios({
         method: 'post',
         url: `${API_BASE_URL}/api/auth/login`,
@@ -142,34 +372,48 @@ export default function LoginScreen() {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
-        timeout: 15000, // Increased timeout
+        timeout: 15000,
         validateStatus: function (status) {
-          return status < 500; // Resolve only if status is less than 500
+          return status < 500;
         }
       });
 
-      console.log('Login response status:', response.status);
-      console.log('Login response data:', response.data);
+      console.log('✅ Login response received');
 
       // Handle successful response
       if (response.status === 200 || response.status === 201) {
         if (response.data.token) {
-          console.log('Login successful, token received');
+          console.log('✅ Login successful');
           await login(response.data.token);
+          
+          // Ask to enable biometric login if not already enabled
+          if (!hasBiometricCredentials) {
+            setTimeout(() => {
+              enableBiometricLogin();
+            }, 1000);
+          }
+          
           setSuccessMessage('Login successful! Redirecting...');
           setTimeout(() => {
             router.replace('/dashboard');
           }, 1000);
         } else if (response.data.success && response.data.data?.token) {
-          // Alternative token structure
-          console.log('Login successful, token in data object');
+          console.log('✅ Login successful');
           await login(response.data.data.token);
+          
+          // Ask to enable biometric login if not already enabled
+          if (!hasBiometricCredentials) {
+            setTimeout(() => {
+              enableBiometricLogin();
+            }, 1000);
+          }
+          
           setSuccessMessage('Login successful! Redirecting...');
           setTimeout(() => {
             router.replace('/dashboard');
           }, 1000);
         } else {
-          console.log('No token in response:', response.data);
+          console.log('❌ No token in response');
           setErrorMessage('Login failed. No authentication token received.');
         }
       } else if (response.status === 401) {
@@ -181,22 +425,12 @@ export default function LoginScreen() {
       }
 
     } catch (error) {
-      console.error('Login error details:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-        config: {
-          url: error.config?.url,
-          method: error.config?.method,
-          timeout: error.config?.timeout
-        }
-      });
+      console.error('❌ Login error:', error.message);
 
       // Better error handling
       if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
         setErrorMessage('Request timed out. Please check your internet connection and try again.');
       } else if (error.response) {
-        // Server responded with error status
         const status = error.response.status;
         const data = error.response.data;
         
@@ -212,12 +446,10 @@ export default function LoginScreen() {
           setErrorMessage(data.message || 'Login failed. Please try again.');
         }
       } else if (error.request) {
-        // Request made but no response
-        console.error('No response received:', error.request);
+        console.error('❌ No response received from server');
         setErrorMessage('Cannot reach the server. Please check your internet connection.');
       } else {
-        // Something else happened
-        console.error('Request setup error:', error.message);
+        console.error('❌ Request setup error:', error.message);
         setErrorMessage('An unexpected error occurred. Please try again.');
       }
     } finally {
@@ -242,6 +474,15 @@ export default function LoginScreen() {
         >
           {/* Header Section */}
           <View style={styles.headerSection}>
+            {/* Logo */}
+            <View style={styles.logoContainer}>
+              <Image 
+                source={require('../../assets/images/logo.png')}
+                style={styles.logoImage}
+                resizeMode="contain"
+              />
+            </View>
+            
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Sign in to your account</Text>
           </View>
@@ -365,6 +606,28 @@ export default function LoginScreen() {
               )}
             </TouchableOpacity>
 
+            {/* Biometric Login */}
+            {isBiometricSupported && hasBiometricCredentials && (
+              <View style={styles.biometricSection}>
+                <TouchableOpacity
+                  style={[styles.biometricButton, (isBiometricLoading || loading) && styles.biometricButtonDisabled]}
+                  onPress={handleBiometricAuth}
+                  disabled={isBiometricLoading || loading}
+                >
+                  {isBiometricLoading ? (
+                    <ActivityIndicator color="#ff2b2b" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons name="finger-print" size={20} color="#ff2b2b" />
+                      <Text style={styles.biometricText}>
+                        {isBiometricLoading ? 'Authenticating...' : 'Login with Biometric'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Signup section */}
             <View style={styles.signupContainer}>
               <Text style={styles.signupText}>Don't have an account?</Text>
@@ -400,14 +663,21 @@ const styles = StyleSheet.create({
   // Header Section
   headerSection: {
     alignItems: 'center',
-    marginTop: 110,
-    marginBottom: 30,
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  logoContainer: {
+    marginBottom: -65,
+  },
+  logoImage: {
+    width: 200,
+    height: 200,
   },
   title: { 
-    fontSize: 32, 
+    fontSize: 28,
     fontWeight: 'bold', 
     color: '#ff2b2b', 
-    marginBottom: 8,
+    marginBottom: 17,
     letterSpacing: -0.5,
   },
   subtitle: { 
@@ -418,31 +688,12 @@ const styles = StyleSheet.create({
 
   // Form Section
   formSection: {
-    marginBottom: 170,
-  },
-  messageContainer: {
-    marginBottom: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 8,
-    backgroundColor: '#f1f5f9',
-  },
-  errorText: {
-    color: '#dc2626',
-    fontSize: 14,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-  successText: {
-    color: '#16a34a',
-    fontSize: 14,
-    textAlign: 'center',
-    fontWeight: '500',
+    marginBottom: 50,
   },
 
   // Input Groups
   inputGroup: {
-    marginBottom: 30,
+    marginBottom: 40,
   },
   inputLabel: {
     fontSize: 14,
@@ -506,6 +757,38 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
+  // Message Styles
+  messageContainer: {
+    marginBottom: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    color: '#dc2626',
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
+    backgroundColor: '#fef2f2',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    width: '100%',
+  },
+  successText: {
+    color: '#16a34a',
+    fontSize: 14,
+    textAlign: 'center',
+    fontWeight: '500',
+    backgroundColor: '#f0fdf4',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    width: '100%',
+  },
+
   // Forgot Password
   forgotPasswordContainer: {
     alignItems: 'flex-end',
@@ -530,7 +813,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18, 
     borderRadius: 12, 
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     shadowColor: '#ff2b2b',
     shadowOffset: {
       width: 0,
@@ -557,6 +840,31 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginLeft: 12,
+  },
+
+  // Biometric Section
+  biometricSection: {
+    marginBottom: 16,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#ff2b2b',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  biometricButtonDisabled: {
+    opacity: 0.6,
+  },
+  biometricText: {
+    color: '#ff2b2b',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
   },
 
   // Footer Section
