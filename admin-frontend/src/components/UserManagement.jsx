@@ -11,7 +11,6 @@ const UserManagement = () => {
   const [userDetailsLoading, setUserDetailsLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [token, setToken] = useState('');
-  // New state variables for credit/debit modals
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [showDebitModal, setShowDebitModal] = useState(false);
   const [transactionForm, setTransactionForm] = useState({
@@ -59,83 +58,47 @@ const UserManagement = () => {
   }, []);
 
   useEffect(() => {
-  const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-  console.log('🔍 Debug - Token from localStorage:', authToken ? 'EXISTS' : 'MISSING');
-  
-  if (authToken) {
-    console.log('🔍 Setting token in state');
-    setToken(authToken);
-  } else {
-    console.log('No token found, redirecting to login');
-    window.location.href = '/';
-  }
-}, []);
-
-
-// Debug token state changes
-useEffect(() => {
-  console.log('🔍 Debug - Token state changed:', token ? 'SET' : 'NOT SET');
-  console.log('🔍 Debug - Current token:', token);
-}, [token]);
-
-// ADD THIS NEW USEEFFECT RIGHT HERE:
-useEffect(() => {
-  if (token) {
-    console.log('🔍 Token is available, fetching initial data');
-    fetchStats();
-  }
-}, [token]);
-  // API Functions
-
-const fetchStats = async () => {
-  console.log('📊 fetchStats called, token:', token ? 'EXISTS' : 'MISSING');
-  
-  if (!token) {
-    console.log('❌ No token, returning early');
-    return;
-  }
-  
-  try {
-    console.log('🚀 Making API request to:', `${API_BASE_URL}/api/users/management/stats`);
-    
-    const response = await fetch(`${API_BASE_URL}/api/users/management/stats`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
-    
-    console.log('📡 Response status:', response.status);
-    console.log('📡 Response ok:', response.ok);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log('❌ Response error:', errorText);
-      throw new Error('Failed to fetch stats');
+    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    if (authToken) {
+      setToken(authToken);
+    } else {
+      window.location.href = '/';
     }
-    
-    const data = await response.json();
-    console.log('📊 Raw API response:', data);
-    console.log('📊 Raw API response:', data);
-console.log('📊 Full response structure:', JSON.stringify(data, null, 2));
-console.log('📊 Stats data:', data.stats);
-    console.log('📊 Stats data:', data.stats);
-   // Try to handle both possible response formats
-setStats(data.overview);
-    console.log('✅ Stats updated successfully');
-  } catch (error) {
-    console.error('❌ Error fetching stats:', error);
-    // Set default stats on error
-    setStats({
-      totalUsers: 0,
-      activeUsers: 0,
-      suspendedUsers: 0,
-      unverifiedUsers: 0
-    });
-  }
-};
+  }, []);
 
-  // Fetch individual user details
-   const fetchUserDetails = async (userId) => {
+  useEffect(() => {
+    if (token) {
+      fetchStats();
+    }
+  }, [token]);
+
+  // API Functions
+  const fetchStats = async () => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/users/management/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch stats');
+      
+      const data = await response.json();
+      setStats(data.overview);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      setStats({
+        totalUsers: 0,
+        activeUsers: 0,
+        suspendedUsers: 0,
+        unverifiedUsers: 0
+      });
+    }
+  };
+
+  const fetchUserDetails = async (userId) => {
     try {
       setUserDetailsLoading(true);
       const response = await fetch(`${API_BASE_URL}/api/users/management/${userId}`, {
@@ -157,64 +120,59 @@ setStats(data.overview);
     }
   };
 
-  // Update user status
   const updateUserStatus = async (userId, action, reason = '') => {
-  if (!token) {
-    alert('Please login again');
-    return null;
-  }
-  
-  try {
-    setActionLoading(true);
-    const response = await fetch(`${API_BASE_URL}/api/users/management/${userId}/status`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-      },
-      body: JSON.stringify({ action, reason })
-    });
-
-    if (!response.ok) throw new Error('Failed to update user status');
-
-    const data = await response.json();
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
     
-    // Refresh data
-    await Promise.all([fetchUsers(), fetchStats()]);
-    
-    alert(`User ${action}d successfully`);
-    return data;
-  } catch (error) {
-    console.error('Error updating user status:', error);
-    alert(`Failed to ${action} user`);
-    return null;
-  } finally {
-    setActionLoading(false);
-  }
-};
+    try {
+      setActionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/users/management/${userId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ action, reason })
+      });
 
-  // Credit User Function
- const creditUser = async (userId, amount, reason, reference = '') => {
-  if (!token) {
-    alert('Please login again');
-    return null;
-  }
-  
-  try {
-    setActionLoading(true);
-    const response = await fetch(`${API_BASE_URL}/api/admin/transactions/fund-user`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`  // ADD THIS LINE
-      },
-      body: JSON.stringify({
-        userId,
-        amount: parseFloat(amount),
-        reason,
-        reference
-      })
-    });
+      if (!response.ok) throw new Error('Failed to update user status');
+
+      const data = await response.json();
+      await Promise.all([fetchUsers(), fetchStats()]);
+      alert(`User ${action}d successfully`);
+      return data;
+    } catch (error) {
+      console.error('Error updating user status:', error);
+      alert(`Failed to ${action} user`);
+      return null;
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const creditUser = async (userId, amount, reason, reference = '') => {
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
+    
+    try {
+      setActionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/transactions/fund-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId,
+          amount: parseFloat(amount),
+          reason,
+          reference
+        })
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -222,14 +180,11 @@ setStats(data.overview);
       }
 
       const data = await response.json();
-      
-      // Refresh user details and stats
       const updatedUser = await fetchUserDetails(userId);
       if (updatedUser) {
         setSelectedUser(updatedUser);
       }
       await Promise.all([fetchUsers(), fetchStats()]);
-      
       alert(`Successfully credited ₦${parseFloat(amount).toLocaleString()} to user`);
       return data;
     } catch (error) {
@@ -241,28 +196,27 @@ setStats(data.overview);
     }
   };
 
-  // Debit User Function
   const debitUser = async (userId, amount, reason, reference = '') => {
-  if (!token) {
-    alert('Please login again');
-    return null;
-  }
-  
-  try {
-    setActionLoading(true);
-    const response = await fetch(`${API_BASE_URL}/api/admin/transactions/debit-user`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`  // ADD THIS LINE
-      },
-      body: JSON.stringify({
-        userId,
-        amount: parseFloat(amount),
-        reason,
-        reference
-      })
-    });
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
+    
+    try {
+      setActionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/transactions/debit-user`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId,
+          amount: parseFloat(amount),
+          reason,
+          reference
+        })
+      });
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -270,14 +224,11 @@ setStats(data.overview);
       }
 
       const data = await response.json();
-      
-      // Refresh user details and stats
       const updatedUser = await fetchUserDetails(userId);
       if (updatedUser) {
         setSelectedUser(updatedUser);
       }
       await Promise.all([fetchUsers(), fetchStats()]);
-      
       alert(`Successfully debited ₦${parseFloat(amount).toLocaleString()} from user`);
       return data;
     } catch (error) {
@@ -289,46 +240,41 @@ setStats(data.overview);
     }
   };
 
-  // Bulk operations
- const performBulkAction = async (action, reason = '') => {
-  if (!token) {
-    alert('Please login again');
-    return;
-  }
-  
-  if (selectedUsers.length === 0) {
-    alert('Please select users first');
-    return;
-  }
+  const performBulkAction = async (action, reason = '') => {
+    if (!token) {
+      alert('Please login again');
+      return;
+    }
+    
+    if (selectedUsers.length === 0) {
+      alert('Please select users first');
+      return;
+    }
+    
     const confirmMessage = `Are you sure you want to ${action} ${selectedUsers.length} user(s)?`;
     if (!window.confirm(confirmMessage)) return;
 
-     try {
-    setActionLoading(true);
-    const response = await fetch(`${API_BASE_URL}/api/users/management/bulk`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`  // ADD THIS LINE
-      },
-      body: JSON.stringify({ 
-        userIds: selectedUsers, 
-        action, 
-        reason 
-      })
-    });
+    try {
+      setActionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/users/management/bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ 
+          userIds: selectedUsers, 
+          action, 
+          reason 
+        })
+      });
 
       if (!response.ok) throw new Error('Failed to perform bulk action');
 
       const data = await response.json();
-      
-      // Clear selections
       setSelectedUsers([]);
       setShowBulkActions(false);
-      
-      // Refresh data
       await Promise.all([fetchUsers(), fetchStats()]);
-      
       alert(`Bulk ${action} completed. ${data.results.successCount} successful, ${data.results.errorCount} failed.`);
     } catch (error) {
       console.error('Error performing bulk action:', error);
@@ -338,50 +284,42 @@ setStats(data.overview);
     }
   };
 
-
-const fetchUsers = async () => {
-  if (!token) {
-    console.log('fetchUsers called but no token available');
-    return;
-  }
-  
-  try {
-    setLoading(true);
-    const queryParams = new URLSearchParams(filters);
-    const response = await fetch(`${API_BASE_URL}/api/users/management/list?${queryParams}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
+  const fetchUsers = async () => {
+    if (!token) return;
     
-    if (!response.ok) throw new Error('Failed to fetch users');
-    
-    const data = await response.json();
-    setUsers(data.users);
-    setPagination(data.pagination);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    alert('Failed to fetch users');
-  } finally {
-    setLoading(false);
-  }
-};
+    try {
+      setLoading(true);
+      const queryParams = new URLSearchParams(filters);
+      const response = await fetch(`${API_BASE_URL}/api/users/management/list?${queryParams}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch users');
+      
+      const data = await response.json();
+      setUsers(data.users);
+      setPagination(data.pagination);
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      alert('Failed to fetch users');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Load data on component mount and filter changes
-useEffect(() => {
-  if (token) {
-    fetchUsers();
-  }
-}, [filters, token]);
+  useEffect(() => {
+    if (token) {
+      fetchUsers();
+    }
+  }, [filters, token]);
 
-
-
-  // Handle filter changes
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({
       ...prev,
       [key]: value,
-      page: 1 // Reset to first page when filters change
+      page: 1
     }));
   };
 
@@ -393,7 +331,6 @@ useEffect(() => {
     );
   };
 
-  // Handle View Details click
   const handleViewDetails = async (user) => {
     const userDetails = await fetchUserDetails(user._id);
     if (userDetails) {
@@ -410,21 +347,18 @@ useEffect(() => {
     }
   };
 
-  // Handle Credit Action - FIXED
   const handleCreditAction = () => {
     setTransactionForm({ amount: '', reason: '', reference: '' });
     setShowCreditModal(true);
-    setShowUserModal(false); // Close user modal when opening credit modal
+    setShowUserModal(false);
   };
 
-  // Handle Debit Action - FIXED
   const handleDebitAction = () => {
     setTransactionForm({ amount: '', reason: '', reference: '' });
     setShowDebitModal(true);
-    setShowUserModal(false); // Close user modal when opening debit modal
+    setShowUserModal(false);
   };
 
-  // Handle Credit Form Submission - FIXED
   const handleCreditSubmit = async () => {
     if (!transactionForm.amount || !transactionForm.reason) {
       alert('Please fill in all required fields');
@@ -443,10 +377,9 @@ useEffect(() => {
       transactionForm.reference
     );
     setShowCreditModal(false);
-    setShowUserModal(true); // Reopen user modal after transaction
+    setShowUserModal(true);
   };
 
-  // Handle Debit Form Submission - FIXED
   const handleDebitSubmit = async () => {
     if (!transactionForm.amount || !transactionForm.reason) {
       alert('Please fill in all required fields');
@@ -470,10 +403,9 @@ useEffect(() => {
       transactionForm.reference
     );
     setShowDebitModal(false);
-    setShowUserModal(true); // Reopen user modal after transaction
+    setShowUserModal(true);
   };
 
-  // Status colors and badges
   const getStatusBadge = (status) => {
     const statusConfig = {
       active: { bg: '#28a745', text: 'Active' },
@@ -524,7 +456,6 @@ useEffect(() => {
     );
   };
 
-  // Format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-NG', {
       style: 'currency',
@@ -533,7 +464,6 @@ useEffect(() => {
     }).format(amount);
   };
 
-  // Pagination component
   const PaginationControls = () => (
     <div style={{
       display: 'flex',
@@ -586,7 +516,7 @@ useEffect(() => {
           disabled={!pagination.hasNextPage}
           style={{
             padding: '8px 12px',
-            border: '1px solid ',
+            border: '1px solid #e2e8f0',
             borderRadius: '6px',
             backgroundColor: pagination.hasNextPage ? '#fff' : '#f8f9fa',
             color: pagination.hasNextPage ? '#1a202c' : '#a0aec0',
@@ -600,7 +530,6 @@ useEffect(() => {
     </div>
   );
 
-  // User Modal Component with Credit/Debit buttons
   const UserModal = () => {
     if (!showUserModal || !selectedUser) return null;
 
@@ -620,15 +549,16 @@ useEffect(() => {
       }}>
         <div style={{
           backgroundColor: '#fff',
-          borderRadius: '16px',
+          borderRadius: '12px',
           maxWidth: '600px',
           width: '100%',
           maxHeight: '80vh',
-          overflow: 'auto'
+          overflow: 'auto',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
         }}>
-          {/* Modal Header */}
           <div style={{
-            padding: '24px',
+            padding: isMobile ? '16px' : '20px',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             justifyContent: 'space-between',
@@ -651,15 +581,14 @@ useEffect(() => {
             </button>
           </div>
 
-          {/* Modal Content */}
-          <div style={{ padding: '24px' }}>
+          <div style={{ padding: isMobile ? '16px' : '20px' }}>
             {userDetailsLoading ? (
               <div style={{ textAlign: 'center', padding: '40px' }}>
                 <div style={{
                   display: 'inline-block',
                   width: '30px',
                   height: '30px',
-                  border: '3px solid ',
+                  border: '3px solid #e2e8f0',
                   borderTop: '3px solid #ff3b30',
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite'
@@ -668,19 +597,18 @@ useEffect(() => {
               </div>
             ) : (
               <>
-                {/* User Info */}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '16px',
                   marginBottom: '24px',
-                  padding: '20px',
-                  backgroundColor: '#f8f9fa',
-                  borderRadius: '12px'
+                  padding: '16px',
+                  backgroundColor: '#f7fafc',
+                  borderRadius: '8px'
                 }}>
                   <div style={{
-                    width: '60px',
-                    height: '60px',
+                    width: '50px',
+                    height: '50px',
                     backgroundColor: '#ff3b30',
                     borderRadius: '50%',
                     display: 'flex',
@@ -688,12 +616,12 @@ useEffect(() => {
                     justifyContent: 'center',
                     color: '#fff',
                     fontWeight: '600',
-                    fontSize: '24px'
+                    fontSize: '20px'
                   }}>
                     {selectedUser.name?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                   <div>
-                    <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '18px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '16px' }}>
                       {selectedUser.displayName || selectedUser.name}
                     </h4>
                     <p style={{ margin: '0 0 4px 0', color: '#718096', fontSize: '14px' }}>
@@ -706,11 +634,10 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* Action Buttons with Credit/Debit */}
                 <div style={{
                   display: 'flex',
-                  gap: '12px',
-                  marginBottom: '24px',
+                  gap: '10px',
+                  marginBottom: '20px',
                   flexWrap: 'wrap'
                 }}>
                   {selectedUser.status === 'suspended' ? (
@@ -796,7 +723,6 @@ useEffect(() => {
                     {actionLoading ? 'Processing...' : 'Delete'}
                   </button>
 
-                  {/* Credit Button - FIXED */}
                   <button
                     onClick={handleCreditAction}
                     disabled={actionLoading}
@@ -815,7 +741,6 @@ useEffect(() => {
                     {actionLoading ? 'Processing...' : 'Credit'}
                   </button>
 
-                  {/* Debit Button - FIXED */}
                   <button
                     onClick={handleDebitAction}
                     disabled={actionLoading || selectedUser.walletBalance <= 0}
@@ -835,7 +760,6 @@ useEffect(() => {
                   </button>
                 </div>
 
-                {/* User Details Grid */}
                 <div style={{
                   display: 'grid',
                   gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
@@ -845,7 +769,7 @@ useEffect(() => {
                     <h5 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
                       Wallet Balance
                     </h5>
-                    <p style={{ margin: '0 0 16px 0', color: '#718096', fontSize: '16px', fontWeight: '600' }}>
+                    <p style={{ margin: '0 0 16px 0', color: '#ff3b30', fontSize: '16px', fontWeight: '600' }}>
                       {formatCurrency(selectedUser.walletBalance)}
                     </p>
                   </div>
@@ -878,9 +802,8 @@ useEffect(() => {
                   </div>
                 </div>
 
-                {/* Recent Transactions */}
                 {selectedUser.recentTransactions && selectedUser.recentTransactions.length > 0 && (
-                  <div style={{ marginTop: '24px' }}>
+                  <div style={{ marginTop: '20px' }}>
                     <h5 style={{ margin: '0 0 12px 0', color: '#1a202c', fontSize: '16px', fontWeight: '600' }}>
                       Recent Transactions
                     </h5>
@@ -927,7 +850,6 @@ useEffect(() => {
     );
   };
 
-  // Bulk Actions Dropdown
   const BulkActionsDropdown = () => {
     if (!showBulkActions || selectedUsers.length === 0) return null;
 
@@ -939,7 +861,7 @@ useEffect(() => {
         backgroundColor: '#fff',
         border: '1px solid #e2e8f0',
         borderRadius: '8px',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
         zIndex: 100,
         minWidth: '150px',
         marginTop: '4px'
@@ -1003,7 +925,6 @@ useEffect(() => {
     );
   };
 
-  // Credit Modal Component - IMPROVED
   const CreditModal = () => {
     if (!showCreditModal || !selectedUser) return null;
 
@@ -1023,17 +944,17 @@ useEffect(() => {
       }}>
         <div style={{
           backgroundColor: '#fff',
-          borderRadius: '16px',
+          borderRadius: '12px',
           maxWidth: '400px',
           width: '100%',
           overflow: 'hidden',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
         }}>
-          {/* Header */}
           <div style={{
-            padding: '24px',
+            padding: '20px',
             borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f8f9fa'
+            backgroundColor: '#f7fafc'
           }}>
             <div style={{
               display: 'flex',
@@ -1046,16 +967,14 @@ useEffect(() => {
               <button
                 onClick={() => {
                   setShowCreditModal(false);
-                  setShowUserModal(true); // Reopen user modal when closing credit modal
+                  setShowUserModal(true);
                 }}
                 style={{
                   background: 'none',
                   border: 'none',
                   fontSize: '24px',
                   cursor: 'pointer',
-                  color: '#718096',
-                  padding: '0',
-                  lineHeight: 1
+                  color: '#718096'
                 }}
               >
                 ×
@@ -1066,9 +985,8 @@ useEffect(() => {
             </p>
           </div>
 
-          {/* Form */}
-          <div style={{ padding: '24px' }}>
-            <div style={{ marginBottom: '20px' }}>
+          <div style={{ padding: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1085,20 +1003,18 @@ useEffect(() => {
                 onChange={(e) => setTransactionForm(prev => ({ ...prev, amount: e.target.value }))}
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
-                  boxSizing: 'border-box',
-                  outline: 'none'
+                  boxSizing: 'border-box'
                 }}
                 min="0"
                 step="0.01"
-                autoFocus // Auto-focus on amount field
               />
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1108,28 +1024,24 @@ useEffect(() => {
               }}>
                 Reason
               </label>
-            <textarea
-  placeholder="Enter reason for crediting"
-  value={transactionForm.reason}
-  onChange={(e) => setTransactionForm(prev => ({ ...prev, reason: e.target.value }))}
-  style={{
-    width: '100%',
-    padding: '12px 16px',
-    border: '2px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '14px',
-    boxSizing: 'border-box',
-    outline: 'none',
-    resize: 'vertical',
-    minHeight: '80px',
-    cursor: 'text',
-    lineHeight: '1.4',
-    fontFamily: 'inherit'
-  }}
-/>
- </div>
+              <textarea
+                placeholder="Enter reason for crediting"
+                value={transactionForm.reason}
+                onChange={(e) => setTransactionForm(prev => ({ ...prev, reason: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                  resize: 'vertical',
+                  minHeight: '80px'
+                }}
+              />
+            </div>
 
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '20px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1146,17 +1058,15 @@ useEffect(() => {
                 onChange={(e) => setTransactionForm(prev => ({ ...prev, reference: e.target.value }))}
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
-                  boxSizing: 'border-box',
-                  outline: 'none'
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
 
-            {/* Buttons */}
             <div style={{
               display: 'flex',
               gap: '12px',
@@ -1165,19 +1075,18 @@ useEffect(() => {
               <button
                 onClick={() => {
                   setShowCreditModal(false);
-                  setShowUserModal(true); // Reopen user modal when canceling
+                  setShowUserModal(true);
                 }}
                 disabled={actionLoading}
                 style={{
-                  padding: '10px 20px',
+                  padding: '10px 16px',
                   border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   backgroundColor: '#fff',
                   color: '#718096',
                   fontSize: '14px',
                   fontWeight: '600',
-                  cursor: actionLoading ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading ? 0.7 : 1
+                  cursor: actionLoading ? 'not-allowed' : 'pointer'
                 }}
               >
                 Cancel
@@ -1186,7 +1095,7 @@ useEffect(() => {
                 onClick={handleCreditSubmit}
                 disabled={actionLoading || !transactionForm.amount || !transactionForm.reason}
                 style={{
-                  padding: '10px 20px',
+                  padding: '10px 16px',
                   border: 'none',
                   borderRadius: '8px',
                   backgroundColor: '#007bff',
@@ -1206,7 +1115,6 @@ useEffect(() => {
     );
   };
 
-  // Debit Modal Component - IMPROVED
   const DebitModal = () => {
     if (!showDebitModal || !selectedUser) return null;
 
@@ -1226,17 +1134,17 @@ useEffect(() => {
       }}>
         <div style={{
           backgroundColor: '#fff',
-          borderRadius: '16px',
+          borderRadius: '12px',
           maxWidth: '400px',
           width: '100%',
           overflow: 'hidden',
-          boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)'
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
         }}>
-          {/* Header */}
           <div style={{
-            padding: '24px',
+            padding: '20px',
             borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f8f9fa'
+            backgroundColor: '#f7fafc'
           }}>
             <div style={{
               display: 'flex',
@@ -1249,16 +1157,14 @@ useEffect(() => {
               <button
                 onClick={() => {
                   setShowDebitModal(false);
-                  setShowUserModal(true); // Reopen user modal when closing debit modal
+                  setShowUserModal(true);
                 }}
                 style={{
                   background: 'none',
                   border: 'none',
                   fontSize: '24px',
                   cursor: 'pointer',
-                  color: '#718096',
-                  padding: '0',
-                  lineHeight: 1
+                  color: '#718096'
                 }}
               >
                 ×
@@ -1272,9 +1178,8 @@ useEffect(() => {
             </p>
           </div>
 
-          {/* Form */}
-          <div style={{ padding: '24px' }}>
-            <div style={{ marginBottom: '20px' }}>
+          <div style={{ padding: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1291,21 +1196,19 @@ useEffect(() => {
                 onChange={(e) => setTransactionForm(prev => ({ ...prev, amount: e.target.value }))}
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
-                  boxSizing: 'border-box',
-                  outline: 'none'
+                  boxSizing: 'border-box'
                 }}
                 min="0"
                 max={selectedUser.walletBalance}
                 step="0.01"
-                autoFocus // Auto-focus on amount field
               />
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1321,19 +1224,18 @@ useEffect(() => {
                 onChange={(e) => setTransactionForm(prev => ({ ...prev, reason: e.target.value }))}
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
                   boxSizing: 'border-box',
-                  outline: 'none',
                   resize: 'vertical',
                   minHeight: '80px'
                 }}
               />
             </div>
 
-            <div style={{ marginBottom: '24px' }}>
+            <div style={{ marginBottom: '20px' }}>
               <label style={{
                 display: 'block',
                 marginBottom: '8px',
@@ -1350,17 +1252,15 @@ useEffect(() => {
                 onChange={(e) => setTransactionForm(prev => ({ ...prev, reference: e.target.value }))}
                 style={{
                   width: '100%',
-                  padding: '12px 16px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
-                  boxSizing: 'border-box',
-                  outline: 'none'
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
 
-            {/* Buttons */}
             <div style={{
               display: 'flex',
               gap: '12px',
@@ -1369,19 +1269,18 @@ useEffect(() => {
               <button
                 onClick={() => {
                   setShowDebitModal(false);
-                  setShowUserModal(true); // Reopen user modal when canceling
+                  setShowUserModal(true);
                 }}
                 disabled={actionLoading}
                 style={{
-                  padding: '10px 20px',
+                  padding: '10px 16px',
                   border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   backgroundColor: '#fff',
                   color: '#718096',
                   fontSize: '14px',
                   fontWeight: '600',
-                  cursor: actionLoading ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading ? 0.7 : 1
+                  cursor: actionLoading ? 'not-allowed' : 'pointer'
                 }}
               >
                 Cancel
@@ -1390,7 +1289,7 @@ useEffect(() => {
                 onClick={handleDebitSubmit}
                 disabled={actionLoading || !transactionForm.amount || !transactionForm.reason || parseFloat(transactionForm.amount) > selectedUser.walletBalance}
                 style={{
-                  padding: '10px 20px',
+                  padding: '10px 16px',
                   border: 'none',
                   borderRadius: '8px',
                   backgroundColor: '#dc3545',
@@ -1413,10 +1312,7 @@ useEffect(() => {
   return (
     <div style={{
       width: '100%',
-      maxWidth: '100%',
-      backgroundColor: '#f8f9fa',
-      minHeight: '100vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      maxWidth: '100%'
     }}>
       <style>{`
         @keyframes spin {
@@ -1427,46 +1323,47 @@ useEffect(() => {
       
       {/* Header Stats Cards */}
       <div style={{
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: isMobile ? '16px' : '24px',
-        marginBottom: '32px'
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: isMobile ? '10px' : '12px',
+        marginBottom: isMobile ? '20px' : '24px',
+        width: '100%'
       }}>
-       {[
-  { label: 'Total Users', value: stats?.totalUsers || 0, color: '#ff3b30', icon: '👥' },
-  { label: 'Active Users', value: stats?.activeUsers || 0, color: '#28a745', icon: '✅' },
-  { label: 'Suspended', value: stats?.suspendedUsers || 0, color: '#ff3b30', icon: '🚫' },
-  { label: 'Unverified', value: stats?.unverifiedUsers || 0, color: '#ff8c00', icon: '⏳' }
-].map((stat, index) => (
+        {[
+          { label: 'Total Users', value: stats?.totalUsers || 0, color: '#ff3b30', icon: '👥' },
+          { label: 'Active Users', value: stats?.activeUsers || 0, color: '#ff3b30', icon: '✅' },
+          { label: 'Suspended', value: stats?.suspendedUsers || 0, color: '#ff3b30', icon: '🚫' },
+          { label: 'Unverified', value: stats?.unverifiedUsers || 0, color: '#ff3b30', icon: '⏳' }
+        ].map((stat, index) => (
           <div key={index} style={{
             backgroundColor: '#fff',
-            padding: isMobile ? '20px' : '24px',
-            borderRadius: '16px',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+            padding: isMobile ? '12px' : '16px',
+            borderRadius: '8px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
             border: '1px solid #e2e8f0',
-            flex: '1',
-            minWidth: isMobile ? '140px' : '200px'
+            opacity: 1,
+            transition: 'opacity 0.3s ease'
           }}>
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              marginBottom: '12px'
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              marginBottom: '8px'
             }}>
-              <span style={{ fontSize: '24px' }}>{stat.icon}</span>
+              <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
               <h3 style={{
-                color: '#1a202c',
-                fontSize: '14px',
-                fontWeight: '600',
+                color: '#1a202c', 
+                fontSize: isMobile ? '12px' : '14px', 
+                fontWeight: '600', 
                 margin: 0
               }}>
                 {stat.label}
               </h3>
             </div>
             <p style={{
-              color: stat.color,
-              fontSize: isMobile ? '20px' : '24px',
-              fontWeight: '700',
+              color: stat.color, 
+              fontSize: isMobile ? '16px' : '18px', 
+              fontWeight: '700', 
               margin: 0
             }}>
               {stat.value.toLocaleString()}
@@ -1478,16 +1375,16 @@ useEffect(() => {
       {/* Main Content Card */}
       <div style={{
         backgroundColor: '#fff',
-        borderRadius: '16px',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
         border: '1px solid #e2e8f0',
         overflow: 'hidden'
       }}>
         {/* Filters and Search Header */}
         <div style={{
-          padding: isMobile ? '20px' : '24px',
+          padding: isMobile ? '16px' : '20px',
           borderBottom: '1px solid #e2e8f0',
-          backgroundColor: '#f8f9fa'
+          backgroundColor: '#f7fafc'
         }}>
           <div style={{
             display: 'flex',
@@ -1495,11 +1392,11 @@ useEffect(() => {
             gap: '16px',
             alignItems: isMobile ? 'stretch' : 'center',
             justifyContent: 'space-between',
-            marginBottom: '20px'
+            marginBottom: '16px'
           }}>
             <h2 style={{
               color: '#1a202c',
-              fontSize: isMobile ? '20px' : '24px',
+              fontSize: isMobile ? '18px' : '20px',
               fontWeight: '700',
               margin: 0
             }}>
@@ -1550,7 +1447,7 @@ useEffect(() => {
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            gap: '16px',
+            gap: '12px',
             alignItems: 'stretch'
           }}>
             {/* Search */}
@@ -1562,12 +1459,13 @@ useEffect(() => {
                 onChange={(e) => handleFilterChange('search', e.target.value)}
                 style={{
                   width: '100%',
-                  padding: '12px 16px 12px 40px',
-                  border: '2px solid #e2e8f0',
+                  padding: '10px 12px 10px 36px',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
                   backgroundColor: '#fff',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  color: '#000000'
                 }}
               />
               <span style={{
@@ -1576,7 +1474,7 @@ useEffect(() => {
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#718096',
-                fontSize: '16px'
+                fontSize: '14px'
               }}>
                 🔍
               </span>
@@ -1587,8 +1485,8 @@ useEffect(() => {
               value={filters.status}
               onChange={(e) => handleFilterChange('status', e.target.value)}
               style={{
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
                 backgroundColor: '#fff',
@@ -1607,8 +1505,8 @@ useEffect(() => {
               value={filters.kycLevel}
               onChange={(e) => handleFilterChange('kycLevel', e.target.value)}
               style={{
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
                 backgroundColor: '#fff',
@@ -1627,8 +1525,8 @@ useEffect(() => {
               value={filters.accountType}
               onChange={(e) => handleFilterChange('accountType', e.target.value)}
               style={{
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
                 backgroundColor: '#fff',
@@ -1646,7 +1544,6 @@ useEffect(() => {
         {/* Users Table */}
         <div style={{ overflowX: 'auto' }}>
           {loading ? (
-            // Loading skeleton
             <div style={{ padding: '40px', textAlign: 'center' }}>
               <div style={{
                 display: 'inline-block',
@@ -1660,7 +1557,6 @@ useEffect(() => {
               <p style={{ marginTop: '16px', color: '#718096' }}>Loading users...</p>
             </div>
           ) : users.length === 0 ? (
-            // Empty state
             <div style={{
               padding: '60px 20px',
               textAlign: 'center',
@@ -1671,7 +1567,6 @@ useEffect(() => {
               <p>Try adjusting your search or filter criteria</p>
             </div>
           ) : (
-            // Users table
             <table style={{
               width: '100%',
               borderCollapse: 'collapse',
@@ -1810,7 +1705,7 @@ useEffect(() => {
                     <td style={{ padding: '16px' }}>
                       <div style={{
                         fontWeight: '600',
-                        color: '#1a202c',
+                        color: '#ff3b30',
                         fontSize: '14px'
                       }}>
                         {formatCurrency(user.walletBalance)}
@@ -1864,19 +1759,15 @@ useEffect(() => {
 
         {/* Pagination */}
         {!loading && users.length > 0 && (
-          <div style={{ padding: '20px 24px', borderTop: '1px solid #e2e8f0' }}>
+          <div style={{ padding: '16px 20px', borderTop: '1px solid #e2e8f0' }}>
             <PaginationControls />
           </div>
         )}
       </div>
 
-      {/* User Modal */}
+      {/* Modals */}
       <UserModal />
-
-      {/* Credit Modal */}
       <CreditModal />
-
-      {/* Debit Modal */}
       <DebitModal />
     </div>
   );

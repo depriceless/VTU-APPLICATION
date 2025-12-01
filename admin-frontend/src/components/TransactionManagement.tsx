@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
-// TypeScript interfaces
+// TypeScript interfaces (keep your existing interfaces)
 interface Transaction {
   _id: string;
   userId: string;
@@ -37,7 +37,6 @@ interface Transaction {
   processedAt: string;
   completedAt?: string;
   failedAt?: string;
-  // Additional fields from backend
   userInfo?: {
     id: string;
     name: string;
@@ -78,21 +77,10 @@ interface ApiResponse {
   filters?: TransactionFilters;
 }
 
-interface User {
-  _id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  username?: string;
-}
+// API configuration
+const API_BASE_URL = 'https://vtu-application.onrender.com';
 
-interface UserSearchResponse {
-  success: boolean;
-  users: User[];
-  message?: string;
-}
-
-// Transaction Details Modal Component
+// Transaction Details Modal Component (keep your existing modal)
 const TransactionDetailsModal: React.FC<{
   transaction: Transaction;
   isOpen: boolean;
@@ -533,88 +521,87 @@ const TransactionDetailsModal: React.FC<{
   );
 };
 
-// API configuration
-const API_BASE_URL = 'https://vtu-application.onrender.com';
-
 // Main TransactionManagement Component
 const TransactionManagement: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<string>('all');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [filters, setFilters] = useState<TransactionFilters>({});
+  const [loading, setLoading] = useState<boolean>(true);
+  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
+  const [showModal, setShowModal] = useState<boolean>(false);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [actionLoading, setActionLoading] = useState<boolean>(false);
+  const [showBulkActions, setShowBulkActions] = useState<boolean>(false);
+
+  // Filters state
+  const [filters, setFilters] = useState<TransactionFilters>({
+    search: '',
+    status: '',
+    type: '',
+    category: '',
+    dateFrom: '',
+    dateTo: ''
+  });
+
   const [pagination, setPagination] = useState<PaginationInfo>({
     page: 1,
-    limit: 20,
+    limit: 25,
     total: 0,
-    pages: 0
+    pages: 0,
+    hasNext: false,
+    hasPrev: false
   });
-  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
-  const [showFilters, setShowFilters] = useState<boolean>(false);
-  const [bulkLoading, setBulkLoading] = useState<boolean>(false);
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [showModal, setShowModal] = useState<boolean>(false);
 
-  // Tab configurations
-  const tabs = [
-    {
-      id: 'all',
-      label: 'All Transactions',
-      icon: '💳',
-      filters: {}
-    },
-    {
-      id: 'pending',
-      label: 'Pending',
-      icon: '⏳',
-      filters: { status: 'pending' },
-      color: '#ff8c00'
-    },
-    {
-      id: 'failed',
-      label: 'Failed',
-      icon: '❌',
-      filters: { status: 'failed' },
-      color: '#ff3b30'
-    },
-    {
-      id: 'disputes',
-      label: 'Disputes',
-      icon: '⚠️',
-      filters: { category: 'dispute' },
-      color: '#ff6b35'
-    },
-    {
-      id: 'refunds',
-      label: 'Refunds',
-      icon: '💰',
-      filters: { category: 'refund' },
-      color: '#28a745'
-    },
-    {
-      id: 'funding',
-      label: 'Funding',
-      icon: '📥',
-      filters: { category: 'funding' },
-      color: '#007bff'
-    }
-  ];
+  // Check mobile screen and sidebar state
+  useEffect(() => {
+    const checkMobile = () => {
+      const width = window.innerWidth;
+      setIsMobile(width < 768);
+      
+      // Check if sidebar is collapsed by looking for common sidebar classes or attributes
+      const sidebar = document.querySelector('[data-sidebar]');
+      const isSidebarCollapsed = sidebar?.classList.contains('collapsed') || 
+                                sidebar?.getAttribute('data-collapsed') === 'true' ||
+                                width < 1024; // Assume sidebar is collapsed on smaller screens
+      
+      // Adjust table responsiveness based on sidebar state
+      if (isSidebarCollapsed) {
+        document.documentElement.style.setProperty('--table-min-width', '800px');
+      } else {
+        document.documentElement.style.setProperty('--table-min-width', '1000px');
+      }
+    };
 
-  // Get auth token (prioritize localStorage, fallback to sessionStorage)
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    // Also check when sidebar might be toggled (you might need to adjust this based on your sidebar implementation)
+    const observer = new MutationObserver(checkMobile);
+    observer.observe(document.body, { 
+      attributes: true, 
+      attributeFilter: ['class'],
+      subtree: true 
+    });
+
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+      observer.disconnect();
+    };
+  }, []);
+
+  // Get auth token
   const getAuthToken = () => {
     return localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
   };
 
-  // Fetch transactions from API
+  // Fetch transactions
   const fetchTransactions = useCallback(async (page: number = 1) => {
     setLoading(true);
     try {
-      const activeTabConfig = tabs.find(tab => tab.id === activeTab);
       const queryParams = new URLSearchParams({
         page: page.toString(),
         limit: pagination.limit.toString(),
         sortBy: 'createdAt',
         sortOrder: 'desc',
-        ...activeTabConfig?.filters,
         ...filters
       });
 
@@ -625,8 +612,6 @@ const TransactionManagement: React.FC = () => {
           queryParams.delete(key);
         }
       });
-
-      console.log('Fetching transactions with params:', queryParams.toString());
 
       const token = getAuthToken();
       if (!token) {
@@ -652,155 +637,51 @@ const TransactionManagement: React.FC = () => {
       if (data.success) {
         setTransactions(data.transactions);
         setPagination(data.pagination);
-        console.log(`✅ Fetched ${data.transactions.length} transactions`);
       } else {
         throw new Error(data.message || 'Failed to fetch transactions');
       }
     } catch (error) {
       console.error('Error fetching transactions:', error);
       setTransactions([]);
-      setPagination({ page: 1, limit: 20, total: 0, pages: 0 });
-      
-      // Show user-friendly error message
+      setPagination({ page: 1, limit: 25, total: 0, pages: 0 });
       alert(`Error fetching transactions: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setLoading(false);
     }
-  }, [activeTab, filters, pagination.limit]);
+  }, [filters, pagination.limit]);
 
-  // Bulk export selected transactions
-  const handleBulkExport = async () => {
-    if (selectedTransactions.length === 0) {
-      alert('Please select transactions to export');
-      return;
+  // Load data on mount and when dependencies change
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token) {
+      fetchTransactions(1);
     }
+  }, [filters]);
 
-    setBulkLoading(true);
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/export`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          transactionIds: selectedTransactions,
-          format: 'csv'
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Export failed: ${response.status}`);
-      }
-
-      // Handle CSV download
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `transactions_export_${new Date().toISOString().split('T')[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-
-      console.log(`✅ Exported ${selectedTransactions.length} transactions`);
-      alert('Transactions exported successfully!');
-    } catch (error) {
-      console.error('Export error:', error);
-      alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setBulkLoading(false);
-    }
+  // Handle filter changes
+  const handleFilterChange = (key: keyof TransactionFilters, value: string | number | undefined) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: value,
+    }));
+    setPagination(prev => ({ ...prev, page: 1 }));
   };
 
-  // Bulk status update
-  const handleBulkStatusUpdate = async (newStatus: string) => {
-    if (selectedTransactions.length === 0) {
-      alert('Please select transactions to update');
-      return;
-    }
-
-    const reason = prompt(`Enter reason for changing status to ${newStatus}:`);
-    if (!reason) return;
-
-    setBulkLoading(true);
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          transactionIds: selectedTransactions,
-          status: newStatus,
-          reason
-        })
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        alert(data.message);
-        setSelectedTransactions([]);
-        fetchTransactions(pagination.page);
-      } else {
-        throw new Error(data.message);
-      }
-    } catch (error) {
-      console.error('Bulk update error:', error);
-      alert(`Status update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setBulkLoading(false);
-    }
-  };
-
-  // Bulk delete transactions
-  const handleBulkDelete = async () => {
-    if (selectedTransactions.length === 0) {
-      alert('Please select transactions to delete');
-      return;
-    }
-
-    const confirmed = confirm(
-      `Are you sure you want to delete ${selectedTransactions.length} selected transaction(s)? This action cannot be undone.`
+  // Handle transaction selection
+  const handleTransactionSelect = (transactionId: string) => {
+    setSelectedTransactions(prev => 
+      prev.includes(transactionId)
+        ? prev.filter(id => id !== transactionId)
+        : [...prev, transactionId]
     );
-    if (!confirmed) return;
+  };
 
-    const reason = prompt('Enter reason for deletion (optional):');
-    
-    setBulkLoading(true);
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/delete`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          transactionIds: selectedTransactions,
-          reason
-        })
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        alert(`Successfully deleted ${selectedTransactions.length} transaction(s)`);
-        setSelectedTransactions([]);
-        fetchTransactions(pagination.page);
-      } else {
-        throw new Error(data.message || 'Failed to delete transactions');
-      }
-    } catch (error) {
-      console.error('Bulk delete error:', error);
-      alert(`Delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
-      setBulkLoading(false);
+  // Select all transactions
+  const handleSelectAll = () => {
+    if (selectedTransactions.length === transactions.length) {
+      setSelectedTransactions([]);
+    } else {
+      setSelectedTransactions(transactions.map(t => t._id));
     }
   };
 
@@ -816,63 +697,6 @@ const TransactionManagement: React.FC = () => {
     setSelectedTransaction(null);
   };
 
-  // Handle retry transaction
-  const handleRetryTransaction = async (transactionId: string) => {
-    const confirmed = confirm('Are you sure you want to retry this transaction?');
-    if (!confirmed) return;
-
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/admin/transactions/${transactionId}/retry`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        alert('Transaction retry initiated successfully');
-        fetchTransactions(pagination.page);
-      } else {
-        alert(`Error: ${data.message}`);
-      }
-    } catch (error) {
-      console.error('Retry error:', error);
-      alert('Failed to retry transaction. Please try again.');
-    }
-  };
-
-  // Handle cancel transaction
-  const handleCancelTransaction = async (transactionId: string) => {
-    const reason = prompt('Enter cancellation reason:');
-    if (!reason) return;
-
-    try {
-      const token = getAuthToken();
-      const response = await fetch(`${API_BASE_URL}/api/admin/transactions/${transactionId}/cancel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ reason })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        alert('Transaction cancelled successfully');
-        fetchTransactions(pagination.page);
-      } else {
-        alert(`Error: ${data.message}`);
-      }
-    } catch (error) {
-      console.error('Cancel error:', error);
-      alert('Failed to cancel transaction. Please try again.');
-    }
-  };
-
   // Handle delete individual transaction
   const handleDeleteTransaction = async (transactionId: string) => {
     const confirmed = confirm('Are you sure you want to delete this transaction? This action cannot be undone.');
@@ -881,6 +705,7 @@ const TransactionManagement: React.FC = () => {
     const reason = prompt('Enter reason for deletion (optional):');
 
     try {
+      setActionLoading(true);
       const token = getAuthToken();
       const response = await fetch(`${API_BASE_URL}/api/admin/transactions/${transactionId}`, {
         method: 'DELETE',
@@ -901,31 +726,145 @@ const TransactionManagement: React.FC = () => {
     } catch (error) {
       console.error('Delete error:', error);
       alert('Failed to delete transaction. Please try again.');
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  // Load transactions on mount and when dependencies change
-  useEffect(() => {
-    fetchTransactions(1);
-  }, [activeTab, filters]);
+  // Bulk export selected transactions
+  const handleBulkExport = async () => {
+    if (selectedTransactions.length === 0) {
+      alert('Please select transactions to export');
+      return;
+    }
 
-  // Handle tab change
-  const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId);
-    setSelectedTransactions([]);
-    setPagination(prev => ({ ...prev, page: 1 }));
+    setActionLoading(true);
+    try {
+      const token = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/export`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          transactionIds: selectedTransactions,
+          format: 'csv'
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `transactions_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert('Transactions exported successfully!');
+    } catch (error) {
+      console.error('Export error:', error);
+      alert(`Export failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  // Handle filter changes
-  const handleFilterChange = (newFilters: Partial<TransactionFilters>) => {
-    setFilters(prev => ({ ...prev, ...newFilters }));
-    setPagination(prev => ({ ...prev, page: 1 }));
+  // Bulk status update
+  const handleBulkStatusUpdate = async (newStatus: string) => {
+    if (selectedTransactions.length === 0) {
+      alert('Please select transactions to update');
+      return;
+    }
+
+    const reason = prompt(`Enter reason for changing status to ${newStatus}:`);
+    if (!reason) return;
+
+    setActionLoading(true);
+    try {
+      const token = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          transactionIds: selectedTransactions,
+          status: newStatus,
+          reason
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        alert(data.message);
+        setSelectedTransactions([]);
+        setShowBulkActions(false);
+        fetchTransactions(pagination.page);
+      } else {
+        throw new Error(data.message);
+      }
+    } catch (error) {
+      console.error('Bulk update error:', error);
+      alert(`Status update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  // Handle pagination
-  const handlePageChange = (page: number) => {
-    setPagination(prev => ({ ...prev, page }));
-    fetchTransactions(page);
+  // Bulk delete transactions
+  const handleBulkDelete = async () => {
+    if (selectedTransactions.length === 0) {
+      alert('Please select transactions to delete');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Are you sure you want to delete ${selectedTransactions.length} selected transaction(s)? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    const reason = prompt('Enter reason for deletion (optional):');
+    
+    setActionLoading(true);
+    try {
+      const token = getAuthToken();
+      const response = await fetch(`${API_BASE_URL}/api/admin/bulk/transactions/delete`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          transactionIds: selectedTransactions,
+          reason
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        alert(`Successfully deleted ${selectedTransactions.length} transaction(s)`);
+        setSelectedTransactions([]);
+        setShowBulkActions(false);
+        fetchTransactions(pagination.page);
+      } else {
+        throw new Error(data.message || 'Failed to delete transactions');
+      }
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      alert(`Delete failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   // Format currency
@@ -970,26 +909,781 @@ const TransactionManagement: React.FC = () => {
     return colors[type as keyof typeof colors] || '#6c757d';
   };
 
-  // Handle transaction selection
-  const handleTransactionSelect = (transactionId: string) => {
-    setSelectedTransactions(prev => 
-      prev.includes(transactionId)
-        ? prev.filter(id => id !== transactionId)
-        : [...prev, transactionId]
+  // Get status badge component
+  const getStatusBadge = (status: string) => {
+    const statusConfig = {
+      pending: { bg: '#ff8c00', text: 'Pending' },
+      completed: { bg: '#28a745', text: 'Completed' },
+      failed: { bg: '#ff3b30', text: 'Failed' },
+      cancelled: { bg: '#6c757d', text: 'Cancelled' }
+    };
+
+    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.pending;
+
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: '#fff',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: '600',
+        textTransform: 'uppercase'
+      }}>
+        {config.text}
+      </span>
     );
   };
 
-  // Select all transactions
-  const handleSelectAll = () => {
-    if (selectedTransactions.length === transactions.length) {
-      setSelectedTransactions([]);
-    } else {
-      setSelectedTransactions(transactions.map(t => t._id));
-    }
+  // Get type badge component
+  const getTypeBadge = (type: string) => {
+    const typeConfig = {
+      credit: { bg: '#28a745', text: 'Credit' },
+      debit: { bg: '#ff3b30', text: 'Debit' },
+      transfer_in: { bg: '#007bff', text: 'Transfer In' },
+      transfer_out: { bg: '#6f42c1', text: 'Transfer Out' }
+    };
+
+    const config = typeConfig[type as keyof typeof typeConfig] || typeConfig.credit;
+
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: '#fff',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: '600',
+        textTransform: 'uppercase'
+      }}>
+        {config.text}
+      </span>
+    );
   };
 
+  // Bulk Actions Dropdown
+  const BulkActionsDropdown = () => {
+    if (!showBulkActions || selectedTransactions.length === 0) return null;
+
+    return (
+      <div style={{
+        position: 'absolute',
+        right: 0,
+        top: '100%',
+        backgroundColor: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        zIndex: 100,
+        minWidth: '150px',
+        marginTop: '4px'
+      }}>
+        <button
+          onClick={handleBulkExport}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            borderBottom: '1px solid #f1f5f9',
+            color: '#000000'
+          }}
+        >
+          Export Selected
+        </button>
+        <button
+          onClick={() => handleBulkStatusUpdate('completed')}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            borderBottom: '1px solid #f1f5f9',
+            color: '#000000'
+          }}
+        >
+          Mark Completed
+        </button>
+        <button
+          onClick={() => handleBulkStatusUpdate('failed')}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            borderBottom: '1px solid #f1f5f9',
+            color: '#000000'
+          }}
+        >
+          Mark Failed
+        </button>
+        <button
+          onClick={handleBulkDelete}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            color: '#ff3b30'
+          }}
+        >
+          Delete Selected
+        </button>
+      </div>
+    );
+  };
+
+  // Pagination Controls
+  const PaginationControls = () => (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: '20px',
+      flexWrap: 'wrap',
+      gap: '16px'
+    }}>
+      <div style={{
+        fontSize: '14px',
+        color: '#718096'
+      }}>
+        Showing {((pagination.page - 1) * pagination.limit) + 1} to{' '}
+        {Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
+        {pagination.total} transactions
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <button
+          onClick={() => fetchTransactions(pagination.page - 1)}
+          disabled={!pagination.hasPrev}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            backgroundColor: pagination.hasPrev ? '#fff' : '#f8f9fa',
+            color: pagination.hasPrev ? '#000000' : '#a0aec0',
+            cursor: pagination.hasPrev ? 'pointer' : 'not-allowed',
+            fontSize: '14px'
+          }}
+        >
+          Previous
+        </button>
+
+        <span style={{
+          padding: '8px 12px',
+          fontSize: '14px',
+          color: '#000000'
+        }}>
+          Page {pagination.page} of {pagination.pages}
+        </span>
+
+        <button
+          onClick={() => fetchTransactions(pagination.page + 1)}
+          disabled={!pagination.hasNext}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            backgroundColor: pagination.hasNext ? '#fff' : '#f8f9fa',
+            color: pagination.hasNext ? '#000000' : '#a0aec0',
+            cursor: pagination.hasNext ? 'pointer' : 'not-allowed',
+            fontSize: '14px'
+          }}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+
   return (
-    <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{
+      width: '100%',
+      maxWidth: '100%',
+      overflow: 'hidden'
+    }}>
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        :root {
+          --table-min-width: 1000px;
+        }
+        
+        .responsive-table {
+          min-width: var(--table-min-width);
+        }
+        
+        @media (max-width: 1200px) {
+          .responsive-table {
+            min-width: 900px;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .responsive-table {
+            min-width: 800px;
+          }
+        }
+      `}</style>
+
+      {/* Main Content Card */}
+      <div style={{
+        backgroundColor: '#fff',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0',
+        overflow: 'hidden',
+        width: '100%'
+      }}>
+        {/* Filters and Search Header */}
+        <div style={{
+          padding: isMobile ? '16px' : '20px',
+          borderBottom: '1px solid #e2e8f0',
+          backgroundColor: '#f7fafc',
+          width: '100%',
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: '16px',
+            alignItems: isMobile ? 'stretch' : 'center',
+            justifyContent: 'space-between',
+            marginBottom: '16px',
+            width: '100%'
+          }}>
+            <h2 style={{
+              color: '#1a202c',
+              fontSize: isMobile ? '18px' : '20px',
+              fontWeight: '700',
+              margin: 0,
+              whiteSpace: 'nowrap'
+            }}>
+              Transaction Management
+            </h2>
+
+            {selectedTransactions.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '8px 16px',
+                backgroundColor: '#fff5f5',
+                borderRadius: '8px',
+                border: '1px solid #fed7d7',
+                position: 'relative',
+                flexShrink: 0
+              }}>
+                <span style={{
+                  fontSize: '14px',
+                  color: '#ff3b30',
+                  fontWeight: '600',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {selectedTransactions.length} transaction{selectedTransactions.length > 1 ? 's' : ''} selected
+                </span>
+                <button
+                  onClick={() => setShowBulkActions(!showBulkActions)}
+                  disabled={actionLoading}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#ff3b30',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: actionLoading ? 'not-allowed' : 'pointer',
+                    opacity: actionLoading ? 0.7 : 1,
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {actionLoading ? 'Processing...' : 'Actions'}
+                </button>
+                <BulkActionsDropdown />
+              </div>
+            )}
+          </div>
+
+          {/* Search and Filters */}
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: '12px',
+            alignItems: 'stretch',
+            flexWrap: 'wrap'
+          }}>
+            {/* Search */}
+            <div style={{ 
+              flex: isMobile ? '1' : '2', 
+              position: 'relative',
+              minWidth: isMobile ? '100%' : '200px'
+            }}>
+              <input
+                type="text"
+                placeholder="Search by reference, description, user..."
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px 10px 36px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  boxSizing: 'border-box',
+                  color: '#000000'
+                }}
+              />
+              <span style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#718096',
+                fontSize: '14px'
+              }}>
+                🔍
+              </span>
+            </div>
+
+            {/* Status Filter */}
+            <select
+              value={filters.status}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '120px',
+                color: '#000000',
+                flex: '1'
+              }}
+            >
+              <option value="">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="completed">Completed</option>
+              <option value="failed">Failed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+
+            {/* Type Filter */}
+            <select
+              value={filters.type}
+              onChange={(e) => handleFilterChange('type', e.target.value)}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '120px',
+                color: '#000000',
+                flex: '1'
+              }}
+            >
+              <option value="">All Types</option>
+              <option value="credit">Credit</option>
+              <option value="debit">Debit</option>
+              <option value="transfer_in">Transfer In</option>
+              <option value="transfer_out">Transfer Out</option>
+            </select>
+
+            {/* Category Filter */}
+            <select
+              value={filters.category}
+              onChange={(e) => handleFilterChange('category', e.target.value)}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '120px',
+                color: '#000000',
+                flex: '1'
+              }}
+            >
+              <option value="">All Categories</option>
+              <option value="funding">Funding</option>
+              <option value="withdrawal">Withdrawal</option>
+              <option value="transfer">Transfer</option>
+              <option value="payment">Payment</option>
+              <option value="refund">Refund</option>
+              <option value="betting">Betting</option>
+            </select>
+          </div>
+
+          {/* Date Filters */}
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: '12px',
+            marginTop: '12px',
+            flexWrap: 'wrap'
+          }}>
+            <input
+              type="date"
+              placeholder="Date From"
+              value={filters.dateFrom}
+              onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '140px',
+                color: '#000000',
+                flex: '1'
+              }}
+            />
+            <input
+              type="date"
+              placeholder="Date To"
+              value={filters.dateTo}
+              onChange={(e) => handleFilterChange('dateTo', e.target.value)}
+              style={{
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '140px',
+                color: '#000000',
+                flex: '1'
+              }}
+            />
+            <button
+              onClick={() => {
+                setFilters({
+                  search: '',
+                  status: '',
+                  type: '',
+                  category: '',
+                  dateFrom: '',
+                  dateTo: ''
+                });
+              }}
+              style={{
+                padding: '10px 16px',
+                backgroundColor: '#f7fafc',
+                color: '#718096',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                flex: '1',
+                minWidth: '120px'
+              }}
+            >
+              Clear Filters
+            </button>
+          </div>
+        </div>
+
+        {/* Transactions Table */}
+        <div style={{ 
+          overflowX: 'auto',
+          width: '100%'
+        }}>
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+              <div style={{
+                display: 'inline-block',
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #ff3b30',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }} />
+              <p style={{ marginTop: '16px', color: '#718096' }}>Loading transactions...</p>
+            </div>
+          ) : transactions.length === 0 ? (
+            <div style={{
+              padding: '60px 20px',
+              textAlign: 'center',
+              color: '#718096'
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>💳</div>
+              <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No transactions found</h3>
+              <p>Try adjusting your search or filter criteria</p>
+            </div>
+          ) : (
+            <table className="responsive-table" style={{
+              width: '100%',
+              borderCollapse: 'collapse'
+            }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    borderBottom: '1px solid #e2e8f0',
+                    width: '50px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.length === transactions.length && transactions.length > 0}
+                      onChange={handleSelectAll}
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '150px'
+                  }}>Reference</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '150px'
+                  }}>User</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '100px'
+                  }}>Type</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '120px'
+                  }}>Amount</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '100px'
+                  }}>Status</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '120px'
+                  }}>Category</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '150px'
+                  }}>Date</th>
+                  <th style={{
+                    padding: '16px',
+                    textAlign: 'right',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    minWidth: '180px'
+                  }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((transaction) => (
+                  <tr
+                    key={transaction._id}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      backgroundColor: selectedTransactions.includes(transaction._id) ? '#fff5f5' : '#fff'
+                    }}
+                  >
+                    <td style={{ padding: '16px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTransactions.includes(transaction._id)}
+                        onChange={() => handleTransactionSelect(transaction._id)}
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div>
+                        <div style={{
+                          fontWeight: '600',
+                          color: '#1a202c',
+                          fontSize: '14px'
+                        }}>
+                          {transaction.reference}
+                        </div>
+                        <div style={{
+                          color: '#718096',
+                          fontSize: '12px'
+                        }}>
+                          {transaction.description}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div>
+                        <div style={{
+                          fontWeight: '600',
+                          color: '#1a202c',
+                          fontSize: '14px'
+                        }}>
+                          {transaction.userInfo?.name || 'Unknown User'}
+                        </div>
+                        <div style={{
+                          color: '#718096',
+                          fontSize: '12px'
+                        }}>
+                          {transaction.userInfo?.email || 'N/A'}
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      {getTypeBadge(transaction.type)}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{
+                        fontWeight: '600',
+                        color: transaction.type.includes('debit') ? '#ff3b30' : '#28a745',
+                        fontSize: '14px'
+                      }}>
+                        {transaction.type.includes('debit') ? '-' : '+'}{formatCurrency(transaction.amount)}
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      {getStatusBadge(transaction.status)}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{
+                        color: '#1a202c',
+                        fontSize: '14px',
+                        textTransform: 'capitalize'
+                      }}>
+                        {transaction.category}
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{
+                        color: '#1a202c',
+                        fontSize: '14px'
+                      }}>
+                        {formatDate(transaction.createdAt)}
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px', textAlign: 'right' }}>
+                      <div style={{ 
+                        display: 'flex', 
+                        gap: '8px', 
+                        justifyContent: 'flex-end',
+                        flexWrap: 'nowrap'
+                      }}>
+                        <button
+                          onClick={() => handleViewDetails(transaction)}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#ff3b30',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            cursor: 'pointer',
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          View
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTransaction(transaction._id)}
+                          disabled={actionLoading}
+                          style={{
+                            padding: '6px 12px',
+                            backgroundColor: '#dc2626',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            cursor: actionLoading ? 'not-allowed' : 'pointer',
+                            opacity: actionLoading ? 0.7 : 1,
+                            whiteSpace: 'nowrap'
+                          }}
+                        >
+                          {actionLoading ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Pagination */}
+        {!loading && transactions.length > 0 && (
+          <div style={{ 
+            padding: '16px 20px', 
+            borderTop: '1px solid #e2e8f0',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            <PaginationControls />
+          </div>
+        )}
+      </div>
+
       {/* Transaction Details Modal */}
       {selectedTransaction && (
         <TransactionDetailsModal
@@ -1002,585 +1696,6 @@ const TransactionManagement: React.FC = () => {
           getTypeColor={getTypeColor}
         />
       )}
-
-      {/* Header */}
-      <div style={{
-        backgroundColor: '#fff',
-        padding: '20px 24px',
-        borderBottom: '1px solid #e2e8f0',
-        marginBottom: '0'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-          <div>
-            <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#1a202c', margin: '0 0 4px 0' }}>
-              Transaction Management
-            </h2>
-            <p style={{ color: '#718096', margin: 0, fontSize: '14px' }}>
-              Monitor and manage all system transactions
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: showFilters ? '#ff3b30' : '#f7fafc',
-                color: showFilters ? '#fff' : '#718096',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-            >
-              Filters
-            </button>
-            <button
-              onClick={() => fetchTransactions(pagination.page)}
-              disabled={loading}
-              style={{
-                padding: '8px 16px',
-                backgroundColor: '#ff3b30',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: loading ? 'not-allowed' : 'pointer',
-                fontSize: '14px',
-                opacity: loading ? 0.6 : 1
-              }}
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div style={{
-          display: 'flex',
-          gap: '8px',
-          overflowX: 'auto',
-          paddingBottom: '4px'
-        }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => handleTabChange(tab.id)}
-              style={{
-                padding: '10px 16px',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: '600',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                whiteSpace: 'nowrap',
-                backgroundColor: activeTab === tab.id ? '#ff3b30' : '#f7fafc',
-                color: activeTab === tab.id ? '#fff' : '#1a202c',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              <span>{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Advanced Filters */}
-      {showFilters && (
-        <div style={{
-          backgroundColor: '#fff',
-          padding: '20px 24px',
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: '0'
-        }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: '16px',
-            alignItems: 'end'
-          }}>
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1a202c', marginBottom: '4px' }}>
-                Search
-              </label>
-              <input
-                type="text"
-                placeholder="Reference, description..."
-                value={filters.search || ''}
-                onChange={(e) => handleFilterChange({ search: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1a202c', marginBottom: '4px' }}>
-                Type
-              </label>
-              <select
-                value={filters.type || ''}
-                onChange={(e) => handleFilterChange({ type: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">All Types</option>
-                <option value="credit">Credit</option>
-                <option value="debit">Debit</option>
-                <option value="transfer_in">Transfer In</option>
-                <option value="transfer_out">Transfer Out</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1a202c', marginBottom: '4px' }}>
-                Category
-              </label>
-              <select
-                value={filters.category || ''}
-                onChange={(e) => handleFilterChange({ category: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              >
-                <option value="">All Categories</option>
-                <option value="funding">Funding</option>
-                <option value="withdrawal">Withdrawal</option>
-                <option value="transfer">Transfer</option>
-                <option value="payment">Payment</option>
-                <option value="refund">Refund</option>
-                <option value="betting">Betting</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1a202c', marginBottom: '4px' }}>
-                Date From
-              </label>
-              <input
-                type="date"
-                value={filters.dateFrom || ''}
-                onChange={(e) => handleFilterChange({ dateFrom: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: '#1a202c', marginBottom: '4px' }}>
-                Date To
-              </label>
-              <input
-                type="date"
-                value={filters.dateTo || ''}
-                onChange={(e) => handleFilterChange({ dateTo: e.target.value })}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => setFilters({})}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#f7fafc',
-                  color: '#718096',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Bulk Actions */}
-      {selectedTransactions.length > 0 && (
-        <div style={{
-          backgroundColor: '#fff5f5',
-          padding: '12px 24px',
-          borderBottom: '1px solid #e2e8f0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
-        }}>
-          <span style={{ fontSize: '14px', color: '#1a202c' }}>
-            {selectedTransactions.length} transaction(s) selected
-          </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={handleBulkExport}
-              disabled={bulkLoading}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#ff3b30',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: bulkLoading ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                opacity: bulkLoading ? 0.6 : 1
-              }}
-            >
-              {bulkLoading ? 'Processing...' : 'Export Selected'}
-            </button>
-            <button
-              onClick={() => handleBulkStatusUpdate('completed')}
-              disabled={bulkLoading}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#28a745',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: bulkLoading ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                opacity: bulkLoading ? 0.6 : 1
-              }}
-            >
-              Mark Completed
-            </button>
-            <button
-              onClick={() => handleBulkStatusUpdate('failed')}
-              disabled={bulkLoading}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#dc3545',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: bulkLoading ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                opacity: bulkLoading ? 0.6 : 1
-              }}
-            >
-              Mark Failed
-            </button>
-            <button
-              onClick={handleBulkDelete}
-              disabled={bulkLoading}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#dc2626',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '6px',
-                cursor: bulkLoading ? 'not-allowed' : 'pointer',
-                fontSize: '12px',
-                opacity: bulkLoading ? 0.6 : 1
-              }}
-            >
-              Delete Selected
-            </button>
-            <button
-              onClick={() => setSelectedTransactions([])}
-              style={{
-                padding: '6px 12px',
-                backgroundColor: '#f7fafc',
-                color: '#718096',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                cursor: 'pointer',
-                fontSize: '12px'
-              }}
-            >
-              Clear Selection
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Transactions Table */}
-      <div style={{ flex: 1, backgroundColor: '#fff', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ overflowX: 'auto', flex: 1 }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead style={{ backgroundColor: '#f7fafc', position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedTransactions.length === transactions.length && transactions.length > 0}
-                    onChange={handleSelectAll}
-                    style={{ marginRight: '8px' }}
-                  />
-                  REF
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  USER/WALLET
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  TYPE
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  AMOUNT
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  STATUS
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  CATEGORY
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  DATE
-                </th>
-                <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: '12px', fontWeight: '600', color: '#718096', borderBottom: '1px solid #e2e8f0' }}>
-                  ACTIONS
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#718096' }}>
-                    <div>Loading transactions...</div>
-                  </td>
-                </tr>
-              ) : transactions.length === 0 ? (
-                <tr>
-                  <td colSpan={8} style={{ padding: '40px', textAlign: 'center', color: '#718096' }}>
-                    <div style={{ fontSize: '48px', marginBottom: '16px' }}>📋</div>
-                    <div>No transactions found</div>
-                  </td>
-                </tr>
-              ) : (
-                transactions.map((transaction) => (
-                  <tr key={transaction._id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                    <td style={{ padding: '12px 16px', fontSize: '14px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedTransactions.includes(transaction._id)}
-                          onChange={() => handleTransactionSelect(transaction._id)}
-                        />
-                        <div>
-                          <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '13px' }}>
-                            {transaction.reference}
-                          </div>
-                          <div style={{ color: '#718096', fontSize: '12px' }}>
-                            {transaction.description}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '14px' }}>
-                      <div>
-                        <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '13px' }}>
-                          {transaction.userInfo?.name || 'Unknown User'}
-                        </div>
-                        <div style={{ color: '#718096', fontSize: '12px' }}>
-                          {transaction.userInfo?.email || 'N/A'}
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        borderRadius: '12px',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        backgroundColor: `${getTypeColor(transaction.type)}20`,
-                        color: getTypeColor(transaction.type),
-                        textTransform: 'uppercase'
-                      }}>
-                        {transaction.type.replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '14px', fontWeight: '600' }}>
-                      <span style={{ color: transaction.type.includes('debit') ? '#ff3b30' : '#28a745' }}>
-                        {transaction.type.includes('debit') ? '-' : '+'}{formatCurrency(transaction.amount)}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <span style={{
-                        padding: '4px 8px',
-                        borderRadius: '12px',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        backgroundColor: `${getStatusColor(transaction.status)}20`,
-                        color: getStatusColor(transaction.status),
-                        textTransform: 'uppercase'
-                      }}>
-                        {transaction.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '14px', color: '#718096', textTransform: 'capitalize' }}>
-                      {transaction.category}
-                    </td>
-                    <td style={{ padding: '12px 16px', fontSize: '14px', color: '#718096' }}>
-                      {formatDate(transaction.createdAt)}
-                    </td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                        <button
-                          onClick={() => handleViewDetails(transaction)}
-                          style={{
-                            padding: '4px 8px',
-                            backgroundColor: '#ff3b30',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
-                        >
-                          View
-                        </button>
-                        {transaction.status === 'failed' && (
-                          <button 
-                            onClick={() => handleRetryTransaction(transaction._id)}
-                            style={{
-                              padding: '4px 8px',
-                              backgroundColor: '#ff8c00',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px'
-                            }}
-                          >
-                            Retry
-                          </button>
-                        )}
-                        {transaction.status === 'pending' && (
-                          <button
-                            onClick={() => handleCancelTransaction(transaction._id)}
-                            style={{
-                              padding: '4px 8px',
-                              backgroundColor: '#dc3545',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              fontSize: '12px'
-                            }}
-                          >
-                            Cancel
-                          </button>
-                        )}
-                        <button
-                          onClick={() => handleDeleteTransaction(transaction._id)}
-                          style={{
-                            padding: '4px 8px',
-                            backgroundColor: '#dc2626',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '12px'
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {pagination.pages > 1 && (
-          <div style={{
-            padding: '16px 24px',
-            borderTop: '1px solid #e2e8f0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: '#f7fafc'
-          }}>
-            <div style={{ fontSize: '14px', color: '#718096' }}>
-              Showing {((pagination.page - 1) * pagination.limit) + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} transactions
-            </div>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              <button
-                onClick={() => handlePageChange(pagination.page - 1)}
-                disabled={pagination.page <= 1}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: pagination.page <= 1 ? '#f1f5f9' : '#fff',
-                  color: pagination.page <= 1 ? '#9ca3af' : '#1a202c',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  cursor: pagination.page <= 1 ? 'not-allowed' : 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Previous
-              </button>
-              {Array.from({ length: Math.min(5, pagination.pages) }, (_, i) => {
-                const page = i + Math.max(1, pagination.page - 2);
-                return page <= pagination.pages ? (
-                  <button
-                    key={page}
-                    onClick={() => handlePageChange(page)}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: page === pagination.page ? '#ff3b30' : '#fff',
-                      color: page === pagination.page ? '#fff' : '#1a202c',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '14px'
-                    }}
-                  >
-                    {page}
-                  </button>
-                ) : null;
-              })}
-              <button
-                onClick={() => handlePageChange(pagination.page + 1)}
-                disabled={pagination.page >= pagination.pages}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: pagination.page >= pagination.pages ? '#f1f5f9' : '#fff',
-                  color: pagination.page >= pagination.pages ? '#9ca3af' : '#1a202c',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  cursor: pagination.page >= pagination.pages ? 'not-allowed' : 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   );
 };

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import type { ApiProvider, SystemHealth, SystemLog, MaintenanceMode } from '../types/system.types';
 
 const SystemManagement = () => {
   const [activeTab, setActiveTab] = useState('api-config');
@@ -176,7 +175,7 @@ const SystemManagement = () => {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // API Functions - Now with actual implementations
+  // API Functions
   const addNewApiConfig = () => {
     const newConfig = {
       id: `api-${Date.now()}`,
@@ -200,7 +199,6 @@ const SystemManagement = () => {
     try {
       setActionLoading(true);
       
-      // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       setApiConfigs(prev => prev.map(config => 
@@ -224,7 +222,6 @@ const SystemManagement = () => {
     try {
       setActionLoading(true);
       
-      // Simulate API call delay
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       const payload = { enabled, ...settings };
@@ -241,16 +238,14 @@ const SystemManagement = () => {
     try {
       setActionLoading(true);
       
-      // Simulate API connection test
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       const responseTime = Math.floor(Math.random() * 300) + 100;
-      const success = Math.random() > 0.2; // 80% success rate
+      const success = Math.random() > 0.2;
       
       if (success) {
         showNotification(`API connection test successful - Response time: ${responseTime}ms`);
         
-        // Update success rate
         setApiConfigs(prev => prev.map(config => 
           config.id === configId 
             ? { ...config, successRate: Math.min(100, config.successRate + 0.1) }
@@ -270,7 +265,6 @@ const SystemManagement = () => {
     try {
       setActionLoading(true);
       
-      // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       setErrorLogs(prev => prev.map(log => 
@@ -289,7 +283,6 @@ const SystemManagement = () => {
     try {
       setActionLoading(true);
       
-      // Simulate fetching new health data
       await new Promise(resolve => setTimeout(resolve, 1500));
       
       setSystemHealth(prev => ({
@@ -311,14 +304,12 @@ const SystemManagement = () => {
     }
   }, [showNotification]);
 
-  // Handle config field updates
   const handleConfigFieldChange = (configId, field, value) => {
     setApiConfigs(prev => prev.map(config =>
       config.id === configId ? { ...config, [field]: value } : config
     ));
   };
 
-  // Handle provider configuration
   const configureProvider = (providerId) => {
     showNotification(`Opening configuration for ${serviceProviders.find(p => p.id === providerId)?.name}`);
   };
@@ -392,9 +383,51 @@ const SystemManagement = () => {
     );
   };
 
+  // Tab Navigation
+  const TabNavigation = () => (
+    <div style={{
+      backgroundColor: '#fff',
+      padding: '16px 20px',
+      borderRadius: '12px',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #e2e8f0',
+      marginBottom: '24px'
+    }}>
+      <div style={{
+        display: 'flex',
+        overflowX: 'auto',
+        gap: '8px',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none'
+      }}>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            style={{
+              padding: '12px 16px',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              backgroundColor: activeTab === tab.id ? '#ff3b30' : '#f8f9fa',
+              color: activeTab === tab.id ? '#fff' : '#1a202c',
+              transition: 'all 0.3s ease'
+            }}
+          >
+            <span style={{ marginRight: '8px' }}>{tab.icon}</span>
+            {isMobile ? tab.label.split(' ')[0] : tab.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   // Tab content renderers
   const renderApiConfiguration = () => (
-    <div>
+    <div style={{ width: '100%' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -521,7 +554,8 @@ const SystemManagement = () => {
                       borderRadius: '6px',
                       fontSize: '14px',
                       backgroundColor: editingConfig === config.id ? '#fff' : '#f8f9fa',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      color: '#000000'
                     }}
                   />
                 </div>
@@ -540,7 +574,9 @@ const SystemManagement = () => {
                       border: '1px solid #e2e8f0',
                       borderRadius: '6px',
                       fontSize: '14px',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      backgroundColor: '#fff',
+                      color: '#000000'
                     }}
                   />
                 </div>
@@ -559,7 +595,9 @@ const SystemManagement = () => {
                       border: '1px solid #e2e8f0',
                       borderRadius: '6px',
                       fontSize: '14px',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      backgroundColor: '#fff',
+                      color: '#000000'
                     }}
                   />
                 </div>
@@ -623,7 +661,7 @@ const SystemManagement = () => {
   );
 
   const renderServiceProviders = () => (
-    <div>
+    <div style={{ width: '100%' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -730,7 +768,7 @@ const SystemManagement = () => {
   );
 
   const renderSystemHealth = () => (
-    <div>
+    <div style={{ width: '100%' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -827,7 +865,7 @@ const SystemManagement = () => {
   );
 
   const renderMaintenanceMode = () => (
-    <div>
+    <div style={{ width: '100%' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -890,7 +928,9 @@ const SystemManagement = () => {
                 borderRadius: '6px',
                 fontSize: '14px',
                 resize: 'vertical',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                backgroundColor: '#fff',
+                color: '#000000'
               }}
               placeholder="Enter message to display during maintenance..."
             />
@@ -911,7 +951,9 @@ const SystemManagement = () => {
                   border: '1px solid #e2e8f0',
                   borderRadius: '6px',
                   fontSize: '14px',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  backgroundColor: '#fff',
+                  color: '#000000'
                 }}
               />
             </div>
@@ -930,7 +972,9 @@ const SystemManagement = () => {
                   border: '1px solid #e2e8f0',
                   borderRadius: '6px',
                   fontSize: '14px',
-                  boxSizing: 'border-box'
+                  boxSizing: 'border-box',
+                  backgroundColor: '#fff',
+                  color: '#000000'
                 }}
               />
             </div>
@@ -1075,7 +1119,7 @@ const SystemManagement = () => {
   );
 
   const renderErrorLogs = () => (
-    <div>
+    <div style={{ width: '100%' }}>
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
@@ -1094,7 +1138,8 @@ const SystemManagement = () => {
               border: '1px solid #e2e8f0',
               borderRadius: '6px',
               fontSize: '14px',
-              backgroundColor: '#fff'
+              backgroundColor: '#fff',
+              color: '#000000'
             }}
           >
             <option value="">All Levels</option>
@@ -1264,28 +1309,37 @@ const SystemManagement = () => {
     </div>
   );
 
+  // Main content renderer
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'api-config':
+        return <renderApiConfiguration />;
+      case 'providers':
+        return <renderServiceProviders />;
+      case 'health':
+        return <renderSystemHealth />;
+      case 'maintenance':
+        return <renderMaintenanceMode />;
+      case 'logs':
+        return <renderErrorLogs />;
+      default:
+        return <renderApiConfiguration />;
+    }
+  };
+
   if (loading) {
     return (
-      <div style={{
-        width: '100%',
-        height: '400px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#f8f9fa'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{
-            display: 'inline-block',
-            width: '40px',
-            height: '40px',
-            border: '4px solid #f3f3f3',
-            borderTop: '4px solid #ff3b30',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }} />
-          <p style={{ marginTop: '16px', color: '#718096' }}>Loading system management...</p>
-        </div>
+      <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{
+          display: 'inline-block',
+          width: '40px',
+          height: '40px',
+          border: '4px solid #f3f3f3',
+          borderTop: '4px solid #ff3b30',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }} />
+        <p style={{ marginTop: '16px', color: '#718096' }}>Loading system management...</p>
       </div>
     );
   }
@@ -1293,10 +1347,7 @@ const SystemManagement = () => {
   return (
     <div style={{
       width: '100%',
-      maxWidth: '100%',
-      backgroundColor: '#f8f9fa',
-      minHeight: '100vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      maxWidth: '100%'
     }}>
       <style>{`
         @keyframes spin {
@@ -1306,81 +1357,23 @@ const SystemManagement = () => {
       `}</style>
       
       <NotificationBanner />
-
-      {/* Header */}
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e2e8f0',
-        margin: '0 20px 24px 20px',
-        overflow: 'hidden'
-      }}>
+      
+      <div style={{ padding: '20px' }}>
+        <TabNavigation />
+        
         <div style={{
-          padding: '24px',
-          borderBottom: '1px solid #e2e8f0',
-          backgroundColor: '#f8f9fa'
+          backgroundColor: '#fff',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          padding: '24px'
         }}>
-          <h2 style={{
-            color: '#1a202c',
-            fontSize: isMobile ? '20px' : '24px',
-            fontWeight: '700',
-            margin: '0 0 8px 0'
-          }}>
-            System Management
-          </h2>
-          <p style={{ color: '#718096', fontSize: '14px', margin: 0 }}>
-            Monitor and configure your VTU system infrastructure
-          </p>
+          {activeTab === 'api-config' && renderApiConfiguration()}
+          {activeTab === 'providers' && renderServiceProviders()}
+          {activeTab === 'health' && renderSystemHealth()}
+          {activeTab === 'maintenance' && renderMaintenanceMode()}
+          {activeTab === 'logs' && renderErrorLogs()}
         </div>
-
-        {/* Tab Navigation */}
-        <div style={{
-          display: 'flex',
-          overflowX: 'auto',
-          borderBottom: '1px solid #e2e8f0'
-        }}>
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: isMobile ? '12px 16px' : '16px 24px',
-                border: 'none',
-                backgroundColor: activeTab === tab.id ? '#fff' : 'transparent',
-                color: activeTab === tab.id ? '#ff3b30' : '#718096',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                borderBottom: activeTab === tab.id ? '2px solid #ff3b30' : '2px solid transparent',
-                whiteSpace: 'nowrap',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease'
-              }}
-            >
-              <span style={{ fontSize: '16px' }}>{tab.icon}</span>
-              {!isMobile && tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Tab Content */}
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e2e8f0',
-        margin: '0 20px 20px 20px',
-        padding: '24px'
-      }}>
-        {activeTab === 'api-config' && renderApiConfiguration()}
-        {activeTab === 'providers' && renderServiceProviders()}
-        {activeTab === 'health' && renderSystemHealth()}
-        {activeTab === 'maintenance' && renderMaintenanceMode()}
-        {activeTab === 'logs' && renderErrorLogs()}
       </div>
     </div>
   );

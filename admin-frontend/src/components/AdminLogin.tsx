@@ -54,13 +54,61 @@ const AdminLogin: React.FC = () => {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
-        .admin-login-input::placeholder {
-          color: #999999;
-          opacity: 0.8;
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.05); opacity: 0.8; }
+          100% { transform: scale(1); opacity: 1; }
         }
+        @keyframes logoSpin {
+          0% { transform: rotate(0deg) scale(1); }
+          25% { transform: rotate(90deg) scale(1.1); }
+          50% { transform: rotate(180deg) scale(1); }
+          75% { transform: rotate(270deg) scale(1.1); }
+          100% { transform: rotate(360deg) scale(1); }
+        }
+        
+        /* Force pure black text and pure white background for inputs */
         .admin-login-input {
           color: #000000 !important;
-          font-weight: 500 !important;
+          background-color: #ffffff !important;
+          font-weight: 600 !important;
+          -webkit-text-fill-color: #000000 !important;
+        }
+        
+        .admin-login-input::placeholder {
+          color: #999999 !important;
+          opacity: 0.8 !important;
+        }
+        
+        .admin-login-input:focus {
+          color: #000000 !important;
+          background-color: #ffffff !important;
+          -webkit-text-fill-color: #000000 !important;
+        }
+        
+        .admin-login-input:disabled {
+          color: #000000 !important;
+          background-color: #ffffff !important;
+          -webkit-text-fill-color: #000000 !important;
+        }
+        
+        /* Remove any autofill styles */
+        .admin-login-input:-webkit-autofill,
+        .admin-login-input:-webkit-autofill:hover, 
+        .admin-login-input:-webkit-autofill:focus {
+          -webkit-text-fill-color: #000000 !important;
+          -webkit-box-shadow: 0 0 0px 1000px #ffffff inset !important;
+          transition: background-color 5000s ease-in-out 0s;
+        }
+        
+        .logo-spin {
+          animation: logoSpin 2s linear infinite;
+        }
+          input[type="checkbox"] {
+  accent-color: #ff2b2b !important;
+}
+        .logo-pulse {
+          animation: pulse 1.5s ease-in-out infinite;
         }
       `;
       document.head.appendChild(style);
@@ -158,8 +206,26 @@ const AdminLogin: React.FC = () => {
 
   const canSubmit = credentials.username.trim() && credentials.password && !isLoading;
 
+  // Custom Loader Component with Logo
+  const LogoLoader = () => (
+    <div style={styles.loaderContainer}>
+      <div style={styles.logoLoader}>
+        <img 
+          src={Logo} 
+          alt="ConnectPay Logo" 
+          style={styles.logoLoaderImage}
+          className="logo-spin"
+        />
+      </div>
+      <div style={styles.loaderText}>
+        <p style={styles.loaderMessage}>Authenticating...</p>
+        <p style={styles.loaderSubMessage}>Please wait while we verify your credentials</p>
+      </div>
+    </div>
+  );
+
   if (isLoading) {
-    return <Loader message="Authenticating..." />;
+    return <LogoLoader />;
   }
 
   return (
@@ -174,7 +240,7 @@ const AdminLogin: React.FC = () => {
               style={styles.logoImage}
             />
           </div>
-          <h1 style={styles.title}>ConnectPay Admin Portal</h1>
+          <h1 style={styles.title}>ConnectPay</h1>
           <p style={styles.subtitle}>Sign in to access the admin dashboard</p>
         </div>
 
@@ -277,7 +343,14 @@ const AdminLogin: React.FC = () => {
           >
             {isLoading ? (
               <span style={styles.loadingText}>
-                <span style={styles.spinner}></span>
+                <div style={styles.buttonLogoContainer}>
+                  <img 
+                    src={Logo} 
+                    alt="Loading" 
+                    style={styles.buttonLogo}
+                    className="logo-pulse"
+                  />
+                </div>
                 Signing In...
               </span>
             ) : (
@@ -297,7 +370,7 @@ const AdminLogin: React.FC = () => {
   );
 };
 
-// Updated styles with increased logo size
+// Updated styles with pure black text on white background for inputs only
 const styles = {
   container: {
     display: 'flex',
@@ -318,39 +391,41 @@ const styles = {
   } as React.CSSProperties,
 
   loginCard: {
-  width: '100%',
-  maxWidth: '440px',
-  backgroundColor: '#ffffff',
-  borderRadius: '16px',
-  padding: '48px 40px',
-  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
-  border: '1px solid #e1e1e1',
-  margin: 'auto',
-  transform: 'translateY(-14vh)' // Changed from -17vh to -10vh
-} as React.CSSProperties,
+    width: '100%',
+    maxWidth: '440px',
+    backgroundColor: '#ffffff',
+    borderRadius: '16px',
+    padding: '48px 40px',
+    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+    border: '1px solid #e1e1e1',
+    margin: 'auto',
+    transform: 'translateY(-14vh)'
+  } as React.CSSProperties,
 
-header: {
-  textAlign: 'center' as const,
-  marginBottom: '40px',
-  position: 'relative' as const, // Add this
-  paddingTop: '120px' // Create space for the logo
-},
-logo: {
-  position: 'absolute' as const, // Absolute positioning
-  top: '0px', // Position at the top of header
-  left: '50%', // Center horizontally
-  transform: 'translateX(-50%)', // Center horizontally
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  zIndex: 10
-},
+  header: {
+    textAlign: 'center' as const,
+    marginBottom: '40px',
+    position: 'relative' as const,
+    paddingTop: '120px'
+  },
 
-logoImage: {
-  width: '190px', // Extra large
-  height: '190px', // Extra large
-  objectFit: 'contain' as const
-},
+  logo: {
+    position: 'absolute' as const,
+    top: '0px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10
+  },
+
+  logoImage: {
+    width: '190px',
+    height: '190px',
+    objectFit: 'contain' as const
+  },
+
   title: {
     fontSize: '28px',
     fontWeight: '700',
@@ -378,7 +453,7 @@ logoImage: {
     display: 'block',
     fontSize: '14px',
     fontWeight: '600',
-    color: '#333333',
+    color: '#333333', // Original color
     marginBottom: '8px'
   },
 
@@ -396,16 +471,18 @@ logoImage: {
     borderRadius: '12px',
     outline: 'none',
     transition: 'all 0.2s ease-in-out',
-    backgroundColor: '#ffffff',
+    backgroundColor: '#ffffff', // Pure white
     boxSizing: 'border-box' as const,
-    color: '#000000',
-    fontWeight: '500',
+    color: '#000000', // Pure black
+    fontWeight: '600',
     fontFamily: 'inherit',
+    WebkitTextFillColor: '#000000', // For Safari
+    opacity: 1, // Remove any opacity
   } as React.CSSProperties,
 
   inputError: {
     borderColor: '#ff3b30',
-    backgroundColor: '#fff5f5'
+    backgroundColor: '#ffffff' // Keep white background even in error state
   },
 
   inputIcon: {
@@ -449,7 +526,7 @@ logoImage: {
   },
 
   checkboxText: {
-    color: '#666666',
+    color: '#666666', // Original gray color for remember me
     fontWeight: '500'
   },
 
@@ -491,7 +568,7 @@ logoImage: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '8px'
+    gap: '12px'
   },
 
   submitButtonEnabled: {
@@ -501,7 +578,7 @@ logoImage: {
   },
 
   submitButtonDisabled: {
-    backgroundColor: '#ccc',
+    backgroundColor: '#cccccc',
     color: '#999999',
     cursor: 'not-allowed'
   },
@@ -509,16 +586,73 @@ logoImage: {
   loadingText: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px'
+    gap: '12px',
+    fontSize: '16px',
+    fontWeight: '600'
   },
 
-  spinner: {
-    width: '16px',
-    height: '16px',
-    border: '2px solid transparent',
-    borderTop: '2px solid currentColor',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite'
+  buttonLogoContainer: {
+    width: '24px',
+    height: '24px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+
+  buttonLogo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain' as const
+  },
+
+  // Logo Loader Styles
+  loaderContainer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    minWidth: '100vw',
+    backgroundColor: '#f8f9fa',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: 0,
+    zIndex: 1000
+  } as React.CSSProperties,
+
+  logoLoader: {
+    marginBottom: '32px',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+
+  logoLoaderImage: {
+    width: '120px',
+    height: '120px',
+    objectFit: 'contain' as const
+  },
+
+  loaderText: {
+    textAlign: 'center' as const
+  },
+
+  loaderMessage: {
+    fontSize: '20px',
+    fontWeight: '600',
+    color: '#333333', // Original color
+    margin: '0 0 8px 0'
+  },
+
+  loaderSubMessage: {
+    fontSize: '14px',
+    color: '#666666', // Original color
+    margin: '0',
+    fontWeight: '500'
   },
 
   footer: {
@@ -530,7 +664,7 @@ logoImage: {
 
   footerText: {
     fontSize: '12px',
-    color: '#999999',
+    color: '#999999', // Original color
     margin: '0',
     fontWeight: '500'
   }

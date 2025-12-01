@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { API_CONFIG } from "../config/api.config";
 
 // Error Boundary Component
 class ErrorBoundary extends React.Component {
@@ -54,7 +53,8 @@ const AdminModal = ({
   setAdminForm, 
   actionLoading, 
   handleAdminSubmit,
-  ROLE_CONFIG 
+  ROLE_CONFIG,
+  currentUserRole 
 }) => {
   if (!showAdminModal) return null;
 
@@ -82,6 +82,18 @@ const AdminModal = ({
     gap: '16px',
     marginBottom: '20px'
   };
+
+  // Filter roles based on current user's role
+  const filteredRoles = Object.entries(ROLE_CONFIG).filter(([key, config]) => {
+    // Super admin can assign all roles except super_admin to others
+    if (currentUserRole === 'super_admin') {
+      return key !== 'super_admin' || selectedAdmin?.role === 'super_admin';
+    }
+    // Other admins can only assign roles with lower priority
+    const currentUserPriority = ROLE_CONFIG[currentUserRole]?.priority || 99;
+    const rolePriority = config.priority;
+    return rolePriority > currentUserPriority || (selectedAdmin && selectedAdmin.role === key);
+  });
 
   return (
     <div style={{
@@ -172,12 +184,18 @@ const AdminModal = ({
                 onChange={(e) => setAdminForm(prev => ({ ...prev, role: e.target.value }))}
                 style={inputStyle}
                 required
+                disabled={selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin'}
               >
                 <option value="">Select Role</option>
-                {Object.entries(ROLE_CONFIG).map(([key, config]) => (
+                {filteredRoles.map(([key, config]) => (
                   <option key={key} value={key}>{config.name}</option>
                 ))}
               </select>
+              {selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin' && (
+                <p style={{ fontSize: '12px', color: '#718096', marginTop: '4px' }}>
+                  Only super admins can modify super admin roles
+                </p>
+              )}
             </div>
           </div>
 
@@ -212,6 +230,7 @@ const AdminModal = ({
               value={adminForm.isActive ? 'active' : 'inactive'}
               onChange={(e) => setAdminForm(prev => ({ ...prev, isActive: e.target.value === 'active' }))}
               style={inputStyle}
+              disabled={selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin'}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
@@ -269,7 +288,9 @@ const RoleModal = ({
   actionLoading, 
   handleRoleSubmit,
   ALL_PERMISSIONS,
-  PERMISSION_CATEGORIES 
+  PERMISSION_CATEGORIES,
+  currentUserRole,
+  ROLE_CONFIG 
 }) => {
   if (!showRoleModal) return null;
 
@@ -298,6 +319,10 @@ const RoleModal = ({
         : [...new Set([...prev.permissions, ...categoryPermissions])]
     }));
   };
+
+  const canEditRole = !selectedRole || 
+    (currentUserRole === 'super_admin') ||
+    (selectedRole.name !== 'super_admin' && ROLE_CONFIG[selectedRole.name]?.priority > ROLE_CONFIG[currentUserRole]?.priority);
 
   return (
     <div style={{
@@ -363,7 +388,13 @@ const RoleModal = ({
                   fontSize: '14px'
                 }}
                 required
+                disabled={!canEditRole}
               />
+              {!canEditRole && (
+                <p style={{ fontSize: '12px', color: '#718096', marginTop: '4px' }}>
+                  You don't have permission to edit this role
+                </p>
+              )}
             </div>
             
             <div>
@@ -381,6 +412,7 @@ const RoleModal = ({
                   borderRadius: '6px',
                   fontSize: '14px'
                 }}
+                disabled={!canEditRole}
               />
             </div>
           </div>
@@ -390,20 +422,22 @@ const RoleModal = ({
               <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1a202c' }}>
                 Permissions ({roleForm.permissions.length} selected)
               </h4>
-              <button
-                onClick={() => setRoleForm(prev => ({ ...prev, permissions: ALL_PERMISSIONS.map(p => p.id) }))}
-                style={{
-                  padding: '6px 12px',
-                  backgroundColor: '#f7fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  cursor: 'pointer'
-                }}
-              >
-                Select All
-              </button>
+              {canEditRole && (
+                <button
+                  onClick={() => setRoleForm(prev => ({ ...prev, permissions: ALL_PERMISSIONS.map(p => p.id) }))}
+                  style={{
+                    padding: '6px 12px',
+                    backgroundColor: '#f7fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Select All
+                </button>
+              )}
             </div>
 
             <div style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
@@ -421,9 +455,9 @@ const RoleModal = ({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'space-between',
-                      cursor: 'pointer'
+                      cursor: canEditRole ? 'pointer' : 'default'
                     }}
-                    onClick={() => toggleCategory(categoryKey)}
+                    onClick={() => canEditRole && toggleCategory(categoryKey)}
                     >
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '16px' }}>{category.icon}</span>
@@ -446,18 +480,20 @@ const RoleModal = ({
                           alignItems: 'center',
                           gap: '8px',
                           padding: '8px',
-                          cursor: 'pointer',
+                          cursor: canEditRole ? 'pointer' : 'default',
                           borderRadius: '4px',
-                          transition: 'background-color 0.2s'
+                          transition: 'background-color 0.2s',
+                          opacity: canEditRole ? 1 : 0.7
                         }}
-                        onMouseEnter={(e) => e.target.style.backgroundColor = '#f8f9fa'}
-                        onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                        onMouseEnter={(e) => canEditRole && (e.target.style.backgroundColor = '#f8f9fa')}
+                        onMouseLeave={(e) => canEditRole && (e.target.style.backgroundColor = 'transparent')}
                         >
                           <input
                             type="checkbox"
                             checked={roleForm.permissions.includes(permission.id)}
-                            onChange={() => togglePermission(permission.id)}
+                            onChange={() => canEditRole && togglePermission(permission.id)}
                             style={{ width: '16px', height: '16px' }}
+                            disabled={!canEditRole}
                           />
                           <span style={{ fontSize: '14px' }}>{permission.name}</span>
                         </label>
@@ -486,23 +522,25 @@ const RoleModal = ({
             >
               Cancel
             </button>
-            <button
-              onClick={handleRoleSubmit}
-              disabled={actionLoading || !roleForm.name}
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                borderRadius: '8px',
-                backgroundColor: '#ff3b30',
-                color: '#fff',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: actionLoading ? 'not-allowed' : 'pointer',
-                opacity: actionLoading || !roleForm.name ? 0.7 : 1
-              }}
-            >
-              {actionLoading ? 'Saving...' : selectedRole ? 'Update Role' : 'Create Role'}
-            </button>
+            {canEditRole && (
+              <button
+                onClick={handleRoleSubmit}
+                disabled={actionLoading || !roleForm.name}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  backgroundColor: '#ff3b30',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: actionLoading ? 'not-allowed' : 'pointer',
+                  opacity: actionLoading || !roleForm.name ? 0.7 : 1
+                }}
+              >
+                {actionLoading ? 'Saving...' : selectedRole ? 'Update Role' : 'Create Role'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -512,9 +550,8 @@ const RoleModal = ({
 
 const AdminManagement = () => {
   const [admins, setAdmins] = useState([]);
+  const [filteredAdmins, setFilteredAdmins] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [permissions, setPermissions] = useState([]);
-  const [activityLogs, setActivityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedAdmins, setSelectedAdmins] = useState([]);
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -527,6 +564,7 @@ const AdminManagement = () => {
   const [success, setSuccess] = useState(null);
   const [activeTab, setActiveTab] = useState('admins');
   const [isMobile, setIsMobile] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
   // Form states
   const [adminForm, setAdminForm] = useState({
@@ -572,7 +610,7 @@ const AdminManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = API_CONFIG?.BASE_URL || 'http://localhost:5000';
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
 
   // Role and permission configurations
   const ROLE_CONFIG = {
@@ -629,15 +667,84 @@ const AdminManagement = () => {
     }, 5000);
   }, []);
 
-  // Safe API call function with better error handling
+  // Check mobile screen
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Token and current user management
+  useEffect(() => {
+    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    if (authToken) {
+      setToken(authToken);
+      // Get current user from token or localStorage
+      const userData = localStorage.getItem('admin_user');
+      if (userData) {
+        try {
+          const parsedUser = JSON.parse(userData);
+          setCurrentUser(parsedUser);
+        } catch (e) {
+          console.error('Error parsing user data:', e);
+        }
+      }
+    } else {
+      showNotification('Please login again', 'error');
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 2000);
+    }
+  }, [showNotification]);
+
+  // Filter admins based on current user's role
+  useEffect(() => {
+    if (admins.length > 0 && currentUser) {
+      if (currentUser.role === 'super_admin') {
+        // Super admin can see all admins
+        setFilteredAdmins(admins);
+      } else {
+        // Non-super admin can only see themselves
+        const currentUserAdmin = admins.filter(admin => 
+          admin._id === currentUser._id || admin.email === currentUser.email
+        );
+        setFilteredAdmins(currentUserAdmin);
+      }
+    } else {
+      setFilteredAdmins([]);
+    }
+  }, [admins, currentUser]);
+
+  // Check permissions
+  const canCreateAdmin = currentUser?.role === 'super_admin';
+  const canDeleteAdmin = (admin) => {
+    if (currentUser?.role === 'super_admin') return true;
+    if (admin.role === 'super_admin') return false;
+    const currentUserPriority = ROLE_CONFIG[currentUser?.role]?.priority || 99;
+    const adminPriority = ROLE_CONFIG[admin.role]?.priority || 99;
+    return adminPriority > currentUserPriority;
+  };
+
+  const canEditAdmin = (admin) => {
+    // Non-super admin can only edit their own profile
+    if (currentUser?.role !== 'super_admin') {
+      return admin._id === currentUser?._id || admin.email === currentUser?.email;
+    }
+    
+    if (admin.role === 'super_admin' && currentUser?.role !== 'super_admin') return false;
+    if (currentUser?.role === 'super_admin') return true;
+    const currentUserPriority = ROLE_CONFIG[currentUser?.role]?.priority || 99;
+    const adminPriority = ROLE_CONFIG[admin.role]?.priority || 99;
+    return adminPriority > currentUserPriority;
+  };
+
+  // API Functions
   const makeApiCall = useCallback(async (endpoint, options = {}) => {
     try {
-      // Check if endpoint starts with slash, add if not
       const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
       const url = `${API_BASE_URL}${formattedEndpoint}`;
       
-      console.log(`Making API call to: ${url}`);
-
       const defaultOptions = {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -658,16 +765,14 @@ const AdminManagement = () => {
           const errorData = await response.json();
           errorMessage = errorData.message || errorMessage;
         } catch (parseError) {
-          // If response is not JSON, use status text
           console.warn('Could not parse error response as JSON');
         }
         throw new Error(errorMessage);
       }
 
-      // Check if response has content
       const contentLength = response.headers.get('content-length');
       if (contentLength === '0' || !response.body) {
-        return { success: true }; // Return success for empty responses
+        return { success: true };
       }
 
       return await response.json();
@@ -675,14 +780,13 @@ const AdminManagement = () => {
       console.error('API Call failed:', error);
       
       if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        throw new Error('Network error: Unable to connect to server. Please check your internet connection and ensure the backend is running.');
+        throw new Error('Network error: Unable to connect to server.');
       }
       
       throw error;
     }
   }, [token, API_BASE_URL]);
 
-  // API Functions - MOVED BEFORE handleAdminSubmit to fix the reference error
   const fetchStats = useCallback(async () => {
     if (!token) return;
     
@@ -712,12 +816,9 @@ const AdminManagement = () => {
       queryParams.append('page', filters.page.toString());
       queryParams.append('limit', filters.limit.toString());
       
-      console.log('Fetching admins from API...');
       const data = await makeApiCall(`/api/admin/management/admins?${queryParams}`);
+      console.log("WHAT FIELDS DO WE GET?", data[0]);
       
-      console.log('Raw API response:', data);
-      
-      // Handle different response structures
       let adminsData = [];
       if (Array.isArray(data)) {
         adminsData = data;
@@ -729,9 +830,7 @@ const AdminManagement = () => {
         adminsData = data.data;
       }
       
-      console.log('Processed admins data:', adminsData);
-      
-      // Ensure each admin has the required fields
+      // Process admin data with proper date handling
       const processedAdmins = adminsData.map(admin => ({
         _id: admin._id || admin.id || `temp-${Math.random()}`,
         username: admin.name || admin.username || admin.userName || 'Unknown User',
@@ -740,9 +839,9 @@ const AdminManagement = () => {
         isActive: admin.isActive !== undefined ? admin.isActive : 
                   admin.status === 'active' ? true : 
                   admin.status === 'inactive' ? false : true,
-        lastLogin: admin.lastLogin || admin.last_login || admin.lastSession || null,
+       lastLogin: admin.updatedAt || admin.lastLogin || admin.last_login || admin.lastSession || admin.lastLoginAt || null,
         phone: admin.phone || admin.phoneNumber || '',
-        // Include all original properties
+        createdAt: admin.createdAt || admin.created_at || admin.registrationDate || null,
         ...admin
       }));
       
@@ -757,7 +856,7 @@ const AdminManagement = () => {
     } catch (error) {
       console.error('Error fetching admins:', error);
       showNotification(`Failed to fetch admin users: ${error.message}`, 'error');
-      setAdmins([]); // Set empty array on error
+      setAdmins([]);
     } finally {
       setLoading(false);
     }
@@ -779,53 +878,24 @@ const AdminManagement = () => {
       }
       
       setRoles(rolesData);
-      setPermissions(Array.isArray(data.permissions) ? data.permissions : ALL_PERMISSIONS);
     } catch (error) {
       console.error('Error fetching roles:', error);
       showNotification(`Failed to fetch roles: ${error.message}`, 'error');
-      setRoles([]); // Set empty array on error
+      setRoles([]);
     }
   }, [token, makeApiCall, showNotification]);
 
-  const fetchActivityLogs = useCallback(async () => {
-    if (!token) return;
-    
-    try {
-      const data = await makeApiCall('/api/admin/management/activity-logs');
-      
-      let logsData = [];
-      if (Array.isArray(data)) {
-        logsData = data;
-      } else if (data && Array.isArray(data.logs)) {
-        logsData = data.logs;
-      } else if (data && Array.isArray(data.data)) {
-        logsData = data.data;
-      } else if (data && Array.isArray(data.activities)) {
-        logsData = data.activities;
-      }
-      
-      setActivityLogs(logsData);
-    } catch (error) {
-      console.error('Error fetching activity logs:', error);
-      showNotification(`Failed to fetch activity logs: ${error.message}`, 'error');
-      setActivityLogs([]); // Set empty array on error
-    }
-  }, [token, makeApiCall, showNotification]);
-
-  // Admin management functions - MOVED BEFORE handleAdminSubmit
+  // Admin management functions
   const createAdmin = useCallback(async (adminData) => {
     if (!token) return;
     
     try {
       setActionLoading(true);
       
-      // Ensure isActive is properly set (default to true if not provided)
       const dataToSend = {
         ...adminData,
         isActive: adminData.isActive !== undefined ? adminData.isActive : true
       };
-      
-      console.log('Creating admin with data:', dataToSend);
       
       await makeApiCall('/api/admin/management/admins', {
         method: 'POST',
@@ -962,27 +1032,6 @@ const AdminManagement = () => {
     }
   }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
 
-  // Check mobile screen
-  useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
-  // Token management
-  useEffect(() => {
-    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    if (authToken) {
-      setToken(authToken);
-    } else {
-      showNotification('Please login again', 'error');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-    }
-  }, [showNotification]);
-
   // Data fetching
   useEffect(() => {
     if (token) {
@@ -991,11 +1040,9 @@ const AdminManagement = () => {
         fetchAdmins();
       } else if (activeTab === 'roles') {
         fetchRoles();
-      } else if (activeTab === 'logs') {
-        fetchActivityLogs();
       }
     }
-  }, [token, activeTab, filters]);
+  }, [token, activeTab, filters, fetchStats, fetchAdmins, fetchRoles]);
 
   // Handle filter changes
   const handleFilterChange = useCallback((key, value) => {
@@ -1018,14 +1065,14 @@ const AdminManagement = () => {
   }, []);
 
   const selectAllAdmins = useCallback(() => {
-    if (selectedAdmins.length === admins.length && admins.length > 0) {
+    if (selectedAdmins.length === filteredAdmins.length && filteredAdmins.length > 0) {
       setSelectedAdmins([]);
     } else {
-      setSelectedAdmins(admins.map(admin => admin._id).filter(id => id)); // Filter out undefined IDs
+      setSelectedAdmins(filteredAdmins.map(admin => admin._id).filter(id => id));
     }
-  }, [selectedAdmins.length, admins]);
+  }, [selectedAdmins.length, filteredAdmins]);
 
-  // Form handlers - NOW updateAdmin is defined before this
+  // Form handlers
   const handleAdminSubmit = useCallback(async () => {
     if (adminForm.password !== adminForm.confirmPassword) {
       showNotification('Passwords do not match', 'error');
@@ -1037,14 +1084,12 @@ const AdminManagement = () => {
       email: adminForm.email,
       phone: adminForm.phone,
       role: adminForm.role,
-      isActive: adminForm.isActive // Make sure this is included
+      isActive: adminForm.isActive
     };
     
     if (adminForm.password) {
       adminData.password = adminForm.password;
     }
-    
-    console.log('Submitting admin data:', adminData);
     
     try {
       if (selectedAdmin) {
@@ -1061,7 +1106,7 @@ const AdminManagement = () => {
         role: '',
         password: '',
         confirmPassword: '',
-        isActive: true // Reset to active for new admin
+        isActive: true
       });
       setSelectedAdmin(null);
     } catch (error) {
@@ -1092,6 +1137,10 @@ const AdminManagement = () => {
   }, [roleForm, selectedRole, updateRole, createRole]);
 
   const handleEditAdmin = useCallback((admin) => {
+    if (!canEditAdmin(admin)) {
+      showNotification('You do not have permission to edit this admin', 'error');
+      return;
+    }
     setSelectedAdmin(admin);
     setAdminForm({
       username: admin.name || admin.username || '',
@@ -1103,9 +1152,13 @@ const AdminManagement = () => {
       isActive: admin.isActive !== undefined ? admin.isActive : true
     });
     setShowAdminModal(true);
-  }, []);
+  }, [canEditAdmin, showNotification]);
 
   const handleNewAdmin = useCallback(() => {
+    if (!canCreateAdmin) {
+      showNotification('Only super admins can create new admin users', 'error');
+      return;
+    }
     setSelectedAdmin(null);
     setAdminForm({
       username: '',
@@ -1117,7 +1170,7 @@ const AdminManagement = () => {
       isActive: true
     });
     setShowAdminModal(true);
-  }, []);
+  }, [canCreateAdmin, showNotification]);
 
   const handleConfigureRole = useCallback((role) => {
     setSelectedRole(role);
@@ -1139,7 +1192,7 @@ const AdminManagement = () => {
     setShowRoleModal(true);
   }, []);
 
-  // Status badges and utilities with safe data access
+  // Status badges and utilities
   const getStatusBadge = useCallback((isActive) => {
     const statusConfig = {
       true: { bg: '#28a745', text: 'Active' },
@@ -1183,8 +1236,44 @@ const AdminManagement = () => {
 
   const formatDate = useCallback((dateString) => {
     if (!dateString) return 'Never';
+    
     try {
-      return new Date(dateString).toLocaleDateString('en-US', {
+      const date = new Date(dateString);
+      
+      // Check if date is valid
+      if (isNaN(date.getTime())) {
+        return 'Invalid Date';
+      }
+      
+      // Check if date is in the future (might indicate wrong format)
+      if (date > new Date()) {
+        return 'Never';
+      }
+      
+      const now = new Date();
+      const diffMs = now - date;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      
+      // If less than 1 day, show relative time
+      if (diffDays === 0) {
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        if (diffHours === 0) {
+          const diffMinutes = Math.floor(diffMs / (1000 * 60));
+          if (diffMinutes === 0) {
+            return 'Just now';
+          }
+          return `${diffMinutes}m ago`;
+        }
+        return `${diffHours}h ago`;
+      }
+      
+      // If less than 7 days, show relative days
+      if (diffDays < 7) {
+        return `${diffDays}d ago`;
+      }
+      
+      // Otherwise show formatted date
+      return date.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -1192,15 +1281,14 @@ const AdminManagement = () => {
         minute: '2-digit'
       });
     } catch (error) {
+      console.error('Error formatting date:', dateString, error);
       return 'Invalid Date';
     }
   }, []);
 
-  // Safe function to get initials from username - FIXED THE SPLIT ERROR
   const getInitials = useCallback((username) => {
     if (!username || typeof username !== 'string') return '??';
     
-    // Remove any extra spaces and split
     const cleanUsername = username.trim().replace(/\s+/g, ' ');
     const names = cleanUsername.split(' ').filter(name => name.length > 0);
     
@@ -1323,9 +1411,8 @@ const AdminManagement = () => {
       overflowX: 'auto'
     }}>
       {[
-        { id: 'admins', label: 'Admin Users', icon: '👨‍💼', count: stats.totalAdmins },
-        { id: 'roles', label: 'Roles & Permissions', icon: '🔑', count: stats.totalRoles },
-        { id: 'logs', label: 'Activity Logs', icon: '📝', count: null }
+        { id: 'admins', label: 'Admin Users', icon: '👨‍💼', count: filteredAdmins.length },
+        { id: 'roles', label: 'Roles & Permissions', icon: '🔑', count: stats.totalRoles }
       ].map((tab) => (
         <button
           key={tab.id}
@@ -1365,268 +1452,286 @@ const AdminManagement = () => {
   );
 
   // Admin Users Tab Content
-  const AdminUsersContent = () => (
-    <div>
-      {/* Filters and Search */}
-      <div style={{
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        gap: '16px',
-        alignItems: 'stretch',
-        marginBottom: '24px'
-      }}>
-        {/* Search */}
-        <div style={{ flex: '1', position: 'relative' }}>
-          <input
-            type="text"
-            placeholder="Search admin users..."
-            value={filters.search}
-            onChange={(e) => handleFilterChange('search', e.target.value)}
-            style={{
-              width: '100%',
-              padding: '12px 16px 12px 40px',
-              border: '2px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '14px',
-              backgroundColor: '#fff',
-              boxSizing: 'border-box'
-            }}
-          />
-          <span style={{
-            position: 'absolute',
-            left: '12px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            color: '#718096',
-            fontSize: '16px'
+  const AdminUsersContent = () => {
+    // Hide filters and search for non-super admins since they can only see themselves
+    const showFilters = currentUser?.role === 'super_admin';
+    
+    return (
+      <div>
+        {/* Filters and Search - Only show for super admin */}
+        {showFilters && (
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: '16px',
+            alignItems: 'stretch',
+            marginBottom: '24px'
           }}>
-            🔍
-          </span>
+            {/* Search */}
+            <div style={{ flex: '1', position: 'relative' }}>
+              <input
+                type="text"
+                placeholder="Search admin users..."
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px 12px 40px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  backgroundColor: '#fff',
+                  boxSizing: 'border-box'
+                }}
+              />
+              <span style={{
+                position: 'absolute',
+                left: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#718096',
+                fontSize: '16px'
+              }}>
+                🔍
+              </span>
+            </div>
+
+            {/* Role Filter */}
+            <select
+              value={filters.role}
+              onChange={(e) => handleFilterChange('role', e.target.value)}
+              style={{
+                padding: '12px 16px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '140px'
+              }}
+            >
+              <option value="">All Roles</option>
+              {Object.entries(ROLE_CONFIG).map(([key, config]) => (
+                <option key={key} value={key}>{config.name}</option>
+              ))}
+            </select>
+
+            {/* Status Filter */}
+            <select
+              value={filters.status}
+              onChange={(e) => handleFilterChange('status', e.target.value)}
+              style={{
+                padding: '12px 16px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#fff',
+                minWidth: '120px'
+              }}
+            >
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+
+            {/* Add Admin Button */}
+            <button
+              onClick={handleNewAdmin}
+              disabled={!canCreateAdmin}
+              style={{
+                padding: '12px 16px',
+                backgroundColor: canCreateAdmin ? '#ff3b30' : '#cbd5e0',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: canCreateAdmin ? 'pointer' : 'not-allowed',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              + Add Admin
+            </button>
+          </div>
+        )}
+
+        {/* Admin Users Table */}
+        <div style={{ overflowX: 'auto' }}>
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center' }}>
+              <div style={{
+                display: 'inline-block',
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #ff3b30',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite'
+              }} />
+              <p style={{ marginTop: '16px', color: '#718096' }}>Loading admin users...</p>
+            </div>
+          ) : !Array.isArray(filteredAdmins) || filteredAdmins.length === 0 ? (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#718096' }}>
+              <div style={{ fontSize: '48px', marginBottom: '16px' }}>👨‍💼</div>
+              <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No admin users found</h3>
+              <p>No admin users match your search criteria</p>
+            </div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  {currentUser?.role === 'super_admin' && (
+                    <th style={{ padding: '16px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', width: '50px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedAdmins.length === filteredAdmins.length && filteredAdmins.length > 0}
+                        onChange={selectAllAdmins}
+                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                      />
+                    </th>
+                  )}
+                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
+                    Admin User
+                  </th>
+                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
+                    Role
+                  </th>
+                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
+                    Status
+                  </th>
+                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
+                    Last Login
+                  </th>
+                  <th style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0', width: '150px' }}>
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAdmins.map((admin) => (
+                  <tr
+                    key={admin._id}
+                    style={{
+                      borderBottom: '1px solid #f1f5f9',
+                      backgroundColor: selectedAdmins.includes(admin._id) ? '#fff5f5' : '#fff'
+                    }}
+                  >
+                    {currentUser?.role === 'super_admin' && (
+                      <td style={{ padding: '16px' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedAdmins.includes(admin._id)}
+                          onChange={() => handleAdminSelect(admin._id)}
+                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                        />
+                      </td>
+                    )}
+                    <td style={{ padding: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <div style={{
+                          width: '40px',
+                          height: '40px',
+                          background: 'linear-gradient(135deg, #667eea, #764ba2)',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '14px',
+                          color: '#fff',
+                          fontWeight: 'bold'
+                        }}>
+                          {getInitials(admin.username)}
+                        </div>
+                        <div>
+                          <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
+                            {admin.username}
+                          </div>
+                          <div style={{ color: '#718096', fontSize: '12px' }}>
+                            {admin.email}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      {getRoleBadge(admin.role)}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      {getStatusBadge(admin.isActive)}
+                    </td>
+                    <td style={{ padding: '16px' }}>
+                      <div style={{ color: '#1a202c', fontSize: '14px' }}>
+                        {formatDate(admin.lastLogin)}
+                      </div>
+                    </td>
+                    <td style={{ padding: '16px', textAlign: 'right' }}>
+                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                        <button
+                          onClick={() => handleEditAdmin(admin)}
+                          disabled={!canEditAdmin(admin)}
+                          style={{
+                            padding: '4px 8px',
+                            backgroundColor: canEditAdmin(admin) ? '#f7fafc' : '#f0f0f0',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            color: canEditAdmin(admin) ? '#1a202c' : '#a0aec0',
+                            cursor: canEditAdmin(admin) ? 'pointer' : 'not-allowed'
+                          }}
+                        >
+                          Edit
+                        </button>
+                        {currentUser?.role === 'super_admin' && (
+                          <>
+                            <button
+                              onClick={() => toggleAdminStatus(admin._id, admin.isActive)}
+                              disabled={actionLoading || !canEditAdmin(admin)}
+                              style={{
+                                padding: '4px 8px',
+                                backgroundColor: admin.isActive ? (canEditAdmin(admin) ? '#ff8c00' : '#cbd5e0') : (canEditAdmin(admin) ? '#28a745' : '#cbd5e0'),
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                cursor: (actionLoading || !canEditAdmin(admin)) ? 'not-allowed' : 'pointer',
+                                opacity: actionLoading ? 0.7 : 1
+                              }}
+                            >
+                              {admin.isActive ? 'Deactivate' : 'Activate'}
+                            </button>
+                            <button
+                              onClick={() => deleteAdmin(admin._id)}
+                              disabled={actionLoading || !canDeleteAdmin(admin)}
+                              style={{
+                                padding: '4px 8px',
+                                backgroundColor: canDeleteAdmin(admin) ? '#dc3545' : '#cbd5e0',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                cursor: (actionLoading || !canDeleteAdmin(admin)) ? 'not-allowed' : 'pointer',
+                                opacity: actionLoading ? 0.7 : 1
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        {/* Role Filter */}
-        <select
-          value={filters.role}
-          onChange={(e) => handleFilterChange('role', e.target.value)}
-          style={{
-            padding: '12px 16px',
-            border: '2px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '14px',
-            backgroundColor: '#fff',
-            minWidth: '140px'
-          }}
-        >
-          <option value="">All Roles</option>
-          {Object.entries(ROLE_CONFIG).map(([key, config]) => (
-            <option key={key} value={key}>{config.name}</option>
-          ))}
-        </select>
-
-        {/* Status Filter */}
-        <select
-          value={filters.status}
-          onChange={(e) => handleFilterChange('status', e.target.value)}
-          style={{
-            padding: '12px 16px',
-            border: '2px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '14px',
-            backgroundColor: '#fff',
-            minWidth: '120px'
-          }}
-        >
-          <option value="">All Status</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-        </select>
-
-        {/* Add Admin Button */}
-        <button
-          onClick={handleNewAdmin}
-          style={{
-            padding: '12px 16px',
-            backgroundColor: '#ff3b30',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          + Add Admin
-        </button>
+        {/* Show pagination only for super admin */}
+        {currentUser?.role === 'super_admin' && !loading && Array.isArray(filteredAdmins) && filteredAdmins.length > 0 && <PaginationControls />}
       </div>
-
-      {/* Admin Users Table */}
-      <div style={{ overflowX: 'auto' }}>
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center' }}>
-            <div style={{
-              display: 'inline-block',
-              width: '40px',
-              height: '40px',
-              border: '4px solid #f3f3f3',
-              borderTop: '4px solid #ff3b30',
-              borderRadius: '50%',
-              animation: 'spin 1s linear infinite'
-            }} />
-            <p style={{ marginTop: '16px', color: '#718096' }}>Loading admin users...</p>
-          </div>
-        ) : !Array.isArray(admins) || admins.length === 0 ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: '#718096' }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>👨‍💼</div>
-            <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No admin users found</h3>
-            <p>No admin users match your search criteria</p>
-          </div>
-        ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{ padding: '16px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', width: '50px' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedAdmins.length === admins.length && admins.length > 0}
-                    onChange={selectAllAdmins}
-                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                  />
-                </th>
-                <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                  Admin User
-                </th>
-                <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                  Role
-                </th>
-                <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                  Status
-                </th>
-                <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                  Last Login
-                </th>
-                <th style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0', width: '150px' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {admins.map((admin) => (
-                <tr
-                  key={admin._id}
-                  style={{
-                    borderBottom: '1px solid #f1f5f9',
-                    backgroundColor: selectedAdmins.includes(admin._id) ? '#fff5f5' : '#fff'
-                  }}
-                >
-                  <td style={{ padding: '16px' }}>
-                    <input
-                      type="checkbox"
-                      checked={selectedAdmins.includes(admin._id)}
-                      onChange={() => handleAdminSelect(admin._id)}
-                      style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                    />
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        width: '40px',
-                        height: '40px',
-                        background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '14px',
-                        color: '#fff',
-                        fontWeight: 'bold'
-                      }}>
-                        {getInitials(admin.username)}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
-                          {admin.username}
-                        </div>
-                        <div style={{ color: '#718096', fontSize: '12px' }}>
-                          {admin.email}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    {getRoleBadge(admin.role)}
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    {getStatusBadge(admin.isActive)}
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <div style={{ color: '#1a202c', fontSize: '14px' }}>
-                      {formatDate(admin.lastLogin)}
-                    </div>
-                  </td>
-                  <td style={{ padding: '16px', textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button
-                        onClick={() => handleEditAdmin(admin)}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#f7fafc',
-                          border: '1px solid #e2e8f0',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '600',
-                          color: '#1a202c',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => toggleAdminStatus(admin._id, admin.isActive)}
-                        disabled={actionLoading}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: admin.isActive ? '#ff8c00' : '#28a745',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '600',
-                          cursor: actionLoading ? 'not-allowed' : 'pointer',
-                          opacity: actionLoading ? 0.7 : 1
-                        }}
-                      >
-                        {admin.isActive ? 'Deactivate' : 'Activate'}
-                      </button>
-                      <button
-                        onClick={() => deleteAdmin(admin._id)}
-                        disabled={actionLoading}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#dc3545',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          fontWeight: '600',
-                          cursor: actionLoading ? 'not-allowed' : 'pointer',
-                          opacity: actionLoading ? 0.7 : 1
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {!loading && Array.isArray(admins) && admins.length > 0 && <PaginationControls />}
-    </div>
-  );
+    );
+  };
 
   // Roles & Permissions Tab Content
   const RolesPermissionsContent = () => (
@@ -1714,16 +1819,16 @@ const AdminManagement = () => {
                   </button>
                   <button
                     onClick={() => deleteRole(role._id)}
-                    disabled={actionLoading}
+                    disabled={actionLoading || role.name === 'super_admin'}
                     style={{
                       padding: '6px 12px',
-                      backgroundColor: '#dc3545',
+                      backgroundColor: role.name === 'super_admin' ? '#cbd5e0' : '#dc3545',
                       color: '#fff',
                       border: 'none',
                       borderRadius: '6px',
                       fontSize: '12px',
                       fontWeight: '600',
-                      cursor: actionLoading ? 'not-allowed' : 'pointer',
+                      cursor: (actionLoading || role.name === 'super_admin') ? 'not-allowed' : 'pointer',
                       opacity: actionLoading ? 0.7 : 1
                     }}
                   >
@@ -1790,285 +1895,14 @@ const AdminManagement = () => {
           );
         })}
       </div>
-
-      {/* Permission Matrix */}
-      <div style={{
-        backgroundColor: '#fff',
-        padding: '24px',
-        borderRadius: '12px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-        border: '1px solid #e2e8f0'
-      }}>
-        <h3 style={{
-          fontSize: '18px',
-          fontWeight: '700',
-          color: '#1a202c',
-          margin: '0 0 20px 0'
-        }}>
-          Permission Matrix
-        </h3>
-        
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{
-                  padding: '12px',
-                  textAlign: 'left',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: '#1a202c',
-                  borderBottom: '1px solid #e2e8f0'
-                }}>
-                  Permission
-                </th>
-                {Array.isArray(roles) && roles.map((role) => {
-                  const roleConfig = ROLE_CONFIG[role.name] || { color: '#6c757d', name: role.name };
-                  return (
-                    <th
-                      key={role._id || role.id || Math.random()}
-                      style={{
-                        padding: '12px',
-                        textAlign: 'center',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        color: roleConfig.color,
-                        borderBottom: '1px solid #e2e8f0',
-                        minWidth: '80px'
-                      }}
-                    >
-                      {roleConfig.name}
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody>
-              {Object.entries(PERMISSION_CATEGORIES).map(([categoryKey, category]) => (
-                <React.Fragment key={categoryKey}>
-                  <tr style={{ backgroundColor: '#f8f9fa' }}>
-                    <td
-                      colSpan={(Array.isArray(roles) ? roles.length : 0) + 1}
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        color: category.color,
-                        borderBottom: '1px solid #e2e8f0'
-                      }}
-                    >
-                      {category.icon} {category.name}
-                    </td>
-                  </tr>
-                  {ALL_PERMISSIONS.filter(p => p.category === categoryKey).map((permission) => (
-                    <tr key={permission.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{
-                        padding: '8px 12px',
-                        fontSize: '13px',
-                        color: '#1a202c'
-                      }}>
-                        {permission.name}
-                      </td>
-                      {Array.isArray(roles) && roles.map((role) => {
-                        const hasPermission = Array.isArray(role.permissions) && role.permissions.includes(permission.id);
-                        
-                        return (
-                          <td
-                            key={role._id || role.id || Math.random()}
-                            style={{
-                              padding: '8px 12px',
-                              textAlign: 'center'
-                            }}
-                          >
-                            <span style={{
-                              fontSize: '16px',
-                              color: hasPermission ? '#28a745' : '#dc3545'
-                            }}>
-                              {hasPermission ? '✅' : '❌'}
-                            </span>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </React.Fragment>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
-
-  // Activity Logs Tab Content
-  const ActivityLogsContent = () => (
-    <div style={{
-      backgroundColor: '#fff',
-      padding: '24px',
-      borderRadius: '12px',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e2e8f0'
-    }}>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '20px'
-      }}>
-        <h3 style={{
-          fontSize: '18px',
-          fontWeight: '700',
-          color: '#1a202c',
-          margin: 0
-        }}>
-          Admin Activity Logs
-        </h3>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <select style={{
-            padding: '8px 12px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            fontSize: '14px'
-          }}>
-            <option value="all">All Activities</option>
-            <option value="login">Login/Logout</option>
-            <option value="user">User Management</option>
-            <option value="transaction">Transactions</option>
-            <option value="service">Services</option>
-            <option value="system">System Changes</option>
-          </select>
-          <button style={{
-            padding: '8px 16px',
-            backgroundColor: '#f7fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer'
-          }}>
-            Export Logs
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        {Array.isArray(activityLogs) && activityLogs.length > 0 ? activityLogs.map((log, index) => (
-          <div
-            key={index}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '16px',
-              padding: '16px',
-              backgroundColor: '#f8f9fa',
-              borderRadius: '8px',
-              border: '1px solid #e2e8f0'
-            }}
-          >
-            <div style={{
-              width: '40px',
-              height: '40px',
-              backgroundColor: getActivityColor(log.action),
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '16px'
-            }}>
-              {getActivityIcon(log.action)}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#1a202c',
-                marginBottom: '4px'
-              }}>
-                {log.description || 'No description'}
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#718096'
-              }}>
-                by {log.adminName || 'Unknown'} • {formatDate(log.timestamp)} • IP: {log.ipAddress || 'Unknown'}
-              </div>
-            </div>
-            <div style={{
-              padding: '4px 8px',
-              backgroundColor: getStatusColor(log.status),
-              color: '#fff',
-              borderRadius: '12px',
-              fontSize: '11px',
-              fontWeight: '600'
-            }}>
-              {log.status || 'unknown'}
-            </div>
-          </div>
-        )) : (
-          <div style={{
-            textAlign: 'center',
-            padding: '40px',
-            color: '#718096'
-          }}>
-            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📝</div>
-            <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No activity logs found</h3>
-            <p>Admin activity will appear here when actions are performed</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
-  // Utility functions for activity logs
-  const getActivityIcon = (action) => {
-    const icons = {
-      login: '🔐',
-      logout: '🚪',
-      create_user: '👤',
-      edit_user: '✏️',
-      delete_user: '🗑️',
-      transaction: '💳',
-      service_config: '⚙️',
-      system_change: '🔧',
-      default: '📝'
-    };
-    return icons[action] || icons.default;
-  };
-
-  const getActivityColor = (action) => {
-    const colors = {
-      login: '#28a745',
-      logout: '#6c757d',
-      create_user: '#007bff',
-      edit_user: '#ff8c00',
-      delete_user: '#dc3545',
-      transaction: '#28a745',
-      service_config: '#6f42c1',
-      system_change: '#ff3b30',
-      default: '#e2e8f0'
-    };
-    return colors[action] || colors.default;
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      success: '#28a745',
-      failed: '#dc3545',
-      warning: '#ff8c00',
-      info: '#007bff',
-      unknown: '#6c757d'
-    };
-    return colors[status] || colors.unknown;
-  };
 
   return (
     <ErrorBoundary>
       <div style={{
         width: '100%',
-        maxWidth: '100%',
-        backgroundColor: '#f8f9fa',
-        minHeight: '100vh',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        maxWidth: '100%'
       }}>
         <style>{`
           @keyframes spin {
@@ -2079,56 +1913,117 @@ const AdminManagement = () => {
         
         <NotificationBanner />
         
-        {/* Header Stats Cards */}
-        <div style={{
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: isMobile ? '16px' : '24px',
-          marginBottom: '32px',
-          padding: '20px'
+        {/* Header Stats Cards - Show different stats based on role */}
+       <div style={{
+  display: 'grid',
+  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+  gap: isMobile ? '10px' : '12px',
+  marginBottom: isMobile ? '20px' : '24px',
+  width: '100%'
+}}>
+  {/* If super admin, show admin stats */}
+  {currentUser?.role === 'super_admin' && [
+    { label: 'Total Admins', value: stats?.totalAdmins || 0, color: '#ff3b30', icon: '👨‍💼' },
+    { label: 'Active Admins', value: stats?.activeAdmins || 0, color: '#ff3b30', icon: '✅' },
+    { label: 'Inactive', value: stats?.inactiveAdmins || 0, color: '#ff3b30', icon: '⏸️' },
+    { label: 'Total Roles', value: stats?.totalRoles || 0, color: '#ff3b30', icon: '🔑' }
+  ].map((stat, index) => (
+    <div key={index} style={{
+      backgroundColor: '#fff',
+      padding: isMobile ? '12px' : '16px',
+      borderRadius: '8px',
+      boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #e2e8f0',
+      opacity: 1,
+      transition: 'opacity 0.3s ease'
+    }}>
+      <div style={{
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px', 
+        marginBottom: '8px'
+      }}>
+        <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+        <h3 style={{
+          color: '#1a202c', 
+          fontSize: isMobile ? '12px' : '14px', 
+          fontWeight: '600', 
+          margin: 0
         }}>
-          {[
-            { label: 'Total Admins', value: stats.totalAdmins, color: '#ff3b30', icon: '👨‍💼' },
-            { label: 'Active Admins', value: stats.activeAdmins, color: '#28a745', icon: '✅' },
-            { label: 'Inactive Admins', value: stats.inactiveAdmins, color: '#6c757d', icon: '⏸️' },
-            { label: 'Total Roles', value: stats.totalRoles, color: '#007bff', icon: '🔑' }
-          ].map((stat, index) => (
-            <div key={index} style={{
-              backgroundColor: '#fff',
-              padding: isMobile ? '20px' : '24px',
-              borderRadius: '16px',
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-              border: '1px solid #e2e8f0',
-              flex: '1',
-              minWidth: isMobile ? '140px' : '200px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                <span style={{ fontSize: '24px' }}>{stat.icon}</span>
-                <h3 style={{ color: '#1a202c', fontSize: '14px', fontWeight: '600', margin: 0 }}>
-                  {stat.label}
-                </h3>
-              </div>
-              <p style={{ color: stat.color, fontSize: isMobile ? '20px' : '24px', fontWeight: '700', margin: 0 }}>
-                {stat.value.toLocaleString()}
-              </p>
-            </div>
-          ))}
-        </div>
+          {stat.label}
+        </h3>
+      </div>
+      <p style={{
+        color: stat.color, 
+        fontSize: isMobile ? '16px' : '18px', 
+        fontWeight: '700', 
+        margin: 0
+      }}>
+        {stat.value.toLocaleString()}
+      </p>
+    </div>
+  ))}
+  
+  {/* If NOT super admin, show personal info */}
+  {currentUser?.role !== 'super_admin' && [
+    { label: 'Your Role', value: ROLE_CONFIG[currentUser?.role]?.name || 'Unknown', color: '#ff3b30', icon: '👤', isText: true },
+    { label: 'Status', value: currentUser?.isActive ? 'Active' : 'Inactive', color: currentUser?.isActive ? '#28a745' : '#ff3b30', icon: currentUser?.isActive ? '✅' : '⏸️', isText: true },
+    { label: 'Last Login', value: formatDate(currentUser?.lastLogin), color: '#ff3b30', icon: '🕒', isText: true },
+    { label: 'Email', value: currentUser?.email ? currentUser.email.substring(0, 15) + (currentUser.email.length > 15 ? '...' : '') : 'N/A', color: '#ff3b30', icon: '📧', isText: true }
+  ].map((stat, index) => (
+    <div key={index} style={{
+      backgroundColor: '#fff',
+      padding: isMobile ? '12px' : '16px',
+      borderRadius: '8px',
+      boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #e2e8f0',
+      opacity: 1,
+      transition: 'opacity 0.3s ease'
+    }}>
+      <div style={{
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '8px', 
+        marginBottom: '8px'
+      }}>
+        <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+        <h3 style={{
+          color: '#1a202c', 
+          fontSize: isMobile ? '12px' : '14px', 
+          fontWeight: '600', 
+          margin: 0
+        }}>
+          {stat.label}
+        </h3>
+      </div>
+      <p style={{
+        color: stat.color, 
+        fontSize: isMobile ? '14px' : '16px', 
+        fontWeight: '600', 
+        margin: 0,
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis'
+      }}>
+        {stat.value}
+      </p>
+    </div>
+  ))}
+</div>
 
         {/* Main Content Card */}
         <div style={{
           backgroundColor: '#fff',
-          borderRadius: '16px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
           border: '1px solid #e2e8f0',
-          overflow: 'hidden',
-          margin: '0 20px 20px 20px'
+          overflow: 'hidden'
         }}>
-          {/* Tab Navigation */}
+          {/* Tab Navigation Header */}
           <div style={{
-            padding: isMobile ? '20px' : '24px',
+            padding: isMobile ? '16px' : '20px',
             borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f8f9fa'
+            backgroundColor: '#f7fafc'
           }}>
             <div style={{
               display: 'flex',
@@ -2140,11 +2035,11 @@ const AdminManagement = () => {
             }}>
               <h2 style={{
                 color: '#1a202c',
-                fontSize: isMobile ? '20px' : '24px',
+                fontSize: isMobile ? '18px' : '20px',
                 fontWeight: '700',
                 margin: 0
               }}>
-                Admin Management
+                Admin Management {currentUser?.role !== 'super_admin' && '(Your Profile)'}
               </h2>
             </div>
             
@@ -2152,10 +2047,9 @@ const AdminManagement = () => {
           </div>
 
           {/* Tab Content */}
-          <div style={{ padding: isMobile ? '16px' : '24px' }}>
+          <div style={{ padding: isMobile ? '16px' : '20px' }}>
             {activeTab === 'admins' && <AdminUsersContent />}
             {activeTab === 'roles' && <RolesPermissionsContent />}
-            {activeTab === 'logs' && <ActivityLogsContent />}
           </div>
         </div>
 
@@ -2169,6 +2063,7 @@ const AdminManagement = () => {
           actionLoading={actionLoading}
           handleAdminSubmit={handleAdminSubmit}
           ROLE_CONFIG={ROLE_CONFIG}
+          currentUserRole={currentUser?.role}
         />
 
         <RoleModal 
@@ -2181,6 +2076,8 @@ const AdminManagement = () => {
           handleRoleSubmit={handleRoleSubmit}
           ALL_PERMISSIONS={ALL_PERMISSIONS}
           PERMISSION_CATEGORIES={PERMISSION_CATEGORIES}
+          currentUserRole={currentUser?.role}
+          ROLE_CONFIG={ROLE_CONFIG}
         />
       </div>
     </ErrorBoundary>

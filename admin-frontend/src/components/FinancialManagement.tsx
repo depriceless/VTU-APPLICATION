@@ -2,12 +2,42 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 const FinancialManagement = () => {
   const [activeTab, setActiveTab] = useState('revenue-reports');
-  const [isMobile, setIsMobile] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedTransactions, setSelectedTransactions] = useState([]);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
+  const [showBulkActions, setShowBulkActions] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [token, setToken] = useState('');
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [showSettlementModal, setShowSettlementModal] = useState(false);
+  const [settlementForm, setSettlementForm] = useState({
+    amount: '',
+    bankAccount: '',
+    description: ''
+  });
+
+  // Filters and search state
+  const [filters, setFilters] = useState({
+    search: '',
+    status: '',
+    type: '',
+    category: '',
+    dateFrom: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    dateTo: new Date().toISOString().split('T')[0],
+    page: 1,
+    limit: 25,
+    sortBy: 'createdAt',
+    sortOrder: 'desc'
+  });
+
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalTransactions: 0,
+    hasNextPage: false,
+    hasPrevPage: false
+  });
 
   // Financial data states
   const [revenueData, setRevenueData] = useState({
@@ -52,12 +82,14 @@ const FinancialManagement = () => {
     breakdown: []
   });
 
-  // Form states
-  const [dateRange, setDateRange] = useState({
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    endDate: new Date().toISOString().split('T')[0]
+  const [financialStats, setFinancialStats] = useState({
+    totalRevenue: 0,
+    totalCommission: 0,
+    totalTax: 0,
+    netProfit: 0
   });
 
+  // Form states
   const [newCommissionForm, setNewCommissionForm] = useState({
     service: 'airtime',
     percentage: '',
@@ -72,58 +104,8 @@ const FinancialManagement = () => {
     isActive: true
   });
 
-  // API Base URL
-  const API_BASE_URL = import.meta?.env?.VITE_API_URL || 'https://vtu-application.onrender.com';
-
-  // Utility functions
-  const showNotification = useCallback((message, type = 'success') => {
-    if (type === 'success') {
-      setSuccess(message);
-      setError(null);
-    } else {
-      setError(message);
-      setSuccess(null);
-    }
-    
-    setTimeout(() => {
-      setSuccess(null);
-      setError(null);
-    }, 5000);
-  }, []);
-
-  const makeApiCall = useCallback(async (endpoint, options = {}) => {
-    const defaultOptions = {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...options.headers
-      }
-    };
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...defaultOptions,
-      ...options
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    return response.json();
-  }, [token, API_BASE_URL]);
-
-  const formatCurrency = useCallback((amount) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'currency',
-      currency: 'NGN',
-      minimumFractionDigits: 0
-    }).format(amount);
-  }, []);
-
-  const formatNumber = useCallback((num) => {
-    return new Intl.NumberFormat('en-NG').format(num);
-  }, []);
+  // API Base URL Configuration
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
 
   // Check mobile screen
   useEffect(() => {
@@ -139,120 +121,241 @@ const FinancialManagement = () => {
     if (authToken) {
       setToken(authToken);
     } else {
-      showNotification('Please login again', 'error');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
+      window.location.href = '/';
     }
-  }, [showNotification]);
+  }, []);
+
+  // Fetch financial stats
+  const fetchFinancialStats = useCallback(async () => {
+    if (!token) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch financial stats');
+      
+      const data = await response.json();
+      setFinancialStats(data.overview || data);
+    } catch (error) {
+      console.error('Error fetching financial stats:', error);
+      setFinancialStats({
+        totalRevenue: 0,
+        totalCommission: 0,
+        totalTax: 0,
+        netProfit: 0
+      });
+    }
+  }, [token, API_BASE_URL]);
 
   // API Functions
   const fetchRevenueData = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall(`/api/admin/financial/revenue?startDate=${dateRange.startDate}&endDate=${dateRange.endDate}`);
+      setLoading(true);
+      const response = await fetch(
+        `${API_BASE_URL}/api/admin/financial/revenue?startDate=${filters.dateFrom}&endDate=${filters.dateTo}`, 
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        }
+      );
+      
+      if (!response.ok) throw new Error('Failed to fetch revenue data');
+      
+      const data = await response.json();
       setRevenueData(data.data || data);
+      await fetchFinancialStats();
     } catch (error) {
       console.error('Error fetching revenue data:', error);
-      showNotification(`Failed to fetch revenue data: ${error.message}`, 'error');
+      alert('Failed to fetch revenue data');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification, dateRange]);
+  }, [token, filters.dateFrom, filters.dateTo, API_BASE_URL, fetchFinancialStats]);
 
   const fetchCommissionSettings = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall('/api/admin/financial/commissions');
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/commissions`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch commission settings');
+      
+      const data = await response.json();
       setCommissionSettings(data.data || data);
     } catch (error) {
       console.error('Error fetching commission settings:', error);
-      showNotification(`Failed to fetch commission settings: ${error.message}`, 'error');
+      alert('Failed to fetch commission settings');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  }, [token, API_BASE_URL]);
 
   const fetchWalletStats = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall('/api/admin/financial/wallet-stats');
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/wallet-stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch wallet stats');
+      
+      const data = await response.json();
       setWalletStats(data.data || data);
     } catch (error) {
       console.error('Error fetching wallet stats:', error);
-      showNotification(`Failed to fetch wallet statistics: ${error.message}`, 'error');
+      alert('Failed to fetch wallet statistics');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  }, [token, API_BASE_URL]);
 
   const fetchSettlementData = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall('/api/admin/financial/settlements');
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/settlements`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch settlement data');
+      
+      const data = await response.json();
       setSettlementData(data.data || data);
     } catch (error) {
       console.error('Error fetching settlement data:', error);
-      showNotification(`Failed to fetch settlement data: ${error.message}`, 'error');
+      alert('Failed to fetch settlement data');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  }, [token, API_BASE_URL]);
 
   const fetchBankAccounts = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall('/api/admin/financial/bank-accounts');
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/bank-accounts`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch bank accounts');
+      
+      const data = await response.json();
       setBankAccounts(data.data || data);
     } catch (error) {
       console.error('Error fetching bank accounts:', error);
-      showNotification(`Failed to fetch bank accounts: ${error.message}`, 'error');
+      alert('Failed to fetch bank accounts');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  }, [token, API_BASE_URL]);
 
   const fetchTaxReports = useCallback(async () => {
     if (!token) return;
     
     try {
-      const data = await makeApiCall('/api/admin/financial/tax-reports');
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/tax-reports`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch tax reports');
+      
+      const data = await response.json();
       setTaxReports(data.data || data);
     } catch (error) {
       console.error('Error fetching tax reports:', error);
-      showNotification(`Failed to fetch tax reports: ${error.message}`, 'error');
+      alert('Failed to fetch tax reports');
+    } finally {
+      setLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  }, [token, API_BASE_URL]);
 
-  const updateCommissionSettings = useCallback(async (service, settings) => {
-    if (!token) return;
+  const updateCommissionSettings = async (service, settings) => {
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
     
     try {
       setActionLoading(true);
-      await makeApiCall('/api/admin/financial/commissions', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/commissions`, {
         method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ service, ...settings })
       });
-      
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to update commission settings');
+      }
+
+      const data = await response.json();
       setCommissionSettings(prev => ({
         ...prev,
         [service]: settings
       }));
       
-      showNotification('Commission settings updated successfully');
+      alert('Commission settings updated successfully');
+      return data;
     } catch (error) {
       console.error('Error updating commission settings:', error);
-      showNotification(`Failed to update commission settings: ${error.message}`, 'error');
+      alert(`Failed to update commission settings: ${error.message}`);
+      return null;
     } finally {
       setActionLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  };
 
-  const addBankAccount = useCallback(async (accountData) => {
-    if (!token) return;
+  const addBankAccount = async (accountData) => {
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
     
     try {
       setActionLoading(true);
-      const data = await makeApiCall('/api/admin/financial/bank-accounts', {
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/bank-accounts`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(accountData)
       });
-      
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to add bank account');
+      }
+
+      const data = await response.json();
       setBankAccounts(prev => [...prev, data.data || data]);
       setBankAccountForm({
         accountName: '',
@@ -262,70 +365,366 @@ const FinancialManagement = () => {
         isActive: true
       });
       
-      showNotification('Bank account added successfully');
+      alert('Bank account added successfully');
+      return data;
     } catch (error) {
       console.error('Error adding bank account:', error);
-      showNotification(`Failed to add bank account: ${error.message}`, 'error');
+      alert(`Failed to add bank account: ${error.message}`);
+      return null;
     } finally {
       setActionLoading(false);
     }
-  }, [token, makeApiCall, showNotification]);
+  };
 
-  const processSettlement = useCallback(async (settlementId) => {
-    if (!token) return;
+  const processSettlement = async (settlementId) => {
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
     
     try {
       setActionLoading(true);
-      await makeApiCall(`/api/admin/financial/settlements/${settlementId}/process`, {
-        method: 'POST'
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/settlements/${settlementId}/process`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
-      
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to process settlement');
+      }
+
+      const data = await response.json();
       await fetchSettlementData();
-      showNotification('Settlement processed successfully');
+      alert('Settlement processed successfully');
+      return data;
     } catch (error) {
       console.error('Error processing settlement:', error);
-      showNotification(`Failed to process settlement: ${error.message}`, 'error');
+      alert(`Failed to process settlement: ${error.message}`);
+      return null;
     } finally {
       setActionLoading(false);
     }
-  }, [token, makeApiCall, showNotification, fetchSettlementData]);
+  };
+
+  const createSettlement = async (settlementData) => {
+    if (!token) {
+      alert('Please login again');
+      return null;
+    }
+    
+    try {
+      setActionLoading(true);
+      const response = await fetch(`${API_BASE_URL}/api/admin/financial/settlements`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(settlementData)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to create settlement');
+      }
+
+      const data = await response.json();
+      await fetchSettlementData();
+      setShowSettlementModal(false);
+      setSettlementForm({ amount: '', bankAccount: '', description: '' });
+      alert('Settlement created successfully');
+      return data;
+    } catch (error) {
+      console.error('Error creating settlement:', error);
+      alert(`Failed to create settlement: ${error.message}`);
+      return null;
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // Load data on component mount and tab changes
   useEffect(() => {
     if (token) {
-      setLoading(true);
+      fetchFinancialStats();
+    }
+  }, [token, fetchFinancialStats]);
+
+  useEffect(() => {
+    if (token) {
       const loadData = async () => {
-        try {
-          switch (activeTab) {
-            case 'revenue-reports':
-              await fetchRevenueData();
-              break;
-            case 'commission-settings':
-              await fetchCommissionSettings();
-              break;
-            case 'wallet-management':
-              await fetchWalletStats();
-              break;
-            case 'bank-integration':
-              await fetchBankAccounts();
-              break;
-            case 'settlement-reports':
-              await fetchSettlementData();
-              break;
-            case 'tax-reports':
-              await fetchTaxReports();
-              break;
-            default:
-              break;
-          }
-        } finally {
-          setLoading(false);
+        switch (activeTab) {
+          case 'revenue-reports':
+            await fetchRevenueData();
+            break;
+          case 'commission-settings':
+            await fetchCommissionSettings();
+            break;
+          case 'wallet-management':
+            await fetchWalletStats();
+            break;
+          case 'bank-integration':
+            await fetchBankAccounts();
+            break;
+          case 'settlement-reports':
+            await fetchSettlementData();
+            break;
+          case 'tax-reports':
+            await fetchTaxReports();
+            break;
+          default:
+            break;
         }
       };
       
       loadData();
     }
   }, [token, activeTab, fetchRevenueData, fetchCommissionSettings, fetchWalletStats, fetchBankAccounts, fetchSettlementData, fetchTaxReports]);
+
+  // Utility functions
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      minimumFractionDigits: 0
+    }).format(amount);
+  };
+
+  const formatNumber = (num) => {
+    return new Intl.NumberFormat('en-NG').format(num);
+  };
+
+  const handleFilterChange = (key, value) => {
+    setFilters(prev => ({
+      ...prev,
+      [key]: value,
+      page: 1
+    }));
+  };
+
+  const handleTransactionSelect = (transactionId) => {
+    setSelectedTransactions(prev => 
+      prev.includes(transactionId)
+        ? prev.filter(id => id !== transactionId)
+        : [...prev, transactionId]
+    );
+  };
+
+  const selectAllTransactions = () => {
+    if (selectedTransactions.length === revenueData.recentTransactions?.length) {
+      setSelectedTransactions([]);
+    } else {
+      setSelectedTransactions(revenueData.recentTransactions?.map(t => t._id) || []);
+    }
+  };
+
+  const handleViewDetails = (transaction) => {
+    setSelectedTransaction(transaction);
+    setShowModal(true);
+  };
+
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      completed: { bg: '#28a745', text: 'Completed' },
+      pending: { bg: '#ff8c00', text: 'Pending' },
+      failed: { bg: '#ff3b30', text: 'Failed' },
+      cancelled: { bg: '#6c757d', text: 'Cancelled' }
+    };
+
+    const config = statusConfig[status] || statusConfig.pending;
+
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: '#fff',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: '600',
+        textTransform: 'uppercase'
+      }}>
+        {config.text}
+      </span>
+    );
+  };
+
+  const getTypeBadge = (type) => {
+    const typeConfig = {
+      credit: { bg: '#28a745', text: 'Credit' },
+      debit: { bg: '#ff3b30', text: 'Debit' },
+      transfer_in: { bg: '#007bff', text: 'Transfer In' },
+      transfer_out: { bg: '#6f42c1', text: 'Transfer Out' }
+    };
+
+    const config = typeConfig[type] || typeConfig.credit;
+
+    return (
+      <span style={{
+        backgroundColor: config.bg,
+        color: '#fff',
+        padding: '4px 8px',
+        borderRadius: '12px',
+        fontSize: '11px',
+        fontWeight: '600',
+        textTransform: 'uppercase'
+      }}>
+        {config.text}
+      </span>
+    );
+  };
+
+  // Pagination Controls
+  const PaginationControls = () => (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: '20px',
+      flexWrap: 'wrap',
+      gap: '16px'
+    }}>
+      <div style={{
+        fontSize: '14px',
+        color: '#718096'
+      }}>
+        Showing {((pagination.currentPage - 1) * filters.limit) + 1} to{' '}
+        {Math.min(pagination.currentPage * filters.limit, pagination.totalTransactions)} of{' '}
+        {pagination.totalTransactions} transactions
+      </div>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px'
+      }}>
+        <button
+          onClick={() => handleFilterChange('page', pagination.currentPage - 1)}
+          disabled={!pagination.hasPrevPage}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            backgroundColor: pagination.hasPrevPage ? '#fff' : '#f8f9fa',
+            color: pagination.hasPrevPage ? '#1a202c' : '#a0aec0',
+            cursor: pagination.hasPrevPage ? 'pointer' : 'not-allowed',
+            fontSize: '14px'
+          }}
+        >
+          Previous
+        </button>
+
+        <span style={{
+          padding: '8px 12px',
+          fontSize: '14px',
+          color: '#1a202c'
+        }}>
+          Page {pagination.currentPage} of {pagination.totalPages}
+        </span>
+
+        <button
+          onClick={() => handleFilterChange('page', pagination.currentPage + 1)}
+          disabled={!pagination.hasNextPage}
+          style={{
+            padding: '8px 12px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '6px',
+            backgroundColor: pagination.hasNextPage ? '#fff' : '#f8f9fa',
+            color: pagination.hasNextPage ? '#1a202c' : '#30363fff',
+            cursor: pagination.hasNextPage ? 'pointer' : 'not-allowed',
+            fontSize: '14px'
+          }}
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  );
+
+  // Bulk Actions Dropdown
+  const BulkActionsDropdown = () => {
+    if (!showBulkActions || selectedTransactions.length === 0) return null;
+
+    return (
+      <div style={{
+        position: 'absolute',
+        right: 0,
+        top: '100%',
+        backgroundColor: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '8px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        zIndex: 100,
+        minWidth: '150px',
+        marginTop: '4px'
+      }}>
+        <button
+          onClick={() => {
+            const confirmMessage = `Export ${selectedTransactions.length} transaction(s)?`;
+            if (window.confirm(confirmMessage)) {
+              alert('Export functionality to be implemented');
+            }
+          }}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            borderBottom: '1px solid #f1f5f9'
+          }}
+        >
+          Export Selected
+        </button>
+        <button
+          onClick={() => {
+            const reason = prompt('Enter reason for marking as completed:');
+            if (reason) {
+              alert('Bulk status update functionality to be implemented');
+            }
+          }}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            borderBottom: '1px solid #f1f5f9'
+          }}
+        >
+          Mark as Completed
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm(`Are you sure you want to delete ${selectedTransactions.length} transaction(s)?`)) {
+              alert('Bulk delete functionality to be implemented');
+            }
+          }}
+          disabled={actionLoading}
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: 'none',
+            backgroundColor: 'transparent',
+            textAlign: 'left',
+            fontSize: '14px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            color: '#ff3b30'
+          }}
+        >
+          Delete Selected
+        </button>
+      </div>
+    );
+  };
 
   // Tab configuration
   const tabs = [
@@ -337,53 +736,102 @@ const FinancialManagement = () => {
     { id: 'tax-reports', label: 'Tax Reports', icon: '📊' }
   ];
 
-  // Notification Component
-  const NotificationBanner = () => {
-    if (!success && !error) return null;
-
-    return (
+  // Tab Navigation
+  const TabNavigation = () => (
+    <div style={{
+      backgroundColor: '#fff',
+      padding: '16px 20px',
+      borderRadius: '12px',
+      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #e2e8f0',
+      marginBottom: '24px'
+    }}>
       <div style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        zIndex: 2000,
-        maxWidth: '400px',
-        padding: '16px',
-        borderRadius: '8px',
-        backgroundColor: success ? '#d4edda' : '#f8d7da',
-        border: `1px solid ${success ? '#c3e6cb' : '#f5c6cb'}`,
-        color: success ? '#155724' : '#721c24',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+        display: 'flex',
+        overflowX: 'auto',
+        gap: '8px',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>{success ? '✅' : '❌'}</span>
-          <span style={{ fontSize: '14px', fontWeight: '500' }}>
-            {success || error}
-          </span>
+        {tabs.map((tab) => (
           <button
-            onClick={() => {
-              setSuccess(null);
-              setError(null);
-            }}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
             style={{
-              marginLeft: 'auto',
-              background: 'none',
+              padding: '12px 16px',
               border: 'none',
-              fontSize: '18px',
+              borderRadius: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
               cursor: 'pointer',
-              color: 'inherit'
+              whiteSpace: 'nowrap',
+              backgroundColor: activeTab === tab.id ? '#ff3b30' : '#f8f9fa',
+              color: activeTab === tab.id ? '#fff' : '#1a202c',
+              transition: 'all 0.3s ease'
             }}
           >
-            ×
+            <span style={{ marginRight: '8px' }}>{tab.icon}</span>
+            {isMobile ? tab.label.split(' ')[0] : tab.label}
           </button>
-        </div>
+        ))}
       </div>
-    );
-  };
+    </div>
+  );
 
   // Revenue Reports Component
   const RevenueReports = () => (
     <div style={{ width: '100%' }}>
+      {/* Stats Cards */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: isMobile ? '10px' : '12px',
+        marginBottom: isMobile ? '20px' : '24px',
+        width: '100%'
+      }}>
+        {[
+          { label: 'Total Revenue', value: financialStats.totalRevenue, color: '#28a745', icon: '💰' },
+          { label: 'Total Commission', value: financialStats.totalCommission, color: '#ffc107', icon: '💸' },
+          { label: 'Total Tax', value: financialStats.totalTax, color: '#dc3545', icon: '🏛️' },
+          { label: 'Net Profit', value: financialStats.netProfit, color: '#17a2b8', icon: '📊' }
+        ].map((stat, index) => (
+          <div key={index} style={{
+            backgroundColor: '#fff',
+            padding: isMobile ? '12px' : '16px',
+            borderRadius: '8px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e2e8f0',
+            opacity: 1,
+            transition: 'opacity 0.3s ease'
+          }}>
+            <div style={{
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              marginBottom: '8px'
+            }}>
+              <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+              <h3 style={{
+                color: '#1a202c', 
+                fontSize: isMobile ? '12px' : '14px', 
+                fontWeight: '600', 
+                margin: 0
+              }}>
+                {stat.label}
+              </h3>
+            </div>
+            <p style={{
+              color: stat.color, 
+              fontSize: isMobile ? '16px' : '18px', 
+              fontWeight: '700', 
+              margin: 0
+            }}>
+              {formatCurrency(stat.value)}
+            </p>
+          </div>
+        ))}
+      </div>
+
       {/* Date Range Filter */}
       <div style={{
         backgroundColor: '#fff',
@@ -409,8 +857,8 @@ const FinancialManagement = () => {
             </label>
             <input
               type="date"
-              value={dateRange.startDate}
-              onChange={(e) => setDateRange(prev => ({ ...prev, startDate: e.target.value }))}
+              value={filters.dateFrom}
+              onChange={(e) => handleFilterChange('dateFrom', e.target.value)}
               style={{
                 padding: '8px 12px',
                 border: '1px solid #e2e8f0',
@@ -425,8 +873,8 @@ const FinancialManagement = () => {
             </label>
             <input
               type="date"
-              value={dateRange.endDate}
-              onChange={(e) => setDateRange(prev => ({ ...prev, endDate: e.target.value }))}
+              value={filters.dateTo}
+              onChange={(e) => handleFilterChange('dateTo', e.target.value)}
               style={{
                 padding: '8px 12px',
                 border: '1px solid #e2e8f0',
@@ -452,41 +900,38 @@ const FinancialManagement = () => {
             Update Report
           </button>
         </div>
+
+        {/* Quick Revenue Stats */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: '16px'
+        }}>
+          {[
+            { label: 'Today', value: revenueData.todayRevenue, icon: '📅', color: '#28a745' },
+            { label: 'This Week', value: revenueData.weeklyRevenue, icon: '📊', color: '#007bff' },
+            { label: 'This Month', value: revenueData.monthlyRevenue, icon: '📈', color: '#ffc107' },
+            { label: 'This Year', value: revenueData.yearlyRevenue, icon: '🏆', color: '#17a2b8' }
+          ].map((stat, index) => (
+            <div key={index} style={{
+              backgroundColor: '#f8f9fa',
+              padding: '16px',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ fontSize: '24px', marginBottom: '8px' }}>{stat.icon}</div>
+              <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
+                {stat.label}
+              </h4>
+              <p style={{ margin: 0, color: stat.color, fontSize: '18px', fontWeight: '700' }}>
+                {formatCurrency(stat.value)}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Revenue Stats */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
-      }}>
-        {[
-          { label: 'Today', value: revenueData.todayRevenue, icon: '📅', color: '#ff3b30' },
-          { label: 'This Week', value: revenueData.weeklyRevenue, icon: '📊', color: '#28a745' },
-          { label: 'This Month', value: revenueData.monthlyRevenue, icon: '📈', color: '#ffc107' },
-          { label: 'This Year', value: revenueData.yearlyRevenue, icon: '🏆', color: '#dc3545' }
-        ].map((stat, index) => (
-          <div key={index} style={{
-            backgroundColor: '#fff',
-            padding: '20px',
-            borderRadius: '12px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
-          }}>
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>{stat.icon}</div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
-              {stat.label}
-            </h4>
-            <p style={{ margin: 0, color: stat.color, fontSize: '20px', fontWeight: '700' }}>
-              {formatCurrency(stat.value)}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {/* Top Services */}
+      {/* Recent Transactions */}
       <div style={{
         backgroundColor: '#fff',
         padding: '20px',
@@ -494,56 +939,194 @@ const FinancialManagement = () => {
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
         border: '1px solid #e2e8f0'
       }}>
-        <h3 style={{ margin: '0 0 16px 0', color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
-          Top Performing Services
-        </h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Service
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Revenue
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Transactions
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Growth
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {revenueData.topServices.length > 0 ? revenueData.topServices.map((service, index) => (
-                <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '16px' }}>{service.icon}</span>
-                      <span style={{ fontSize: '14px', fontWeight: '600' }}>{service.name}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#28a745' }}>
-                    {formatCurrency(service.revenue)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px' }}>
-                    {formatNumber(service.transactions)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: service.growth >= 0 ? '#28a745' : '#dc3545' }}>
-                    {service.growth >= 0 ? '+' : ''}{service.growth.toFixed(1)}%
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#718096' }}>
-                    No data available for selected period
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '16px'
+        }}>
+          <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+            Recent Transactions
+          </h3>
+          {selectedTransactions.length > 0 && (
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowBulkActions(!showBulkActions)}
+                disabled={actionLoading}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#ff3b30',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Bulk Actions ({selectedTransactions.length})
+              </button>
+              <BulkActionsDropdown />
+            </div>
+          )}
         </div>
+
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{
+              display: 'inline-block',
+              width: '30px',
+              height: '30px',
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #ff3b30',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ marginTop: '16px', color: '#718096' }}>Loading transactions...</p>
+          </div>
+        ) : revenueData.recentTransactions?.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    borderBottom: '1px solid #e2e8f0',
+                    width: '50px'
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedTransactions.length === revenueData.recentTransactions.length}
+                      onChange={selectAllTransactions}
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        cursor: 'pointer'
+                      }}
+                    />
+                  </th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>Reference</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>User</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>Type</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'right',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>Amount</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'left',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>Status</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'right',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0'
+                  }}>Date</th>
+                  <th style={{
+                    padding: '12px',
+                    textAlign: 'right',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    color: '#1a202c',
+                    borderBottom: '1px solid #e2e8f0',
+                    width: '120px'
+                  }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {revenueData.recentTransactions.map((transaction, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedTransactions.includes(transaction._id)}
+                        onChange={() => handleTransactionSelect(transaction._id)}
+                        style={{
+                          width: '16px',
+                          height: '16px',
+                          cursor: 'pointer'
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
+                      {transaction.reference}
+                    </td>
+                    <td style={{ padding: '12px', fontSize: '14px' }}>
+                      {transaction.userInfo?.name || 'N/A'}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {getTypeBadge(transaction.type)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', 
+                      color: transaction.type.includes('debit') ? '#ff3b30' : '#28a745' }}>
+                      {transaction.type.includes('debit') ? '-' : '+'}{formatCurrency(transaction.amount)}
+                    </td>
+                    <td style={{ padding: '12px' }}>
+                      {getStatusBadge(transaction.status)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#718096' }}>
+                      {new Date(transaction.createdAt).toLocaleDateString()}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>
+                      <button
+                        onClick={() => handleViewDetails(transaction)}
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#007bff',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>💳</div>
+            <h4 style={{ margin: '0 0 8px 0' }}>No transactions found</h4>
+            <p style={{ margin: 0 }}>No transactions for selected period</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -659,29 +1242,46 @@ const FinancialManagement = () => {
       {/* Wallet Stats */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: isMobile ? '10px' : '12px',
+        marginBottom: isMobile ? '20px' : '24px',
+        width: '100%'
       }}>
         {[
-          { label: 'Total Balance', value: walletStats.totalBalance, icon: '💰', format: 'currency' },
-          { label: 'Total Users', value: walletStats.totalUsers, icon: '👥', format: 'number' },
-          { label: 'Active Wallets', value: walletStats.activeWallets, icon: '✅', format: 'number' },
-          { label: 'Low Balance Users', value: walletStats.lowBalanceUsers, icon: '⚠️', format: 'number' }
+          { label: 'Total Balance', value: walletStats.totalBalance, color: '#28a745', icon: '💰' },
+          { label: 'Total Users', value: walletStats.totalUsers, color: '#007bff', icon: '👥' },
+          { label: 'Active Wallets', value: walletStats.activeWallets, color: '#28a745', icon: '✅' },
+          { label: 'Low Balance Users', value: walletStats.lowBalanceUsers, color: '#ffc107', icon: '⚠️' }
         ].map((stat, index) => (
           <div key={index} style={{
             backgroundColor: '#fff',
-            padding: '20px',
-            borderRadius: '12px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
+            padding: isMobile ? '12px' : '16px',
+            borderRadius: '8px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e2e8f0'
           }}>
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>{stat.icon}</div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
-              {stat.label}
-            </h4>
-            <p style={{ margin: 0, color: '#ff3b30', fontSize: '20px', fontWeight: '700' }}>
+            <div style={{
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              marginBottom: '8px'
+            }}>
+              <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+              <h3 style={{
+                color: '#1a202c', 
+                fontSize: isMobile ? '12px' : '14px', 
+                fontWeight: '600', 
+                margin: 0
+              }}>
+                {stat.label}
+              </h3>
+            </div>
+            <p style={{
+              color: stat.color, 
+              fontSize: isMobile ? '16px' : '18px', 
+              fontWeight: '700', 
+              margin: 0
+            }}>
               {stat.format === 'currency' ? formatCurrency(stat.value) : formatNumber(stat.value)}
             </p>
           </div>
@@ -699,65 +1299,80 @@ const FinancialManagement = () => {
         <h3 style={{ margin: '0 0 16px 0', color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
           Recent Wallet Activities
         </h3>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  User
-                </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Transaction
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Amount
-                </th>
-                <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Status
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Time
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {walletStats.recentActivities.length > 0 ? walletStats.recentActivities.map((activity, index) => (
-                <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
-                    {activity.userName}
-                  </td>
-                  <td style={{ padding: '12px', fontSize: '14px' }}>
-                    {activity.type}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: activity.type === 'Credit' ? '#28a745' : '#dc3545' }}>
-                    {activity.type === 'Credit' ? '+' : '-'}{formatCurrency(activity.amount)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>
-                    <span style={{
-                      backgroundColor: activity.status === 'Completed' ? '#d4edda' : activity.status === 'Pending' ? '#fff3cd' : '#f8d7da',
-                      color: activity.status === 'Completed' ? '#155724' : activity.status === 'Pending' ? '#856404' : '#721c24',
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                      fontWeight: '600'
-                    }}>
-                      {activity.status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#718096' }}>
-                    {activity.timestamp}
-                  </td>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{
+              display: 'inline-block',
+              width: '30px',
+              height: '30px',
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #ff3b30',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ marginTop: '16px', color: '#718096' }}>Loading activities...</p>
+          </div>
+        ) : walletStats.recentActivities.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    User
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Transaction
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Amount
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Status
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Time
+                  </th>
                 </tr>
-              )) : (
-                <tr>
-                  <td colSpan="5" style={{ padding: '20px', textAlign: 'center', color: '#718096' }}>
-                    No recent wallet activities
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {walletStats.recentActivities.map((activity, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
+                      {activity.userName}
+                    </td>
+                    <td style={{ padding: '12px', fontSize: '14px' }}>
+                      {activity.type}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: activity.type === 'Credit' ? '#28a745' : '#dc3545' }}>
+                      {activity.type === 'Credit' ? '+' : '-'}{formatCurrency(activity.amount)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                      <span style={{
+                        backgroundColor: activity.status === 'Completed' ? '#d4edda' : activity.status === 'Pending' ? '#fff3cd' : '#f8d7da',
+                        color: activity.status === 'Completed' ? '#155724' : activity.status === 'Pending' ? '#856404' : '#721c24',
+                        padding: '4px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: '600'
+                      }}>
+                        {activity.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#718096' }}>
+                      {activity.timestamp}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>👛</div>
+            <h4 style={{ margin: '0 0 8px 0' }}>No wallet activities</h4>
+            <p style={{ margin: 0 }}>No recent wallet activities found</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -791,15 +1406,16 @@ const FinancialManagement = () => {
             <input
               type="text"
               value={bankAccountForm.accountName}
-              onChange={(e) => setBankAccountForm(prev => ({ ...prev, accountName: e.target.value }))}
               style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                fontSize: '14px',
-                boxSizing: 'border-box'
-              }}
+  width: '100%',
+  padding: '10px 12px',
+  border: '1px solid #e2e8f0',
+  borderRadius: '6px',
+  fontSize: '14px',
+  boxSizing: 'border-box',
+  backgroundColor: '#fff', // Add this
+  color: '#000000' // Ensure text is black
+}}
               placeholder="Enter account name"
             />
           </div>
@@ -828,7 +1444,11 @@ const FinancialManagement = () => {
             </label>
             <select
               value={bankAccountForm.bankName}
-              onChange={(e) => setBankAccountForm(prev => ({ ...prev, bankName: e.target.value, bankCode: e.target.selectedOptions[0].dataset.code || '' }))}
+              onChange={(e) => setBankAccountForm(prev => ({ 
+                ...prev, 
+                bankName: e.target.value, 
+                bankCode: e.target.selectedOptions[0].dataset.code || '' 
+              }))}
               style={{
                 width: '100%',
                 padding: '10px 12px',
@@ -844,9 +1464,6 @@ const FinancialManagement = () => {
               <option value="First Bank" data-code="011">First Bank</option>
               <option value="UBA" data-code="033">UBA</option>
               <option value="Zenith Bank" data-code="057">Zenith Bank</option>
-              <option value="Fidelity Bank" data-code="070">Fidelity Bank</option>
-              <option value="Sterling Bank" data-code="232">Sterling Bank</option>
-              <option value="Union Bank" data-code="032">Union Bank</option>
             </select>
           </div>
           <div>
@@ -902,9 +1519,22 @@ const FinancialManagement = () => {
           Configured Bank Accounts
         </h3>
         
-        {bankAccounts.length > 0 ? (
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{
+              display: 'inline-block',
+              width: '30px',
+              height: '30px',
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #ff3b30',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ marginTop: '16px', color: '#718096' }}>Loading bank accounts...</p>
+          </div>
+        ) : bankAccounts.length > 0 ? (
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
               <thead>
                 <tr style={{ backgroundColor: '#f8f9fa' }}>
                   <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
@@ -993,32 +1623,89 @@ const FinancialManagement = () => {
       {/* Settlement Stats */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: isMobile ? '10px' : '12px',
+        marginBottom: isMobile ? '20px' : '24px',
+        width: '100%'
       }}>
         {[
-          { label: 'Pending Settlements', value: settlementData.pendingSettlements, icon: '⏳', color: '#ffc107' },
-          { label: 'Completed Today', value: settlementData.completedToday, icon: '✅', color: '#28a745' },
-          { label: 'Total Settled', value: settlementData.totalSettled, icon: '💰', color: '#ff3b30' }
+          { label: 'Pending Settlements', value: settlementData.pendingSettlements, color: '#ffc107', icon: '⏳' },
+          { label: 'Completed Today', value: settlementData.completedToday, color: '#28a745', icon: '✅' },
+          { label: 'Total Settled', value: settlementData.totalSettled, color: '#007bff', icon: '💰' }
         ].map((stat, index) => (
           <div key={index} style={{
             backgroundColor: '#fff',
-            padding: '20px',
-            borderRadius: '12px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
+            padding: isMobile ? '12px' : '16px',
+            borderRadius: '8px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e2e8f0'
           }}>
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>{stat.icon}</div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
-              {stat.label}
-            </h4>
-            <p style={{ margin: 0, color: stat.color, fontSize: '20px', fontWeight: '700' }}>
+            <div style={{
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              marginBottom: '8px'
+            }}>
+              <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+              <h3 style={{
+                color: '#1a202c', 
+                fontSize: isMobile ? '12px' : '14px', 
+                fontWeight: '600', 
+                margin: 0
+              }}>
+                {stat.label}
+              </h3>
+            </div>
+            <p style={{
+              color: stat.color, 
+              fontSize: isMobile ? '16px' : '18px', 
+              fontWeight: '700', 
+              margin: 0
+            }}>
               {formatCurrency(stat.value)}
             </p>
           </div>
         ))}
+      </div>
+
+      {/* Create Settlement Button */}
+      <div style={{
+        backgroundColor: '#fff',
+        padding: '20px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0',
+        marginBottom: '24px'
+      }}>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div>
+            <h3 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+              Settlement Management
+            </h3>
+            <p style={{ margin: 0, color: '#718096', fontSize: '14px' }}>
+              Manage and process financial settlements
+            </p>
+          </div>
+          <button
+            onClick={() => setShowSettlementModal(true)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#ff3b30',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer'
+            }}
+          >
+            Create Settlement
+          </button>
+        </div>
       </div>
 
       {/* Settlement Table */}
@@ -1033,87 +1720,102 @@ const FinancialManagement = () => {
           Settlement History
         </h3>
         
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Settlement ID
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Amount
-                </th>
-                <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Status
-                </th>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Bank Account
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Date
-                </th>
-                <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {settlementData.settlements.length > 0 ? settlementData.settlements.map((settlement, index) => (
-                <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
-                    {settlement.id}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#28a745' }}>
-                    {formatCurrency(settlement.amount)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>
-                    <span style={{
-                      backgroundColor: settlement.status === 'Completed' ? '#d4edda' : settlement.status === 'Pending' ? '#fff3cd' : '#f8d7da',
-                      color: settlement.status === 'Completed' ? '#155724' : settlement.status === 'Pending' ? '#856404' : '#721c24',
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '11px',
-                      fontWeight: '600'
-                    }}>
-                      {settlement.status}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px', fontSize: '14px' }}>
-                    {settlement.bankAccount}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#718096' }}>
-                    {settlement.date}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>
-                    {settlement.status === 'Pending' && (
-                      <button
-                        onClick={() => processSettlement(settlement.id)}
-                        disabled={actionLoading}
-                        style={{
-                          padding: '4px 8px',
-                          backgroundColor: '#28a745',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '4px',
-                          fontSize: '12px',
-                          cursor: actionLoading ? 'not-allowed' : 'pointer'
-                        }}
-                      >
-                        Process
-                      </button>
-                    )}
-                  </td>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{
+              display: 'inline-block',
+              width: '30px',
+              height: '30px',
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #ff3b30',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ marginTop: '16px', color: '#718096' }}>Loading settlements...</p>
+          </div>
+        ) : settlementData.settlements.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Settlement ID
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Amount
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Status
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Bank Account
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Date
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'center', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Actions
+                  </th>
                 </tr>
-              )) : (
-                <tr>
-                  <td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#718096' }}>
-                    No settlements found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {settlementData.settlements.map((settlement, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
+                      {settlement.id}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#28a745' }}>
+                      {formatCurrency(settlement.amount)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                      <span style={{
+                        backgroundColor: settlement.status === 'Completed' ? '#d4edda' : settlement.status === 'Pending' ? '#fff3cd' : '#f8d7da',
+                        color: settlement.status === 'Completed' ? '#155724' : settlement.status === 'Pending' ? '#856404' : '#721c24',
+                        padding: '4px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: '600'
+                      }}>
+                        {settlement.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px', fontSize: '14px' }}>
+                      {settlement.bankAccount}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#718096' }}>
+                      {settlement.date}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'center' }}>
+                      {settlement.status === 'Pending' && (
+                        <button
+                          onClick={() => processSettlement(settlement.id)}
+                          disabled={actionLoading}
+                          style={{
+                            padding: '4px 8px',
+                            backgroundColor: '#28a745',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            cursor: actionLoading ? 'not-allowed' : 'pointer'
+                          }}
+                        >
+                          Process
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📄</div>
+            <h4 style={{ margin: '0 0 8px 0' }}>No settlements found</h4>
+            <p style={{ margin: 0 }}>Create your first settlement to get started</p>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1124,28 +1826,45 @@ const FinancialManagement = () => {
       {/* Tax Overview */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-        marginBottom: '24px'
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: isMobile ? '10px' : '12px',
+        marginBottom: isMobile ? '20px' : '24px',
+        width: '100%'
       }}>
         {[
-          { label: 'Current Month VAT', value: taxReports.currentMonth, icon: '📊', color: '#ff3b30' },
-          { label: 'Current Quarter', value: taxReports.currentQuarter, icon: '📈', color: '#28a745' },
-          { label: 'Current Year', value: taxReports.currentYear, icon: '🏆', color: '#ffc107' }
+          { label: 'Current Month VAT', value: taxReports.currentMonth, color: '#dc3545', icon: '📊' },
+          { label: 'Current Quarter', value: taxReports.currentQuarter, color: '#ffc107', icon: '📈' },
+          { label: 'Current Year', value: taxReports.currentYear, color: '#28a745', icon: '🏆' }
         ].map((stat, index) => (
           <div key={index} style={{
             backgroundColor: '#fff',
-            padding: '20px',
-            borderRadius: '12px',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-            border: '1px solid #e2e8f0',
-            textAlign: 'center'
+            padding: isMobile ? '12px' : '16px',
+            borderRadius: '8px',
+            boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+            border: '1px solid #e2e8f0'
           }}>
-            <div style={{ fontSize: '32px', marginBottom: '8px' }}>{stat.icon}</div>
-            <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
-              {stat.label}
-            </h4>
-            <p style={{ margin: 0, color: stat.color, fontSize: '20px', fontWeight: '700' }}>
+            <div style={{
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px', 
+              marginBottom: '8px'
+            }}>
+              <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
+              <h3 style={{
+                color: '#1a202c', 
+                fontSize: isMobile ? '12px' : '14px', 
+                fontWeight: '600', 
+                margin: 0
+              }}>
+                {stat.label}
+              </h3>
+            </div>
+            <p style={{
+              color: stat.color, 
+              fontSize: isMobile ? '16px' : '18px', 
+              fontWeight: '700', 
+              margin: 0
+            }}>
               {formatCurrency(stat.value)}
             </p>
           </div>
@@ -1180,115 +1899,442 @@ const FinancialManagement = () => {
           </button>
         </div>
         
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ backgroundColor: '#f8f9fa' }}>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Service Category
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Gross Revenue
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  VAT (7.5%)
-                </th>
-                <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
-                  Net Revenue
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {taxReports.breakdown.length > 0 ? taxReports.breakdown.map((item, index) => (
-                <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
-                    {item.category}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600' }}>
-                    {formatCurrency(item.grossRevenue)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#dc3545', fontWeight: '600' }}>
-                    {formatCurrency(item.vat)}
-                  </td>
-                  <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#28a745', fontWeight: '600' }}>
-                    {formatCurrency(item.netRevenue)}
-                  </td>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <div style={{
+              display: 'inline-block',
+              width: '30px',
+              height: '30px',
+              border: '3px solid #e2e8f0',
+              borderTop: '3px solid #ff3b30',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }} />
+            <p style={{ marginTop: '16px', color: '#718096' }}>Loading tax data...</p>
+          </div>
+        ) : taxReports.breakdown.length > 0 ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                  <th style={{ padding: '12px', textAlign: 'left', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Service Category
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Gross Revenue
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    VAT (7.5%)
+                  </th>
+                  <th style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600', borderBottom: '1px solid #e2e8f0' }}>
+                    Net Revenue
+                  </th>
                 </tr>
-              )) : (
-                <tr>
-                  <td colSpan="4" style={{ padding: '20px', textAlign: 'center', color: '#718096' }}>
-                    No tax data available for current period
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {taxReports.breakdown.map((item, index) => (
+                  <tr key={index} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px', fontSize: '14px', fontWeight: '600' }}>
+                      {item.category}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', fontWeight: '600' }}>
+                      {formatCurrency(item.grossRevenue)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#dc3545', fontWeight: '600' }}>
+                      {formatCurrency(item.vat)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', fontSize: '14px', color: '#28a745', fontWeight: '600' }}>
+                      {formatCurrency(item.netRevenue)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: '#718096' }}>
+            <div style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
+            <h4 style={{ margin: '0 0 8px 0' }}>No tax data available</h4>
+            <p style={{ margin: 0 }}>No tax data for current period</p>
+          </div>
+        )}
       </div>
     </div>
   );
 
-  // Tab Navigation
-  const TabNavigation = () => (
-    <div style={{
-      backgroundColor: '#fff',
-      padding: '16px 20px',
-      borderRadius: '12px',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e2e8f0',
-      marginBottom: '24px'
-    }}>
+  // Transaction Details Modal
+  const TransactionDetailsModal = () => {
+    if (!showModal || !selectedTransaction) return null;
+
+    return (
       <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
         display: 'flex',
-        overflowX: 'auto',
-        gap: '8px',
-        scrollbarWidth: 'none',
-        msOverflowStyle: 'none'
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+        padding: '20px'
       }}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            style={{
-              padding: '12px 16px',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '14px',
-              fontWeight: '600',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-              backgroundColor: activeTab === tab.id ? '#ff3b30' : '#f8f9fa',
-              color: activeTab === tab.id ? '#fff' : '#1a202c',
-              transition: 'all 0.3s ease'
-            }}
-          >
-            <span style={{ marginRight: '8px' }}>{tab.icon}</span>
-            {isMobile ? tab.label.split(' ')[0] : tab.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-
-  // Main Content Renderer
-  const renderContent = () => {
-    if (loading) {
-      return (
-        <div style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <div style={{
+          backgroundColor: '#fff',
+          borderRadius: '12px',
+          maxWidth: '600px',
+          width: '100%',
+          maxHeight: '80vh',
+          overflow: 'auto',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
+        }}>
           <div style={{
-            display: 'inline-block',
-            width: '40px',
-            height: '40px',
-            border: '4px solid #f3f3f3',
-            borderTop: '4px solid #ff3b30',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }} />
-          <p style={{ marginTop: '16px', color: '#718096' }}>Loading financial data...</p>
-        </div>
-      );
-    }
+            padding: '20px',
+            borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#f7fafc',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div>
+              <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+                Transaction Details
+              </h3>
+              <p style={{ margin: '4px 0 0 0', color: '#718096', fontSize: '14px' }}>
+                Reference: {selectedTransaction.reference}
+              </p>
+            </div>
+            <button
+              onClick={() => setShowModal(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#718096'
+              }}
+            >
+              ×
+            </button>
+          </div>
 
+          <div style={{ padding: '20px' }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '16px',
+              marginBottom: '20px'
+            }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                  Amount
+                </label>
+                <div style={{ fontSize: '18px', fontWeight: '700', 
+                  color: selectedTransaction.type.includes('debit') ? '#ff3b30' : '#28a745' }}>
+                  {selectedTransaction.type.includes('debit') ? '-' : '+'}{formatCurrency(selectedTransaction.amount)}
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                  Status
+                </label>
+                <div>
+                  {getStatusBadge(selectedTransaction.status)}
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                  Type
+                </label>
+                <div>
+                  {getTypeBadge(selectedTransaction.type)}
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                  Category
+                </label>
+                <div style={{ fontSize: '14px', fontWeight: '600', textTransform: 'capitalize' }}>
+                  {selectedTransaction.category}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                Description
+              </label>
+              <div style={{ 
+                padding: '12px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '6px',
+                fontSize: '14px'
+              }}>
+                {selectedTransaction.description}
+              </div>
+            </div>
+
+            {selectedTransaction.userInfo && (
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                  User Information
+                </label>
+                <div style={{ 
+                  padding: '12px',
+                  backgroundColor: '#f8f9fa',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{ fontSize: '14px', fontWeight: '600' }}>
+                    {selectedTransaction.userInfo.name}
+                  </div>
+                  <div style={{ fontSize: '12px', color: '#718096' }}>
+                    {selectedTransaction.userInfo.email}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '12px', fontWeight: '600', color: '#718096' }}>
+                Timestamps
+              </label>
+              <div style={{ 
+                padding: '12px',
+                backgroundColor: '#f8f9fa',
+                borderRadius: '6px',
+                fontSize: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                  <span>Created:</span>
+                  <span>{new Date(selectedTransaction.createdAt).toLocaleString()}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Updated:</span>
+                  <span>{new Date(selectedTransaction.updatedAt).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  backgroundColor: '#fff',
+                  color: '#718096',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Settlement Creation Modal
+  const SettlementModal = () => {
+    if (!showSettlementModal) return null;
+
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1001,
+        padding: '20px'
+      }}>
+        <div style={{
+          backgroundColor: '#fff',
+          borderRadius: '12px',
+          maxWidth: '400px',
+          width: '100%',
+          overflow: 'hidden',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
+        }}>
+          <div style={{
+            padding: '20px',
+            borderBottom: '1px solid #e2e8f0',
+            backgroundColor: '#f7fafc'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+                Create Settlement
+              </h3>
+              <button
+                onClick={() => setShowSettlementModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#718096'
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+
+          <div style={{ padding: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#1a202c'
+              }}>
+                Amount (₦)
+              </label>
+              <input
+                type="number"
+                placeholder="Enter settlement amount"
+                value={settlementForm.amount}
+                onChange={(e) => setSettlementForm(prev => ({ ...prev, amount: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box'
+                }}
+                min="0"
+                step="0.01"
+              />
+            </div>
+
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '600',
+                color: '#1a202c'
+              }}>
+                Bank Account
+              </label>
+              <select
+                value={settlementForm.bankAccount}
+                onChange={(e) => setSettlementForm(prev => ({ ...prev, bankAccount: e.target.value }))}
+               style={{
+  width: '100%',
+  padding: '10px 12px',
+  border: '1px solid #e2e8f0',
+  borderRadius: '6px',
+  fontSize: '14px',
+  boxSizing: 'border-box',
+  backgroundColor: '#fff', // Add this
+  color: '#000000' // Ensure text is black
+}}
+              >
+                <option value="">Select Bank Account</option>
+                {bankAccounts.filter(acc => acc.isActive).map(account => (
+                  <option key={account._id} value={account._id}>
+                    {account.bankName} - {account.accountNumber}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{
+                display: 'block',
+                marginBottom: '8px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#718096'
+              }}>
+                Description (Optional)
+              </label>
+              <textarea
+                placeholder="Enter settlement description"
+                value={settlementForm.description}
+                onChange={(e) => setSettlementForm(prev => ({ ...prev, description: e.target.value }))}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                  resize: 'vertical',
+                  minHeight: '80px'
+                }}
+              />
+            </div>
+
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => setShowSettlementModal(false)}
+                disabled={actionLoading}
+                style={{
+                  padding: '10px 16px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  backgroundColor: '#fff',
+                  color: '#718096',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: actionLoading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => createSettlement(settlementForm)}
+                disabled={actionLoading || !settlementForm.amount || !settlementForm.bankAccount}
+                style={{
+                  padding: '10px 16px',
+                  border: 'none',
+                  borderRadius: '8px',
+                  backgroundColor: '#ff3b30',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: (actionLoading || !settlementForm.amount || !settlementForm.bankAccount) ? 'not-allowed' : 'pointer',
+                  opacity: (actionLoading || !settlementForm.amount || !settlementForm.bankAccount) ? 0.7 : 1
+                }}
+              >
+                {actionLoading ? 'Creating...' : 'Create Settlement'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Main content renderer
+  const renderContent = () => {
     switch (activeTab) {
       case 'revenue-reports':
         return <RevenueReports />;
@@ -1310,10 +2356,7 @@ const FinancialManagement = () => {
   return (
     <div style={{
       width: '100%',
-      maxWidth: '100%',
-      backgroundColor: '#f8f9fa',
-      minHeight: '100vh',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+      maxWidth: '100%'
     }}>
       <style>{`
         @keyframes spin {
@@ -1322,12 +2365,10 @@ const FinancialManagement = () => {
         }
       `}</style>
       
-      <NotificationBanner />
-      
-      <div style={{ padding: '20px' }}>
-        <TabNavigation />
-        {renderContent()}
-      </div>
+      <TabNavigation />
+      {renderContent()}
+      <TransactionDetailsModal />
+      <SettlementModal />
     </div>
   );
 };
