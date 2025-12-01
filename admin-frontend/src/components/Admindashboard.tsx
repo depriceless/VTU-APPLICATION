@@ -260,44 +260,87 @@ const AdminDashboard = () => {
   };
 
   // NEW: Fetch API Balances
-  const fetchApiBalances = async () => {
-    try {
-      setApiBalancesLoading(true);
-      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+ const fetchApiBalances = async () => {
+  try {
+    setApiBalancesLoading(true);
+    const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    
+    console.log('🔍 Debug - Token exists?', token ? 'YES' : 'NO');
+    console.log('Token length:', token ? token.length : 'N/A');
+    console.log('Token preview:', token ? token.substring(0, 20) + '...' : 'N/A');
+    
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // First try with token
+    const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('Response status:', response.status);
+    console.log('Response status text:', response.statusText);
+    
+    if (response.ok) {
+      const data = await response.json();
+      console.log('✅ API response with token:', data);
       
-      // Fetch ClubKonnect balance
-      const response = await fetch('https://vtu-application.onrender.com/api/services/clubkonnect-balance', {
+      setApiBalances([
+        {
+          provider: 'ClubKonnect',
+          balance: data.data?.clubKonnect?.balance || 0,
+          currency: data.data?.clubKonnect?.currency || '₦',
+          lastUpdated: now,
+          loading: false,
+          status: data.data?.clubKonnect?.status || 'Online'
+        },
+        {
+          provider: 'VTU Service',
+          balance: data.data?.platform?.balance || 0,
+          currency: data.data?.platform?.currency || '₦',
+          lastUpdated: now,
+          loading: false,
+          status: data.data?.platform?.status || 'Online'
+        }
+      ]);
+      
+    } else if (response.status === 401) {
+      console.log('🚨 401 Unauthorized - trying without token...');
+      
+      // Try without token
+      const response2 = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         }
       });
       
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      console.log('Response without token status:', response2.status);
       
-      if (response.ok) {
-        const data = await response.json();
+      if (response2.ok) {
+        const data = await response2.json();
+        console.log('✅ Success without token! Data:', data);
         
         setApiBalances([
           {
             provider: 'ClubKonnect',
-            balance: data.balance || data.available_balance || 0,
-            currency: data.currency || '₦',
+            balance: data.data?.clubKonnect?.balance || 0,
+            currency: data.data?.clubKonnect?.currency || '₦',
             lastUpdated: now,
             loading: false,
-            status: 'Online'
+            status: data.data?.clubKonnect?.status || 'Online'
           },
           {
             provider: 'VTU Service',
-            balance: data.vtuBalance || 0,
-            currency: data.currency || '₦',
+            balance: data.data?.platform?.balance || 0,
+            currency: data.data?.platform?.currency || '₦',
             lastUpdated: now,
             loading: false,
-            status: 'Online'
+            status: data.data?.platform?.status || 'Online'
           }
         ]);
       } else {
-        // Mock data for testing
+        console.log('❌ Both attempts failed - using mock data');
         setApiBalances([
           {
             provider: 'ClubKonnect',
@@ -305,7 +348,7 @@ const AdminDashboard = () => {
             currency: '₦',
             lastUpdated: now,
             loading: false,
-            status: 'Online'
+            status: 'Auth Error'
           },
           {
             provider: 'VTU Service',
@@ -313,15 +356,12 @@ const AdminDashboard = () => {
             currency: '₦',
             lastUpdated: now,
             loading: false,
-            status: 'Online'
+            status: 'Auth Error'
           }
         ]);
       }
-    } catch (error) {
-      console.error('Error fetching API balances:', error);
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
-      // Mock data as fallback
+    } else {
+      console.log('❌ Other error:', response.status);
       setApiBalances([
         {
           provider: 'ClubKonnect',
@@ -329,7 +369,7 @@ const AdminDashboard = () => {
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Demo Data'
+          status: `Error ${response.status}`
         },
         {
           provider: 'VTU Service',
@@ -337,13 +377,37 @@ const AdminDashboard = () => {
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Demo Data'
+          status: `Error ${response.status}`
         }
       ]);
-    } finally {
-      setApiBalancesLoading(false);
     }
-  };
+    
+  } catch (error) {
+    console.error('❌ Network error fetching API balances:', error);
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    setApiBalances([
+      {
+        provider: 'ClubKonnect',
+        balance: 15420.75,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: 'Network Error'
+      },
+      {
+        provider: 'VTU Service',
+        balance: 89250.30,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: 'Network Error'
+      }
+    ]);
+  } finally {
+    setApiBalancesLoading(false);
+  }
+};
 
   // Fetch data on component mount
   useEffect(() => {

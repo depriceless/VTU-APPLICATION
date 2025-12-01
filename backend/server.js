@@ -537,6 +537,14 @@ try {
   console.error('❌ ClubKonnect routes error:', err.message);
 }
 
+try {
+  const servicesRoutes = require('./routes/services'); // or whatever your file is named
+  app.use('/api/services', servicesRoutes);
+  console.log('✅ Services routes registered at /api/services');
+} catch (err) {
+  console.error('❌ Services routes error:', err.message);
+}
+
 if (userManagementRoutes) {
   try {
     app.use('/api/users', userManagementRoutes);

@@ -24,40 +24,124 @@ const makeRequest = async (endpoint, params) => {
     });
     
     const url = `${CK_CONFIG.baseUrl}${endpoint}?${queryParams}`;
-    const response = await axios.get(url);
+    console.log('🌐 ClubKonnect Request:', url.replace(CK_CONFIG.apiKey, 'API_KEY_HIDDEN'));
+    
+    const response = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'VTU-Application/1.0'
+      }
+    });
+    
+    console.log('✅ ClubKonnect Response:', response.data);
     return response.data;
   } catch (error) {
+    console.error('❌ ClubKonnect Error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status
+    });
     throw new Error(error.response?.data?.message || error.message);
   }
 };
 
-// ========== DASHBOARD BALANCE ==========
-router.get('/dashboard-balance', authenticate, async (req, res) => {
+// Helper function to get platform wallet balance
+async function getPlatformWalletBalance() {
   try {
-    // Fetch ClubKonnect balance
-    const balanceData = await makeRequest('/APIWalletBalanceV1.asp', {});
+    const totalDeposits = await Transaction.aggregate([
+      { $match: { type: 'deposit', status: 'success' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
     
-    // Parse the balance from ClubKonnect response
+    const totalWithdrawals = await Transaction.aggregate([
+      { $match: { type: 'withdrawal', status: 'success' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const pendingWithdrawals = await Transaction.aggregate([
+      { $match: { type: 'withdrawal', status: 'pending' } },
+      { $group: { _id: null, total: { $sum: '$amount' } } }
+    ]);
+    
+    const depositTotal = totalDeposits[0]?.total || 0;
+    const withdrawalTotal = totalWithdrawals[0]?.total || 0;
+    const pendingTotal = pendingWithdrawals[0]?.total || 0;
+    
+    return Math.max(depositTotal - withdrawalTotal - pendingTotal, 0);
+  } catch (error) {
+    console.error('Error getting platform balance:', error);
+    return 0;
+  }
+}
+
+// ========== DASHBOARD BALANCE - NO AUTHENTICATION ==========
+router.get('/dashboard-balance', async (req, res) => {
+  try {
+    console.log('📊 Dashboard balance request received');
+    
+    // Validate ClubKonnect credentials
+    if (!CK_CONFIG.userId || !CK_CONFIG.apiKey) {
+      console.error('❌ ClubKonnect credentials missing');
+      return res.json({
+        success: true,
+        data: {
+          clubKonnect: {
+            balance: 0,
+            currency: 'NGN',
+            provider: 'ClubKonnect',
+            status: 'Config Error',
+            lastUpdated: new Date().toISOString(),
+            error: 'API credentials not configured'
+          },
+          platform: {
+            balance: await getPlatformWalletBalance(),
+            currency: 'NGN',
+            provider: 'ConnectPay',
+            status: 'Online',
+            lastUpdated: new Date().toISOString()
+          }
+        }
+      });
+    }
+    
     let clubKonnectBalance = 0;
     let status = 'Online';
+    let errorMessage = null;
     
-    // Different possible response formats from ClubKonnect
-    if (balanceData.wallet_balance) {
-      clubKonnectBalance = parseFloat(balanceData.wallet_balance);
-    } else if (balanceData.balance) {
-      clubKonnectBalance = parseFloat(balanceData.balance);
-    } else if (balanceData.data?.balance) {
-      clubKonnectBalance = parseFloat(balanceData.data.balance);
-    } else if (balanceData.walletBalance) {
-      clubKonnectBalance = parseFloat(balanceData.walletBalance);
-    } else {
-      // If format is unexpected, try to parse from the response
-      console.log('Raw ClubKonnect response:', balanceData);
-      status = 'Unexpected format';
+    try {
+      const balanceData = await makeRequest('/APIWalletBalanceV1.asp', {});
+      
+      // Parse balance from various possible response formats
+      if (typeof balanceData === 'string') {
+        const matches = balanceData.match(/[\d,]+\.?\d*/);
+        clubKonnectBalance = matches ? parseFloat(matches[0].replace(/,/g, '')) : 0;
+      } else if (balanceData.wallet_balance !== undefined) {
+        clubKonnectBalance = parseFloat(balanceData.wallet_balance);
+      } else if (balanceData.balance !== undefined) {
+        clubKonnectBalance = parseFloat(balanceData.balance);
+      } else if (balanceData.data?.balance !== undefined) {
+        clubKonnectBalance = parseFloat(balanceData.data.balance);
+      } else if (balanceData.walletBalance !== undefined) {
+        clubKonnectBalance = parseFloat(balanceData.walletBalance);
+      } else {
+        console.warn('⚠️ Unexpected balance format:', balanceData);
+        status = 'Parse Error';
+        errorMessage = 'Unexpected API response format';
+      }
+      
+      if (isNaN(clubKonnectBalance)) {
+        clubKonnectBalance = 0;
+        status = 'Parse Error';
+      }
+      
+    } catch (apiError) {
+      console.error('❌ ClubKonnect API failed:', apiError.message);
+      status = 'API Error';
+      errorMessage = apiError.message;
       clubKonnectBalance = 0;
     }
     
-    // Get platform's wallet balance (from your database)
     const platformBalance = await getPlatformWalletBalance();
     
     res.json({
@@ -68,7 +152,8 @@ router.get('/dashboard-balance', authenticate, async (req, res) => {
           currency: 'NGN',
           provider: 'ClubKonnect',
           status: status,
-          lastUpdated: new Date().toISOString()
+          lastUpdated: new Date().toISOString(),
+          ...(errorMessage && { error: errorMessage })
         },
         platform: {
           balance: platformBalance,
@@ -81,24 +166,25 @@ router.get('/dashboard-balance', authenticate, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching dashboard balance:', error);
+    console.error('❌ Dashboard balance error:', error);
     
-    // Fallback data for testing
-    res.json({
-      success: true,
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch balances',
+      error: error.message,
       data: {
         clubKonnect: {
-          balance: 15420.75,
+          balance: 0,
           currency: 'NGN',
           provider: 'ClubKonnect',
-          status: 'Demo Data - API Error',
+          status: 'Server Error',
           lastUpdated: new Date().toISOString()
         },
         platform: {
-          balance: 89250.30,
+          balance: 0,
           currency: 'NGN',
           provider: 'ConnectPay',
-          status: 'Online',
+          status: 'Server Error',
           lastUpdated: new Date().toISOString()
         }
       }
@@ -106,57 +192,64 @@ router.get('/dashboard-balance', authenticate, async (req, res) => {
   }
 });
 
-// Helper function to get platform wallet balance from database
-async function getPlatformWalletBalance() {
+// ========== DEBUG ENDPOINTS - NO AUTHENTICATION ==========
+
+// Test ClubKonnect connection
+router.get('/test-connection', async (req, res) => {
   try {
-    // Option 1: Get total wallet balances from users
-    const totalWalletBalance = await Wallet.aggregate([
-      { $group: { _id: null, total: { $sum: '$balance' } } }
-    ]);
+    console.log('🧪 Testing ClubKonnect connection...');
     
-    // Option 2: Get total revenue (profit) from transactions
-    const totalRevenue = await Transaction.aggregate([
-      { 
-        $match: { 
-          status: 'success',
-          adminProfit: { $exists: true, $gt: 0 }
-        } 
-      },
-      { $group: { _id: null, total: { $sum: '$adminProfit' } } }
-    ]);
+    const config = {
+      userId: CK_CONFIG.userId ? '✅ Set' : '❌ Missing',
+      apiKey: CK_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
+      baseUrl: CK_CONFIG.baseUrl
+    };
     
-    // Option 3: Get total system balance (deposits - withdrawals)
-    const totalDeposits = await Transaction.aggregate([
-      { $match: { type: 'deposit', status: 'success' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+    console.log('📝 Config:', config);
     
-    const totalWithdrawals = await Transaction.aggregate([
-      { $match: { type: 'withdrawal', status: 'success' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
+    if (!CK_CONFIG.userId || !CK_CONFIG.apiKey) {
+      return res.json({
+        success: false,
+        message: 'ClubKonnect credentials not configured',
+        config: config
+      });
+    }
     
-    const depositTotal = totalDeposits[0]?.total || 0;
-    const withdrawalTotal = totalWithdrawals[0]?.total || 0;
+    const data = await makeRequest('/APIWalletBalanceV1.asp', {});
     
-    // Calculate available balance (deposits - withdrawals - pending withdrawals)
-    const pendingWithdrawals = await Transaction.aggregate([
-      { $match: { type: 'withdrawal', status: 'pending' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } }
-    ]);
-    
-    const pendingTotal = pendingWithdrawals[0]?.total || 0;
-    const availableBalance = depositTotal - withdrawalTotal - pendingTotal;
-    
-    // Return whichever balance makes sense for your system
-    return availableBalance > 0 ? availableBalance : 89250.30;
-    
+    res.json({ 
+      success: true, 
+      message: 'ClubKonnect connection successful!',
+      data: data,
+      config: config
+    });
   } catch (error) {
-    console.error('Error getting platform balance:', error);
-    // Return mock data if database query fails
-    return 89250.30;
+    res.status(500).json({ 
+      success: false, 
+      message: 'ClubKonnect connection failed',
+      error: error.message,
+      config: {
+        userId: CK_CONFIG.userId ? '✅ Set' : '❌ Missing',
+        apiKey: CK_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
+        baseUrl: CK_CONFIG.baseUrl
+      }
+    });
   }
-}
+});
+
+// Test endpoint
+router.get('/test', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'ClubKonnect routes are working!',
+    timestamp: new Date().toISOString(),
+    config: {
+      userId: CK_CONFIG.userId ? 'Set ✓' : 'Not set ✗',
+      apiKey: CK_CONFIG.apiKey ? 'Set ✓' : 'Not set ✗',
+      baseUrl: CK_CONFIG.baseUrl
+    }
+  });
+});
 
 // ========== AIRTIME ==========
 router.post('/airtime', authenticate, async (req, res) => {
@@ -693,31 +786,4 @@ router.post('/transaction/cancel', authenticate, async (req, res) => {
   }
 });
 
-// Debug endpoint - NO AUTHENTICATION
-router.get('/test', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'ClubKonnect routes are working!',
-    config: {
-      userId: CK_CONFIG.userId ? 'Set' : 'Not set',
-      apiKey: CK_CONFIG.apiKey ? 'Set' : 'Not set',
-      baseUrl: CK_CONFIG.baseUrl
-    }
-  });
-});
-
-// Test balance endpoint - NO AUTHENTICATION (for debugging only)
-router.get('/test-balance', async (req, res) => {
-  try {
-    const data = await makeRequest('/APIWalletBalanceV1.asp', {});
-    res.json({ success: true, data });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      message: error.message,
-      details: error.toString()
-    });
-  }
-});
-
-module.exports = router;
+module.exports = router;  

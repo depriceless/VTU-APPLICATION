@@ -33,69 +33,46 @@ const ApiBalanceComponent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const fetchApiBalances = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      
-      // Use the dashboard-balance endpoint
-      const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Update state with both ClubKonnect and Platform balances
-        setBalances([
-          {
-            provider: data.data.clubKonnect.provider,
-            balance: data.data.clubKonnect.balance,
-            currency: data.data.clubKonnect.currency,
-            lastUpdated: now,
-            loading: false,
-            status: data.data.clubKonnect.status
-          },
-          {
-            provider: data.data.platform.provider,
-            balance: data.data.platform.balance,
-            currency: data.data.platform.currency,
-            lastUpdated: now,
-            loading: false,
-            status: data.data.platform.status
-          }
-        ]);
-        setError(null);
-      } else {
-        // Fallback to mock data
-        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        setBalances([
-          {
-            provider: 'ClubKonnect',
-            balance: 15420.75,
-            currency: '₦',
-            lastUpdated: now,
-            loading: false,
-            status: 'Demo Data'
-          },
-          {
-            provider: 'ConnectPay',
-            balance: 89250.30,
-            currency: '₦',
-            lastUpdated: now,
-            loading: false,
-            status: 'Demo Data'
-          }
-        ]);
+  try {
+    setLoading(true);
+    const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    
+    // CORRECTED ENDPOINT
+    const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
       }
-    } catch (error) {
-      console.error('Error fetching API balances:', error);
-      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    });
+    
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    if (response.ok) {
+      const data = await response.json();
       
+      // CORRECTED DATA PARSING
+      setBalances([
+        {
+          provider: data.data?.clubKonnect?.provider || 'ClubKonnect',
+          balance: data.data?.clubKonnect?.balance || 0,
+          currency: data.data?.clubKonnect?.currency || 'NGN',
+          lastUpdated: now,
+          loading: false,
+          status: data.data?.clubKonnect?.status || 'Online'
+        },
+        {
+          provider: data.data?.platform?.provider || 'ConnectPay',
+          balance: data.data?.platform?.balance || 0,
+          currency: data.data?.platform?.currency || 'NGN',
+          lastUpdated: now,
+          loading: false,
+          status: data.data?.platform?.status || 'Online'
+        }
+      ]);
+      setError(null);
+    } else {
+      // Fallback data
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       setBalances([
         {
           provider: 'ClubKonnect',
@@ -103,7 +80,7 @@ const ApiBalanceComponent: React.FC = () => {
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Connection Error'
+          status: 'API Error'
         },
         {
           provider: 'ConnectPay',
@@ -111,14 +88,37 @@ const ApiBalanceComponent: React.FC = () => {
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Online'
+          status: 'API Error'
         }
       ]);
-      setError('Unable to fetch real-time balances. Showing demo data.');
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching API balances:', error);
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    setBalances([
+      {
+        provider: 'ClubKonnect',
+        balance: 15420.75,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: 'Connection Error'
+      },
+      {
+        provider: 'ConnectPay',
+        balance: 89250.30,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: 'Online'
+      }
+    ]);
+    setError('Unable to fetch real-time balances. Showing demo data.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const formatBalance = (balance: number, currency: string): string => {
     return `${currency}${balance.toLocaleString('en-NG', {
