@@ -38,6 +38,7 @@ const AdminLogin: React.FC = () => {
   const [error, setError] = useState<AppError | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [showPassword, setShowPassword] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const savedUsername = localStorage.getItem('remembered_username');
@@ -45,6 +46,17 @@ const AdminLogin: React.FC = () => {
       setCredentials(prev => ({ ...prev, username: savedUsername, rememberMe: true }));
     }
 
+    // Check if mobile
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    
+    // Initial check
+    checkMobile();
+    
+    // Add resize listener
+    window.addEventListener('resize', checkMobile);
+    
     // Add CSS animation keyframes and input styles
     if (!document.querySelector('#admin-login-animations')) {
       const style = document.createElement('style');
@@ -110,9 +122,25 @@ const AdminLogin: React.FC = () => {
         .logo-pulse {
           animation: pulse 1.5s ease-in-out infinite;
         }
+
+        /* Mobile-specific styles */
+        @media (max-width: 768px) {
+          .mobile-full-height {
+            min-height: -webkit-fill-available;
+          }
+          
+          .mobile-tap-target {
+            min-height: 44px;
+            min-width: 44px;
+          }
+        }
       `;
       document.head.appendChild(style);
     }
+
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
   }, []);
 
   const validateCredentials = (): ValidationError[] => {
@@ -208,18 +236,22 @@ const AdminLogin: React.FC = () => {
 
   // Custom Loader Component with Logo
   const LogoLoader = () => (
-    <div style={styles.loaderContainer}>
+    <div style={isMobile ? styles.mobileLoaderContainer : styles.loaderContainer}>
       <div style={styles.logoLoader}>
         <img 
           src={Logo} 
           alt="ConnectPay Logo" 
-          style={styles.logoLoaderImage}
+          style={isMobile ? styles.mobileLogoLoaderImage : styles.logoLoaderImage}
           className="logo-spin"
         />
       </div>
       <div style={styles.loaderText}>
-        <p style={styles.loaderMessage}>Authenticating...</p>
-        <p style={styles.loaderSubMessage}>Please wait while we verify your credentials</p>
+        <p style={isMobile ? styles.mobileLoaderMessage : styles.loaderMessage}>
+          Authenticating...
+        </p>
+        <p style={isMobile ? styles.mobileLoaderSubMessage : styles.loaderSubMessage}>
+          Please wait while we verify your credentials
+        </p>
       </div>
     </div>
   );
@@ -229,26 +261,28 @@ const AdminLogin: React.FC = () => {
   }
 
   return (
-    <div style={styles.container}>
-      <div style={styles.loginCard}>
+    <div style={isMobile ? styles.mobileContainer : styles.container} className="mobile-full-height">
+      <div style={isMobile ? styles.mobileLoginCard : styles.loginCard}>
         {/* Header Section */}
-        <div style={styles.header}>
-          <div style={styles.logo}>
+        <div style={isMobile ? styles.mobileHeader : styles.header}>
+          <div style={isMobile ? styles.mobileLogo : styles.logo}>
             <img 
               src={Logo} 
               alt="ConnectPay Logo" 
-              style={styles.logoImage}
+              style={isMobile ? styles.mobileLogoImage : styles.logoImage}
             />
           </div>
-          <h1 style={styles.title}>ConnectPay</h1>
-          <p style={styles.subtitle}>Sign in to access the admin dashboard</p>
+          <h1 style={isMobile ? styles.mobileTitle : styles.title}>ConnectPay</h1>
+          <p style={isMobile ? styles.mobileSubtitle : styles.subtitle}>
+            Sign in to access the admin dashboard
+          </p>
         </div>
 
         {/* Form Section */}
         <form onSubmit={(e) => { e.preventDefault(); processLogin(); }} style={styles.form}>
           {/* Username Field */}
           <div style={styles.inputGroup}>
-            <label style={styles.label} htmlFor="username">
+            <label style={isMobile ? styles.mobileLabel : styles.label} htmlFor="username">
               Username or Email
             </label>
             <div style={styles.inputWrapper}>
@@ -261,23 +295,25 @@ const AdminLogin: React.FC = () => {
                 onKeyPress={handleKeyPress}
                 disabled={isLoading}
                 style={{
-                  ...styles.input,
+                  ...(isMobile ? styles.mobileInput : styles.input),
                   ...(getFieldError('username') ? styles.inputError : {})
                 }}
                 autoComplete="username"
-                autoFocus
+                autoFocus={!isMobile}
                 className="admin-login-input"
               />
-              <span style={styles.inputIcon}>👤</span>
+              <span style={isMobile ? styles.mobileInputIcon : styles.inputIcon}>👤</span>
             </div>
             {getFieldError('username') && (
-              <span style={styles.errorMessage}>{getFieldError('username')}</span>
+              <span style={isMobile ? styles.mobileErrorMessage : styles.errorMessage}>
+                {getFieldError('username')}
+              </span>
             )}
           </div>
 
           {/* Password Field */}
           <div style={styles.inputGroup}>
-            <label style={styles.label} htmlFor="password">
+            <label style={isMobile ? styles.mobileLabel : styles.label} htmlFor="password">
               Password
             </label>
             <div style={styles.inputWrapper}>
@@ -290,7 +326,7 @@ const AdminLogin: React.FC = () => {
                 onKeyPress={handleKeyPress}
                 disabled={isLoading}
                 style={{
-                  ...styles.input,
+                  ...(isMobile ? styles.mobileInput : styles.input),
                   ...(getFieldError('password') ? styles.inputError : {})
                 }}
                 autoComplete="current-password"
@@ -299,35 +335,40 @@ const AdminLogin: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                style={styles.passwordToggle}
+                style={isMobile ? styles.mobilePasswordToggle : styles.passwordToggle}
                 disabled={isLoading}
+                className="mobile-tap-target"
               >
                 {showPassword ? '🙈' : '👁️'}
               </button>
             </div>
             {getFieldError('password') && (
-              <span style={styles.errorMessage}>{getFieldError('password')}</span>
+              <span style={isMobile ? styles.mobileErrorMessage : styles.errorMessage}>
+                {getFieldError('password')}
+              </span>
             )}
           </div>
 
           {/* Remember Me */}
           <div style={styles.checkboxGroup}>
-            <label style={styles.checkboxLabel}>
+            <label style={isMobile ? styles.mobileCheckboxLabel : styles.checkboxLabel}>
               <input
                 type="checkbox"
                 checked={credentials.rememberMe}
                 onChange={(e) => updateCredentials('rememberMe', e.target.checked)}
-                style={styles.checkbox}
+                style={isMobile ? styles.mobileCheckbox : styles.checkbox}
                 disabled={isLoading}
               />
-              <span style={styles.checkboxText}>Remember me</span>
+              <span style={isMobile ? styles.mobileCheckboxText : styles.checkboxText}>
+                Remember me
+              </span>
             </label>
           </div>
 
           {/* Error Display */}
           {error && (
-            <div style={styles.errorAlert}>
-              <span style={styles.errorIcon}>⚠️</span>
+            <div style={isMobile ? styles.mobileErrorAlert : styles.errorAlert}>
+              <span style={isMobile ? styles.mobileErrorIcon : styles.errorIcon}>⚠️</span>
               <span>{error.message}</span>
             </div>
           )}
@@ -337,12 +378,13 @@ const AdminLogin: React.FC = () => {
             type="submit"
             disabled={!canSubmit}
             style={{
-              ...styles.submitButton,
+              ...(isMobile ? styles.mobileSubmitButton : styles.submitButton),
               ...(canSubmit ? styles.submitButtonEnabled : styles.submitButtonDisabled)
             }}
+            className="mobile-tap-target"
           >
             {isLoading ? (
-              <span style={styles.loadingText}>
+              <span style={isMobile ? styles.mobileLoadingText : styles.loadingText}>
                 <div style={styles.buttonLogoContainer}>
                   <img 
                     src={Logo} 
@@ -360,8 +402,8 @@ const AdminLogin: React.FC = () => {
         </form>
 
         {/* Footer */}
-        <div style={styles.footer}>
-          <p style={styles.footerText}>
+        <div style={isMobile ? styles.mobileFooter : styles.footer}>
+          <p style={isMobile ? styles.mobileFooterText : styles.footerText}>
             Secure admin access • VTU Management System
           </p>
         </div>
@@ -370,8 +412,9 @@ const AdminLogin: React.FC = () => {
   );
 };
 
-// Updated styles with pure black text on white background for inputs only
+// Updated styles with mobile responsiveness
 const styles = {
+  // Desktop Styles
   container: {
     display: 'flex',
     justifyContent: 'center',
@@ -453,7 +496,7 @@ const styles = {
     display: 'block',
     fontSize: '14px',
     fontWeight: '600',
-    color: '#333333', // Original color
+    color: '#333333',
     marginBottom: '8px'
   },
 
@@ -471,18 +514,18 @@ const styles = {
     borderRadius: '12px',
     outline: 'none',
     transition: 'all 0.2s ease-in-out',
-    backgroundColor: '#ffffff', // Pure white
+    backgroundColor: '#ffffff',
     boxSizing: 'border-box' as const,
-    color: '#000000', // Pure black
+    color: '#000000',
     fontWeight: '600',
     fontFamily: 'inherit',
-    WebkitTextFillColor: '#000000', // For Safari
-    opacity: 1, // Remove any opacity
+    WebkitTextFillColor: '#000000',
+    opacity: 1,
   } as React.CSSProperties,
 
   inputError: {
     borderColor: '#ff3b30',
-    backgroundColor: '#ffffff' // Keep white background even in error state
+    backgroundColor: '#ffffff'
   },
 
   inputIcon: {
@@ -522,11 +565,13 @@ const styles = {
 
   checkbox: {
     marginRight: '8px',
-    cursor: 'pointer'
+    cursor: 'pointer',
+    width: '18px',
+    height: '18px'
   },
 
   checkboxText: {
-    color: '#666666', // Original gray color for remember me
+    color: '#666666',
     fontWeight: '500'
   },
 
@@ -605,7 +650,7 @@ const styles = {
     objectFit: 'contain' as const
   },
 
-  // Logo Loader Styles
+  // Desktop Loader Styles
   loaderContainer: {
     display: 'flex',
     flexDirection: 'column' as const,
@@ -644,13 +689,13 @@ const styles = {
   loaderMessage: {
     fontSize: '20px',
     fontWeight: '600',
-    color: '#333333', // Original color
+    color: '#333333',
     margin: '0 0 8px 0'
   },
 
   loaderSubMessage: {
     fontSize: '14px',
-    color: '#666666', // Original color
+    color: '#666666',
     margin: '0',
     fontWeight: '500'
   },
@@ -664,9 +709,269 @@ const styles = {
 
   footerText: {
     fontSize: '12px',
-    color: '#999999', // Original color
+    color: '#999999',
     margin: '0',
     fontWeight: '500'
+  },
+
+  // Mobile Styles
+  mobileContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    minHeight: '100vh',
+    minHeight: '-webkit-fill-available' as any,
+    width: '100vw',
+    backgroundColor: '#f8f9fa',
+    padding: '16px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: 0,
+    boxSizing: 'border-box' as const,
+    overflowY: 'auto' as const,
+    WebkitOverflowScrolling: 'touch' as const
+  } as React.CSSProperties,
+
+  mobileLoginCard: {
+    width: '100%',
+    maxWidth: '400px',
+    backgroundColor: '#ffffff',
+    borderRadius: '16px',
+    padding: '32px 24px',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #e1e1e1',
+    margin: 'auto',
+    marginTop: '8vh'
+  } as React.CSSProperties,
+
+  mobileHeader: {
+    textAlign: 'center' as const,
+    marginBottom: '32px',
+    position: 'relative' as const,
+    paddingTop: '100px'
+  },
+
+  mobileLogo: {
+    position: 'absolute' as const,
+    top: '0px',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10
+  },
+
+  mobileLogoImage: {
+    width: '150px',
+    height: '150px',
+    objectFit: 'contain' as const
+  },
+
+  mobileTitle: {
+    fontSize: '24px',
+    fontWeight: '700',
+    color: '#ff2b2b',
+    margin: '0 0 8px 0',
+    letterSpacing: '-0.3px'
+  },
+
+  mobileSubtitle: {
+    fontSize: '14px',
+    color: '#666666',
+    margin: '0',
+    fontWeight: '400',
+    lineHeight: '1.4'
+  },
+
+  mobileLabel: {
+    display: 'block',
+    fontSize: '13px',
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: '8px'
+  },
+
+  mobileInput: {
+    width: '100%',
+    padding: '14px 50px 14px 16px',
+    fontSize: '15px',
+    border: '2px solid #e1e5e9',
+    borderRadius: '10px',
+    outline: 'none',
+    transition: 'all 0.2s ease-in-out',
+    backgroundColor: '#ffffff',
+    boxSizing: 'border-box' as const,
+    color: '#000000',
+    fontWeight: '600',
+    fontFamily: 'inherit',
+    WebkitTextFillColor: '#000000',
+    opacity: 1,
+    WebkitAppearance: 'none' as const,
+    MozAppearance: 'textfield' as const
+  } as React.CSSProperties,
+
+  mobileInputIcon: {
+    position: 'absolute' as const,
+    right: '16px',
+    fontSize: '16px',
+    color: '#666666',
+    pointerEvents: 'none' as const,
+    zIndex: 1
+  },
+
+  mobilePasswordToggle: {
+    position: 'absolute' as const,
+    right: '16px',
+    background: 'none',
+    border: 'none',
+    fontSize: '16px',
+    cursor: 'pointer',
+    color: '#666666',
+    padding: '10px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+    minWidth: '44px',
+    minHeight: '44px'
+  },
+
+  mobileCheckboxLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    cursor: 'pointer',
+    fontSize: '13px'
+  },
+
+  mobileCheckbox: {
+    marginRight: '8px',
+    cursor: 'pointer',
+    width: '20px',
+    height: '20px',
+    minWidth: '20px',
+    minHeight: '20px'
+  },
+
+  mobileCheckboxText: {
+    color: '#666666',
+    fontWeight: '500',
+    fontSize: '13px'
+  },
+
+  mobileErrorMessage: {
+    display: 'block',
+    fontSize: '11px',
+    color: '#ff3b30',
+    marginTop: '6px',
+    fontWeight: '500'
+  },
+
+  mobileErrorAlert: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '8px',
+    padding: '12px',
+    backgroundColor: '#fff5f5',
+    border: '1px solid #ff3b30',
+    borderRadius: '8px',
+    fontSize: '13px',
+    color: '#ff3b30',
+    marginBottom: '20px',
+    fontWeight: '500',
+    lineHeight: '1.4'
+  },
+
+  mobileErrorIcon: {
+    fontSize: '14px',
+    flexShrink: 0,
+    marginTop: '1px'
+  },
+
+  mobileSubmitButton: {
+    width: '100%',
+    padding: '16px',
+    fontSize: '15px',
+    fontWeight: '600',
+    border: 'none',
+    borderRadius: '10px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease-in-out',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    minHeight: '50px'
+  },
+
+  mobileLoadingText: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '15px',
+    fontWeight: '600'
+  },
+
+  mobileLoaderContainer: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    minHeight: '-webkit-fill-available' as any,
+    width: '100vw',
+    backgroundColor: '#f8f9fa',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    position: 'fixed' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: 0,
+    zIndex: 1000,
+    padding: '20px'
+  } as React.CSSProperties,
+
+  mobileLogoLoaderImage: {
+    width: '100px',
+    height: '100px',
+    objectFit: 'contain' as const
+  },
+
+  mobileLoaderMessage: {
+    fontSize: '18px',
+    fontWeight: '600',
+    color: '#333333',
+    margin: '0 0 8px 0',
+    textAlign: 'center' as const
+  },
+
+  mobileLoaderSubMessage: {
+    fontSize: '13px',
+    color: '#666666',
+    margin: '0',
+    fontWeight: '500',
+    textAlign: 'center' as const,
+    lineHeight: '1.4'
+  },
+
+  mobileFooter: {
+    textAlign: 'center' as const,
+    marginTop: '28px',
+    paddingTop: '20px',
+    borderTop: '1px solid #f0f0f0'
+  },
+
+  mobileFooterText: {
+    fontSize: '11px',
+    color: '#999999',
+    margin: '0',
+    fontWeight: '500',
+    lineHeight: '1.4'
   }
 };
 

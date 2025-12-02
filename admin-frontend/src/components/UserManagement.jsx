@@ -494,10 +494,11 @@ const UserManagement = () => {
             padding: '8px 12px',
             border: '1px solid #e2e8f0',
             borderRadius: '6px',
-            backgroundColor: pagination.hasPrevPage ? '#fff' : '#f8f9fa',
-            color: pagination.hasPrevPage ? '#1a202c' : '#a0aec0',
+            backgroundColor: '#ffffff',
+            color: '#000000',
             cursor: pagination.hasPrevPage ? 'pointer' : 'not-allowed',
-            fontSize: '14px'
+            fontSize: '14px',
+            outline: 'none'
           }}
         >
           Previous
@@ -506,7 +507,7 @@ const UserManagement = () => {
         <span style={{
           padding: '8px 12px',
           fontSize: '14px',
-          color: '#1a202c'
+          color: '#000000'
         }}>
           Page {pagination.currentPage} of {pagination.totalPages}
         </span>
@@ -518,10 +519,11 @@ const UserManagement = () => {
             padding: '8px 12px',
             border: '1px solid #e2e8f0',
             borderRadius: '6px',
-            backgroundColor: pagination.hasNextPage ? '#fff' : '#f8f9fa',
-            color: pagination.hasNextPage ? '#1a202c' : '#a0aec0',
+            backgroundColor: '#ffffff',
+            color: '#000000',
             cursor: pagination.hasNextPage ? 'pointer' : 'not-allowed',
-            fontSize: '14px'
+            fontSize: '14px',
+            outline: 'none'
           }}
         >
           Next
@@ -564,7 +566,7 @@ const UserManagement = () => {
             justifyContent: 'space-between',
             alignItems: 'center'
           }}>
-            <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
+            <h3 style={{ margin: 0, color: '#000000', fontSize: '18px', fontWeight: '600' }}>
               User Details
             </h3>
             <button
@@ -574,7 +576,9 @@ const UserManagement = () => {
                 border: 'none',
                 fontSize: '24px',
                 cursor: 'pointer',
-                color: '#718096'
+                color: '#000000',
+                padding: '0',
+                outline: 'none'
               }}
             >
               ×
@@ -593,7 +597,7 @@ const UserManagement = () => {
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite'
                 }} />
-                <p style={{ marginTop: '16px', color: '#718096' }}>Loading details...</p>
+                <p style={{ marginTop: '16px', color: '#000000' }}>Loading details...</p>
               </div>
             ) : (
               <>
@@ -603,7 +607,7 @@ const UserManagement = () => {
                   gap: '16px',
                   marginBottom: '24px',
                   padding: '16px',
-                  backgroundColor: '#f7fafc',
+                  backgroundColor: '#ffffff',
                   borderRadius: '8px'
                 }}>
                   <div style={{
@@ -621,10 +625,10 @@ const UserManagement = () => {
                     {selectedUser.name?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
                   <div>
-                    <h4 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '16px' }}>
+                    <h4 style={{ margin: '0 0 8px 0', color: '#000000', fontSize: '16px' }}>
                       {selectedUser.displayName || selectedUser.name}
                     </h4>
-                    <p style={{ margin: '0 0 4px 0', color: '#718096', fontSize: '14px' }}>
+                    <p style={{ margin: '0 0 4px 0', color: '#000000', fontSize: '14px' }}>
                       {selectedUser.email}
                     </p>
                     <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -653,7 +657,8 @@ const UserManagement = () => {
                         fontSize: '14px',
                         fontWeight: '600',
                         cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        opacity: actionLoading ? 0.7 : 1
+                        opacity: actionLoading ? 0.7 : 1,
+                        outline: 'none'
                       }}
                     >
                       {actionLoading ? 'Processing...' : 'Unsuspend'}
@@ -674,7 +679,8 @@ const UserManagement = () => {
                         fontSize: '14px',
                         fontWeight: '600',
                         cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        opacity: actionLoading ? 0.7 : 1
+                        opacity: actionLoading ? 0.7 : 1,
+                        outline: 'none'
                       }}
                     >
                       {actionLoading ? 'Processing...' : 'Suspend'}
@@ -694,7 +700,8 @@ const UserManagement = () => {
                         fontSize: '14px',
                         fontWeight: '600',
                         cursor: actionLoading ? 'not-allowed' : 'pointer',
-                        opacity: actionLoading ? 0.7 : 1
+                        opacity: actionLoading ? 0.7 : 1,
+                        outline: 'none'
                       }}
                     >
                       {actionLoading ? 'Processing...' : 'Activate'}
@@ -717,47 +724,50 @@ const UserManagement = () => {
                       fontSize: '14px',
                       fontWeight: '600',
                       cursor: actionLoading ? 'not-allowed' : 'pointer',
-                      opacity: actionLoading ? 0.7 : 1
+                      opacity: actionLoading ? 0.7 : 1,
+                      outline: 'none'
                     }}
                   >
                     {actionLoading ? 'Processing...' : 'Delete'}
                   </button>
 
-                  <button
-                    onClick={handleCreditAction}
-                    disabled={actionLoading}
-                    style={{
-                      padding: '8px 16px',
-                      backgroundColor: '#007bff',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: actionLoading ? 'not-allowed' : 'pointer',
-                      opacity: actionLoading ? 0.7 : 1
-                    }}
-                  >
-                    {actionLoading ? 'Processing...' : 'Credit'}
-                  </button>
+                 <button
+  onClick={handleCreditAction}
+  disabled={actionLoading}
+  style={{
+    padding: '8px 16px',
+    backgroundColor: '#007bff',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: actionLoading ? 'not-allowed' : 'pointer',
+    opacity: actionLoading ? 0.7 : 1,
+    outline: 'none'
+  }}
+>
+  {actionLoading ? 'Processing...' : 'Credit'}
+</button>
 
-                  <button
-                    onClick={handleDebitAction}
-                    disabled={actionLoading || selectedUser.walletBalance <= 0}
-                    style={{
-                      padding: '8px 16px',
-                      backgroundColor: selectedUser.walletBalance <= 0 ? '#6c757d' : '#dc3545',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '14px',
-                      fontWeight: '600',
-                      cursor: (actionLoading || selectedUser.walletBalance <= 0) ? 'not-allowed' : 'pointer',
-                      opacity: (actionLoading || selectedUser.walletBalance <= 0) ? 0.7 : 1
-                    }}
-                  >
-                    {actionLoading ? 'Processing...' : 'Debit'}
-                  </button>
+<button
+  onClick={handleDebitAction}
+  disabled={actionLoading || selectedUser.walletBalance <= 0}
+  style={{
+    padding: '8px 16px',
+    backgroundColor: selectedUser.walletBalance <= 0 ? '#6c757d' : '#dc3545',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '6px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: (actionLoading || selectedUser.walletBalance <= 0) ? 'not-allowed' : 'pointer',
+    opacity: (actionLoading || selectedUser.walletBalance <= 0) ? 0.7 : 1,
+    outline: 'none'
+  }}
+>
+  {actionLoading ? 'Processing...' : 'Debit'}
+</button>
                 </div>
 
                 <div style={{
@@ -766,7 +776,7 @@ const UserManagement = () => {
                   gap: '16px'
                 }}>
                   <div>
-                    <h5 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
+                    <h5 style={{ margin: '0 0 8px 0', color: '#000000', fontSize: '14px', fontWeight: '600' }}>
                       Wallet Balance
                     </h5>
                     <p style={{ margin: '0 0 16px 0', color: '#ff3b30', fontSize: '16px', fontWeight: '600' }}>
@@ -775,28 +785,28 @@ const UserManagement = () => {
                   </div>
 
                   <div>
-                    <h5 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
+                    <h5 style={{ margin: '0 0 8px 0', color: '#000000', fontSize: '14px', fontWeight: '600' }}>
                       Transactions
                     </h5>
-                    <p style={{ margin: '0 0 16px 0', color: '#718096', fontSize: '16px' }}>
+                    <p style={{ margin: '0 0 16px 0', color: '#000000', fontSize: '16px' }}>
                       {selectedUser.transactionCount || 0}
                     </p>
                   </div>
 
                   <div>
-                    <h5 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
+                    <h5 style={{ margin: '0 0 8px 0', color: '#000000', fontSize: '14px', fontWeight: '600' }}>
                       Joined
                     </h5>
-                    <p style={{ margin: '0 0 16px 0', color: '#718096', fontSize: '14px' }}>
+                    <p style={{ margin: '0 0 16px 0', color: '#000000', fontSize: '14px' }}>
                       {selectedUser.registrationDate}
                     </p>
                   </div>
 
                   <div>
-                    <h5 style={{ margin: '0 0 8px 0', color: '#1a202c', fontSize: '14px', fontWeight: '600' }}>
+                    <h5 style={{ margin: '0 0 8px 0', color: '#000000', fontSize: '14px', fontWeight: '600' }}>
                       Last Login
                     </h5>
-                    <p style={{ margin: '0 0 16px 0', color: '#718096', fontSize: '14px' }}>
+                    <p style={{ margin: '0 0 16px 0', color: '#000000', fontSize: '14px' }}>
                       {selectedUser.lastLoginFormatted}
                     </p>
                   </div>
@@ -804,14 +814,14 @@ const UserManagement = () => {
 
                 {selectedUser.recentTransactions && selectedUser.recentTransactions.length > 0 && (
                   <div style={{ marginTop: '20px' }}>
-                    <h5 style={{ margin: '0 0 12px 0', color: '#1a202c', fontSize: '16px', fontWeight: '600' }}>
+                    <h5 style={{ margin: '0 0 12px 0', color: '#000000', fontSize: '16px', fontWeight: '600' }}>
                       Recent Transactions
                     </h5>
                     <div style={{ maxHeight: '200px', overflowY: 'auto' }}>
                       {selectedUser.recentTransactions.map((tx, index) => (
                         <div key={index} style={{
                           padding: '12px',
-                          backgroundColor: '#f8f9fa',
+                          backgroundColor: '#ffffff',
                           borderRadius: '8px',
                           marginBottom: '8px',
                           display: 'flex',
@@ -819,15 +829,15 @@ const UserManagement = () => {
                           alignItems: 'center'
                         }}>
                           <div>
-                            <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
+                            <div style={{ fontWeight: '600', color: '#000000', fontSize: '14px' }}>
                               {tx.description || tx.type}
                             </div>
-                            <div style={{ color: '#718096', fontSize: '12px' }}>
+                            <div style={{ color: '#000000', fontSize: '12px' }}>
                               {tx.timeAgo}
                             </div>
                           </div>
                           <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
+                            <div style={{ fontWeight: '600', color: '#000000', fontSize: '14px' }}>
                               {tx.formattedAmount}
                             </div>
                             <div style={{
@@ -858,7 +868,7 @@ const UserManagement = () => {
         position: 'absolute',
         right: 0,
         top: '100%',
-        backgroundColor: '#fff',
+        backgroundColor: '#ffffff',
         border: '1px solid #e2e8f0',
         borderRadius: '8px',
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
@@ -877,7 +887,9 @@ const UserManagement = () => {
             textAlign: 'left',
             fontSize: '14px',
             cursor: actionLoading ? 'not-allowed' : 'pointer',
-            borderBottom: '1px solid #f1f5f9'
+            borderBottom: '1px solid #f1f5f9',
+            color: '#000000',
+            outline: 'none'
           }}
         >
           Activate All
@@ -896,7 +908,9 @@ const UserManagement = () => {
             textAlign: 'left',
             fontSize: '14px',
             cursor: actionLoading ? 'not-allowed' : 'pointer',
-            borderBottom: '1px solid #f1f5f9'
+            borderBottom: '1px solid #f1f5f9',
+            color: '#000000',
+            outline: 'none'
           }}
         >
           Suspend All
@@ -916,7 +930,8 @@ const UserManagement = () => {
             textAlign: 'left',
             fontSize: '14px',
             cursor: actionLoading ? 'not-allowed' : 'pointer',
-            color: '#ff3b30'
+            color: '#ff3b30',
+            outline: 'none'
           }}
         >
           Delete All
@@ -925,390 +940,483 @@ const UserManagement = () => {
     );
   };
 
-  const CreditModal = () => {
-    if (!showCreditModal || !selectedUser) return null;
+ const CreditModal = () => {
+  if (!showCreditModal || !selectedUser) return null;
 
-    return (
+  // ADD THIS LOCAL STATE
+  const [localForm, setLocalForm] = useState({
+    amount: '',
+    reason: '',
+    reference: ''
+  });
+
+  // ADD THIS LOCAL HANDLER
+  const handleLocalSubmit = async () => {
+    if (!localForm.amount || !localForm.reason) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
+    if (isNaN(localForm.amount) || parseFloat(localForm.amount) <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    
+    await creditUser(
+      selectedUser._id, 
+      localForm.amount, 
+      localForm.reason, 
+      localForm.reference
+    );
+    setShowCreditModal(false);
+    setShowUserModal(true);
+    // Reset the form
+    setLocalForm({ amount: '', reason: '', reference: '' });
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1001,
+      padding: '20px'
+    }}>
       <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1001,
-        padding: '20px'
+        backgroundColor: '#ffffff',
+        borderRadius: '12px',
+        maxWidth: '400px',
+        width: '100%',
+        overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0'
       }}>
         <div style={{
-          backgroundColor: '#fff',
-          borderRadius: '12px',
-          maxWidth: '400px',
-          width: '100%',
-          overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e2e8f0'
+          padding: '20px',
+          borderBottom: '1px solid #e2e8f0',
+          backgroundColor: '#ffffff'
         }}>
           <div style={{
-            padding: '20px',
-            borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f7fafc'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
           }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
+            <h3 style={{ margin: 0, color: '#000000', fontSize: '18px', fontWeight: '600' }}>
+              Credit User
+            </h3>
+            <button
+              onClick={() => {
+                setShowCreditModal(false);
+                setShowUserModal(true);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#000000',
+                padding: '0',
+                outline: 'none'
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <p style={{ margin: '8px 0 0 0', color: '#000000', fontSize: '14px' }}>
+            Add funds to {selectedUser.name}'s wallet
+          </p>
+        </div>
+
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#000000'
             }}>
-              <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
-                Credit User
-              </h3>
-              <button
-                onClick={() => {
-                  setShowCreditModal(false);
-                  setShowUserModal(true);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: '#718096'
-                }}
-              >
-                ×
-              </button>
-            </div>
-            <p style={{ margin: '8px 0 0 0', color: '#718096', fontSize: '14px' }}>
-              Add funds to {selectedUser.name}'s wallet
-            </p>
+              Amount (₦)
+            </label>
+            <input
+              type="number"
+              placeholder="Enter amount to credit"
+              value={localForm.amount}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, amount: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+              min="0"
+              step="0.01"
+              autoFocus
+            />
           </div>
 
-          <div style={{ padding: '20px' }}>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
-                Amount (₦)
-              </label>
-              <input
-                type="number"
-                placeholder="Enter amount to credit"
-                value={transactionForm.amount}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, amount: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
-                min="0"
-                step="0.01"
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
-                Reason
-              </label>
-              <textarea
-                placeholder="Enter reason for crediting"
-                value={transactionForm.reason}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, reason: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  minHeight: '80px'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096'
-              }}>
-                Reference (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="Enter transaction reference"
-                value={transactionForm.reference}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, reference: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'flex-end'
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#000000'
             }}>
-              <button
-                onClick={() => {
-                  setShowCreditModal(false);
-                  setShowUserModal(true);
-                }}
-                disabled={actionLoading}
-                style={{
-                  padding: '10px 16px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  backgroundColor: '#fff',
-                  color: '#718096',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: actionLoading ? 'not-allowed' : 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreditSubmit}
-                disabled={actionLoading || !transactionForm.amount || !transactionForm.reason}
-                style={{
-                  padding: '10px 16px',
-                  border: 'none',
-                  borderRadius: '8px',
-                  backgroundColor: '#007bff',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: (actionLoading || !transactionForm.amount || !transactionForm.reason) ? 'not-allowed' : 'pointer',
-                  opacity: (actionLoading || !transactionForm.amount || !transactionForm.reason) ? 0.7 : 1
-                }}
-              >
-                {actionLoading ? 'Processing...' : 'Credit User'}
-              </button>
-            </div>
+              Reason
+            </label>
+            <textarea
+              placeholder="Enter reason for crediting"
+              value={localForm.reason}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, reason: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+                minHeight: '80px',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#000000'
+            }}>
+              Reference (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Enter transaction reference"
+              value={localForm.reference}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, reference: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'flex-end'
+          }}>
+            <button
+              onClick={() => {
+                setShowCreditModal(false);
+                setShowUserModal(true);
+              }}
+              disabled={actionLoading}
+              style={{
+                padding: '10px 16px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: actionLoading ? 'not-allowed' : 'pointer',
+                outline: 'none'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleLocalSubmit} // CHANGE TO LOCAL HANDLER
+              disabled={actionLoading || !localForm.amount || !localForm.reason}
+              style={{
+                padding: '10px 16px',
+                border: 'none',
+                borderRadius: '8px',
+                backgroundColor: '#007bff',
+                color: '#fff',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (actionLoading || !localForm.amount || !localForm.reason) ? 'not-allowed' : 'pointer',
+                opacity: (actionLoading || !localForm.amount || !localForm.reason) ? 0.7 : 1,
+                outline: 'none'
+              }}
+            >
+              {actionLoading ? 'Processing...' : 'Credit User'}
+            </button>
           </div>
         </div>
       </div>
+    </div>
+  );
+};
+
+ const DebitModal = () => {
+  if (!showDebitModal || !selectedUser) return null;
+
+  // Add local state inside the modal
+  const [localForm, setLocalForm] = useState({
+    amount: '',
+    reason: '',
+    reference: ''
+  });
+
+  const handleLocalDebitSubmit = async () => {
+    if (!localForm.amount || !localForm.reason) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
+    if (isNaN(localForm.amount) || parseFloat(localForm.amount) <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+    
+    if (parseFloat(localForm.amount) > selectedUser.walletBalance) {
+      alert(`Insufficient balance. User has ₦${selectedUser.walletBalance.toLocaleString()}`);
+      return;
+    }
+    
+    await debitUser(
+      selectedUser._id, 
+      localForm.amount, 
+      localForm.reason, 
+      localForm.reference
     );
+    setShowDebitModal(false);
+    setShowUserModal(true);
+    // Reset local form
+    setLocalForm({ amount: '', reason: '', reference: '' });
   };
 
-  const DebitModal = () => {
-    if (!showDebitModal || !selectedUser) return null;
-
-    return (
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1001,
+      padding: '20px'
+    }}>
       <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1001,
-        padding: '20px'
+        backgroundColor: '#ffffff',
+        borderRadius: '12px',
+        maxWidth: '400px',
+        width: '100%',
+        overflow: 'hidden',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0'
       }}>
         <div style={{
-          backgroundColor: '#fff',
-          borderRadius: '12px',
-          maxWidth: '400px',
-          width: '100%',
-          overflow: 'hidden',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e2e8f0'
+          padding: '20px',
+          borderBottom: '1px solid #e2e8f0',
+          backgroundColor: '#ffffff'
         }}>
           <div style={{
-            padding: '20px',
-            borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f7fafc'
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
           }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between'
+            <h3 style={{ margin: 0, color: '#000000', fontSize: '18px', fontWeight: '600' }}>
+              Debit User
+            </h3>
+            <button
+              onClick={() => {
+                setShowDebitModal(false);
+                setShowUserModal(true);
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '24px',
+                cursor: 'pointer',
+                color: '#000000',
+                padding: '0',
+                outline: 'none'
+              }}
+            >
+              ×
+            </button>
+          </div>
+          <p style={{ margin: '8px 0 0 0', color: '#000000', fontSize: '14px' }}>
+            Deduct funds from {selectedUser.name}'s wallet
+          </p>
+          <p style={{ margin: '4px 0 0 0', color: '#28a745', fontSize: '12px', fontWeight: '600' }}>
+            Available Balance: {formatCurrency(selectedUser.walletBalance)}
+          </p>
+        </div>
+
+        <div style={{ padding: '20px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#000000'
             }}>
-              <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
-                Debit User
-              </h3>
-              <button
-                onClick={() => {
-                  setShowDebitModal(false);
-                  setShowUserModal(true);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: '#718096'
-                }}
-              >
-                ×
-              </button>
-            </div>
-            <p style={{ margin: '8px 0 0 0', color: '#718096', fontSize: '14px' }}>
-              Deduct funds from {selectedUser.name}'s wallet
-            </p>
-            <p style={{ margin: '4px 0 0 0', color: '#28a745', fontSize: '12px', fontWeight: '600' }}>
-              Available Balance: {formatCurrency(selectedUser.walletBalance)}
-            </p>
+              Amount (₦)
+            </label>
+            <input
+              type="number"
+              placeholder="Enter amount to debit"
+              value={localForm.amount}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, amount: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+              min="0"
+              max={selectedUser.walletBalance}
+              step="0.01"
+              autoFocus
+            />
           </div>
 
-          <div style={{ padding: '20px' }}>
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
-                Amount (₦)
-              </label>
-              <input
-                type="number"
-                placeholder="Enter amount to debit"
-                value={transactionForm.amount}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, amount: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
-                min="0"
-                max={selectedUser.walletBalance}
-                step="0.01"
-              />
-            </div>
-
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                color: '#1a202c'
-              }}>
-                Reason
-              </label>
-              <textarea
-                placeholder="Enter reason for debiting"
-                value={transactionForm.reason}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, reason: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box',
-                  resize: 'vertical',
-                  minHeight: '80px'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{
-                display: 'block',
-                marginBottom: '8px',
-                fontSize: '14px',
-                fontWeight: '500',
-                color: '#718096'
-              }}>
-                Reference (Optional)
-              </label>
-              <input
-                type="text"
-                placeholder="Enter transaction reference"
-                value={transactionForm.reference}
-                onChange={(e) => setTransactionForm(prev => ({ ...prev, reference: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  boxSizing: 'border-box'
-                }}
-              />
-            </div>
-
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'flex-end'
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#000000'
             }}>
-              <button
-                onClick={() => {
-                  setShowDebitModal(false);
-                  setShowUserModal(true);
-                }}
-                disabled={actionLoading}
-                style={{
-                  padding: '10px 16px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  backgroundColor: '#fff',
-                  color: '#718096',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: actionLoading ? 'not-allowed' : 'pointer'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDebitSubmit}
-                disabled={actionLoading || !transactionForm.amount || !transactionForm.reason || parseFloat(transactionForm.amount) > selectedUser.walletBalance}
-                style={{
-                  padding: '10px 16px',
-                  border: 'none',
-                  borderRadius: '8px',
-                  backgroundColor: '#dc3545',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: (actionLoading || !transactionForm.amount || !transactionForm.reason || parseFloat(transactionForm.amount) > selectedUser.walletBalance) ? 'not-allowed' : 'pointer',
-                  opacity: (actionLoading || !transactionForm.amount || !transactionForm.reason || parseFloat(transactionForm.amount) > selectedUser.walletBalance) ? 0.7 : 1
-                }}
-              >
-                {actionLoading ? 'Processing...' : 'Debit User'}
-              </button>
-            </div>
+              Reason
+            </label>
+            <textarea
+              placeholder="Enter reason for debiting"
+              value={localForm.reason}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, reason: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                resize: 'vertical',
+                minHeight: '80px',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: '20px' }}>
+            <label style={{
+              display: 'block',
+              marginBottom: '8px',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#000000'
+            }}>
+              Reference (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="Enter transaction reference"
+              value={localForm.reference}
+              onChange={(e) => setLocalForm(prev => ({ ...prev, reference: e.target.value }))}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                outline: 'none'
+              }}
+            />
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'flex-end'
+          }}>
+            <button
+              onClick={() => {
+                setShowDebitModal(false);
+                setShowUserModal(true);
+              }}
+              disabled={actionLoading}
+              style={{
+                padding: '10px 16px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: actionLoading ? 'not-allowed' : 'pointer',
+                outline: 'none'
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleLocalDebitSubmit}
+              disabled={actionLoading || !localForm.amount || !localForm.reason || parseFloat(localForm.amount) > selectedUser.walletBalance}
+              style={{
+                padding: '10px 16px',
+                border: 'none',
+                borderRadius: '8px',
+                backgroundColor: '#dc3545',
+                color: '#fff',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (actionLoading || !localForm.amount || !localForm.reason || parseFloat(localForm.amount) > selectedUser.walletBalance) ? 'not-allowed' : 'pointer',
+                opacity: (actionLoading || !localForm.amount || !localForm.reason || parseFloat(localForm.amount) > selectedUser.walletBalance) ? 0.7 : 1,
+                outline: 'none'
+              }}
+            >
+              {actionLoading ? 'Processing...' : 'Debit User'}
+            </button>
           </div>
         </div>
       </div>
-    );
-  };
-
+    </div>
+  );
+};
   return (
     <div style={{
       width: '100%',
@@ -1318,6 +1426,15 @@ const UserManagement = () => {
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
+        }
+        
+        input:focus, textarea:focus, select:focus, button:focus {
+          outline: 2px solid #ff3b30;
+          outline-offset: 2px;
+        }
+        
+        input, textarea, select {
+          color: #000000 !important;
         }
       `}</style>
       
@@ -1336,7 +1453,7 @@ const UserManagement = () => {
           { label: 'Unverified', value: stats?.unverifiedUsers || 0, color: '#ff3b30', icon: '⏳' }
         ].map((stat, index) => (
           <div key={index} style={{
-            backgroundColor: '#fff',
+            backgroundColor: '#ffffff',
             padding: isMobile ? '12px' : '16px',
             borderRadius: '8px',
             boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
@@ -1352,7 +1469,7 @@ const UserManagement = () => {
             }}>
               <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
               <h3 style={{
-                color: '#1a202c', 
+                color: '#000000', 
                 fontSize: isMobile ? '12px' : '14px', 
                 fontWeight: '600', 
                 margin: 0
@@ -1374,7 +1491,7 @@ const UserManagement = () => {
 
       {/* Main Content Card */}
       <div style={{
-        backgroundColor: '#fff',
+        backgroundColor: '#ffffff',
         borderRadius: '12px',
         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
         border: '1px solid #e2e8f0',
@@ -1384,7 +1501,7 @@ const UserManagement = () => {
         <div style={{
           padding: isMobile ? '16px' : '20px',
           borderBottom: '1px solid #e2e8f0',
-          backgroundColor: '#f7fafc'
+          backgroundColor: '#ffffff'
         }}>
           <div style={{
             display: 'flex',
@@ -1395,7 +1512,7 @@ const UserManagement = () => {
             marginBottom: '16px'
           }}>
             <h2 style={{
-              color: '#1a202c',
+              color: '#000000',
               fontSize: isMobile ? '18px' : '20px',
               fontWeight: '700',
               margin: 0
@@ -1409,7 +1526,7 @@ const UserManagement = () => {
                 alignItems: 'center',
                 gap: '12px',
                 padding: '8px 16px',
-                backgroundColor: '#fff5f5',
+                backgroundColor: '#ffffff',
                 borderRadius: '8px',
                 border: '1px solid #fed7d7',
                 position: 'relative'
@@ -1433,7 +1550,8 @@ const UserManagement = () => {
                     fontSize: '12px',
                     fontWeight: '600',
                     cursor: actionLoading ? 'not-allowed' : 'pointer',
-                    opacity: actionLoading ? 0.7 : 1
+                    opacity: actionLoading ? 0.7 : 1,
+                    outline: 'none'
                   }}
                 >
                   {actionLoading ? 'Processing...' : 'Actions'}
@@ -1463,17 +1581,19 @@ const UserManagement = () => {
                   border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   fontSize: '14px',
-                  backgroundColor: '#fff',
+                  backgroundColor: '#ffffff',
                   boxSizing: 'border-box',
-                  color: '#000000'
+                  color: '#000000',
+                  outline: 'none'
                 }}
+                autoComplete="off"
               />
               <span style={{
                 position: 'absolute',
                 left: '12px',
                 top: '50%',
                 transform: 'translateY(-50%)',
-                color: '#718096',
+                color: '#000000',
                 fontSize: '14px'
               }}>
                 🔍
@@ -1489,15 +1609,18 @@ const UserManagement = () => {
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
-                backgroundColor: '#fff',
-                minWidth: '120px'
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                minWidth: '120px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="suspended">Suspended</option>
-              <option value="pending_verification">Pending</option>
-              <option value="inactive">Inactive</option>
+              <option value="" style={{ color: '#000000' }}>All Status</option>
+              <option value="active" style={{ color: '#000000' }}>Active</option>
+              <option value="suspended" style={{ color: '#000000' }}>Suspended</option>
+              <option value="pending_verification" style={{ color: '#000000' }}>Pending</option>
+              <option value="inactive" style={{ color: '#000000' }}>Inactive</option>
             </select>
 
             {/* KYC Filter */}
@@ -1509,15 +1632,18 @@ const UserManagement = () => {
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
-                backgroundColor: '#fff',
-                minWidth: '120px'
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                minWidth: '120px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value="">All KYC</option>
-              <option value="0">Level 0</option>
-              <option value="1">Level 1</option>
-              <option value="2">Level 2</option>
-              <option value="3">Level 3</option>
+              <option value="" style={{ color: '#000000' }}>All KYC</option>
+              <option value="0" style={{ color: '#000000' }}>Level 0</option>
+              <option value="1" style={{ color: '#000000' }}>Level 1</option>
+              <option value="2" style={{ color: '#000000' }}>Level 2</option>
+              <option value="3" style={{ color: '#000000' }}>Level 3</option>
             </select>
 
             {/* Account Type Filter */}
@@ -1529,14 +1655,17 @@ const UserManagement = () => {
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
-                backgroundColor: '#fff',
-                minWidth: '120px'
+                backgroundColor: '#ffffff',
+                color: '#000000',
+                minWidth: '120px',
+                outline: 'none',
+                cursor: 'pointer'
               }}
             >
-              <option value="">All Types</option>
-              <option value="basic">Basic</option>
-              <option value="premium">Premium</option>
-              <option value="business">Business</option>
+              <option value="" style={{ color: '#000000' }}>All Types</option>
+              <option value="basic" style={{ color: '#000000' }}>Basic</option>
+              <option value="premium" style={{ color: '#000000' }}>Premium</option>
+              <option value="business" style={{ color: '#000000' }}>Business</option>
             </select>
           </div>
         </div>
@@ -1554,16 +1683,16 @@ const UserManagement = () => {
                 borderRadius: '50%',
                 animation: 'spin 1s linear infinite'
               }} />
-              <p style={{ marginTop: '16px', color: '#718096' }}>Loading users...</p>
+              <p style={{ marginTop: '16px', color: '#000000' }}>Loading users...</p>
             </div>
           ) : users.length === 0 ? (
             <div style={{
               padding: '60px 20px',
               textAlign: 'center',
-              color: '#718096'
+              color: '#000000'
             }}>
               <div style={{ fontSize: '48px', marginBottom: '16px' }}>👥</div>
-              <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No users found</h3>
+              <h3 style={{ color: '#000000', marginBottom: '8px' }}>No users found</h3>
               <p>Try adjusting your search or filter criteria</p>
             </div>
           ) : (
@@ -1573,7 +1702,7 @@ const UserManagement = () => {
               minWidth: '800px'
             }}>
               <thead>
-                <tr style={{ backgroundColor: '#f8f9fa' }}>
+                <tr style={{ backgroundColor: '#ffffff' }}>
                   <th style={{
                     padding: '16px',
                     textAlign: 'left',
@@ -1587,7 +1716,8 @@ const UserManagement = () => {
                       style={{
                         width: '16px',
                         height: '16px',
-                        cursor: 'pointer'
+                        cursor: 'pointer',
+                        outline: 'none'
                       }}
                     />
                   </th>
@@ -1596,7 +1726,7 @@ const UserManagement = () => {
                     textAlign: 'left',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0'
                   }}>User</th>
                   <th style={{
@@ -1604,7 +1734,7 @@ const UserManagement = () => {
                     textAlign: 'left',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0'
                   }}>Status</th>
                   <th style={{
@@ -1612,7 +1742,7 @@ const UserManagement = () => {
                     textAlign: 'left',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0'
                   }}>KYC</th>
                   <th style={{
@@ -1620,7 +1750,7 @@ const UserManagement = () => {
                     textAlign: 'left',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0'
                   }}>Wallet</th>
                   <th style={{
@@ -1628,7 +1758,7 @@ const UserManagement = () => {
                     textAlign: 'left',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0'
                   }}>Joined</th>
                   <th style={{
@@ -1636,7 +1766,7 @@ const UserManagement = () => {
                     textAlign: 'right',
                     fontSize: '14px',
                     fontWeight: '600',
-                    color: '#1a202c',
+                    color: '#000000',
                     borderBottom: '1px solid #e2e8f0',
                     width: '120px'
                   }}>Actions</th>
@@ -1648,7 +1778,7 @@ const UserManagement = () => {
                     key={user._id}
                     style={{
                       borderBottom: '1px solid #f1f5f9',
-                      backgroundColor: selectedUsers.includes(user._id) ? '#fff5f5' : '#fff'
+                      backgroundColor: selectedUsers.includes(user._id) ? '#fff5f5' : '#ffffff'
                     }}
                   >
                     <td style={{ padding: '16px' }}>
@@ -1659,7 +1789,8 @@ const UserManagement = () => {
                         style={{
                           width: '16px',
                           height: '16px',
-                          cursor: 'pointer'
+                          cursor: 'pointer',
+                          outline: 'none'
                         }}
                       />
                     </td>
@@ -1682,13 +1813,13 @@ const UserManagement = () => {
                         <div>
                           <div style={{
                             fontWeight: '600',
-                            color: '#1a202c',
+                            color: '#000000',
                             fontSize: '14px'
                           }}>
                             {user.name}
                           </div>
                           <div style={{
-                            color: '#718096',
+                            color: '#000000',
                             fontSize: '12px'
                           }}>
                             {user.email}
@@ -1711,7 +1842,7 @@ const UserManagement = () => {
                         {formatCurrency(user.walletBalance)}
                       </div>
                       <div style={{
-                        color: '#718096',
+                        color: '#000000',
                         fontSize: '12px'
                       }}>
                         {user.transactionCount} transactions
@@ -1719,13 +1850,13 @@ const UserManagement = () => {
                     </td>
                     <td style={{ padding: '16px' }}>
                       <div style={{
-                        color: '#1a202c',
+                        color: '#000000',
                         fontSize: '14px'
                       }}>
                         {user.registrationDate}
                       </div>
                       <div style={{
-                        color: '#718096',
+                        color: '#000000',
                         fontSize: '12px'
                       }}>
                         {user.lastLoginFormatted}
@@ -1737,14 +1868,15 @@ const UserManagement = () => {
                         disabled={userDetailsLoading}
                         style={{
                           padding: '6px 12px',
-                          backgroundColor: '#f7fafc',
+                          backgroundColor: '#ffffff',
                           border: '1px solid #e2e8f0',
                           borderRadius: '6px',
                           fontSize: '12px',
                           fontWeight: '600',
-                          color: '#1a202c',
+                          color: '#000000',
                           cursor: userDetailsLoading ? 'not-allowed' : 'pointer',
-                          opacity: userDetailsLoading ? 0.7 : 1
+                          opacity: userDetailsLoading ? 0.7 : 1,
+                          outline: 'none'
                         }}
                       >
                         {userDetailsLoading ? 'Loading...' : 'View Details'}

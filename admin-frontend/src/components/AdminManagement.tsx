@@ -1,2087 +1,2088 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import UserManagement from './UserManagement';
+import TransactionManagement from './TransactionManagement';
+import ServiceManagement from './ServiceManagement';
+import FinancialManagement from './FinancialManagement';
+import SystemManagement from './SystemManagement';
+import AdminManagement from './AdminManagement';
+import NotificationManagement from './NotificationManagement';
+import SupportTicketDetail from './SupportTicketDetail';
 
-// Error Boundary Component
-class ErrorBoundary extends React.Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+const AdminDashboard = () => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeMenu, setActiveMenu] = useState('dashboard');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isTablet, setIsTablet] = useState(window.innerWidth >= 768 && window.innerWidth < 1024);
+  const [isSmallMobile, setIsSmallMobile] = useState(window.innerWidth < 480);
+  
+  // Refs for click outside detection
+  const sidebarRef = useRef(null);
+  const hamburgerRef = useRef(null);
 
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('Error caught by boundary:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: '40px', textAlign: 'center', color: '#dc3545' }}>
-          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⚠️</div>
-          <h3 style={{ marginBottom: '16px' }}>Something went wrong</h3>
-          <p style={{ marginBottom: '20px' }}>{this.state.error?.message}</p>
-          <button 
-            onClick={() => this.setState({ hasError: false, error: null })}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#ff3b30',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontWeight: '600'
-            }}
-          >
-            Try Again
-          </button>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-// AdminModal component
-const AdminModal = ({ 
-  showAdminModal, 
-  setShowAdminModal, 
-  selectedAdmin, 
-  adminForm, 
-  setAdminForm, 
-  actionLoading, 
-  handleAdminSubmit,
-  ROLE_CONFIG,
-  currentUserRole 
-}) => {
-  if (!showAdminModal) return null;
-
-  const inputStyle = {
-    width: '100%',
-    padding: '8px 12px',
-    border: '2px solid #e2e8f0',
-    borderRadius: '6px',
-    fontSize: '14px',
-    color: '#000',
-    backgroundColor: '#fff'
-  };
-
-  const labelStyle = {
-    display: 'block',
-    marginBottom: '8px',
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#000'
-  };
-
-  const gridStyle = {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '16px',
-    marginBottom: '20px'
-  };
-
-  // Filter roles based on current user's role
-  const filteredRoles = Object.entries(ROLE_CONFIG).filter(([key, config]) => {
-    // Super admin can assign all roles except super_admin to others
-    if (currentUserRole === 'super_admin') {
-      return key !== 'super_admin' || selectedAdmin?.role === 'super_admin';
-    }
-    // Other admins can only assign roles with lower priority
-    const currentUserPriority = ROLE_CONFIG[currentUserRole]?.priority || 99;
-    const rolePriority = config.priority;
-    return rolePriority > currentUserPriority || (selectedAdmin && selectedAdmin.role === key);
+  // Dashboard state
+  const [dashboardStats, setDashboardStats] = useState({
+    todayRevenue: { value: 0, change: 0, loading: true },
+    totalTransactions: { value: 0, timeframe: 'Last 24 hours', loading: true },
+    activeUsers: { value: 0, status: 'Online now', loading: true },
+    successRate: { value: 0, context: 'Last 24 hours', loading: true }
+  });
+  
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [menuStats, setMenuStats] = useState({});
+  const [adminProfile, setAdminProfile] = useState({
+    name: 'Admin User',
+    email: 'admin@vtuapp.com',
+    role: 'Super Administrator',
+    phone: '+234 123 456 7890',
+    avatar: 'AU'
   });
 
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '20px'
-    }}>
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        maxWidth: '500px',
-        width: '100%',
-        maxHeight: '80vh',
-        overflow: 'auto'
-      }}>
-        <div style={{
-          padding: '24px',
-          borderBottom: '1px solid #e2e8f0',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <h3 style={{ margin: 0, color: '#000', fontSize: '18px', fontWeight: '600' }}>
-            {selectedAdmin ? 'Edit Admin User' : 'Create New Admin User'}
-          </h3>
-          <button
-            onClick={() => setShowAdminModal(false)}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              color: '#718096'
-            }}
-          >
-            ×
-          </button>
-        </div>
+  // API Balance State
+  const [apiBalances, setApiBalances] = useState([
+    {
+      provider: 'ClubKonnect',
+      balance: 0,
+      currency: '₦',
+      lastUpdated: '',
+      loading: true,
+      status: 'Checking...'
+    },
+    {
+      provider: 'VTU Service',
+      balance: 0,
+      currency: '₦',
+      lastUpdated: '',
+      loading: true,
+      status: 'Checking...'
+    }
+  ]);
+  const [apiBalancesLoading, setApiBalancesLoading] = useState(true);
 
-        <div style={{ padding: '24px' }}>
-          <div style={gridStyle}>
-            <div>
-              <label style={labelStyle}>Username *</label>
-              <input
-                type="text"
-                value={adminForm.username}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, username: e.target.value }))}
-                style={inputStyle}
-                required
-              />
-            </div>
-            
-            <div>
-              <label style={labelStyle}>Email Address *</label>
-              <input
-                type="email"
-                value={adminForm.email}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, email: e.target.value }))}
-                style={inputStyle}
-                required
-              />
-            </div>
-          </div>
-
-          <div style={gridStyle}>
-            <div>
-              <label style={labelStyle}>Phone Number</label>
-              <input
-                type="tel"
-                value={adminForm.phone}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, phone: e.target.value }))}
-                style={inputStyle}
-              />
-            </div>
-            
-            <div>
-              <label style={labelStyle}>Role *</label>
-              <select
-                value={adminForm.role}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, role: e.target.value }))}
-                style={inputStyle}
-                required
-                disabled={selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin'}
-              >
-                <option value="">Select Role</option>
-                {filteredRoles.map(([key, config]) => (
-                  <option key={key} value={key}>{config.name}</option>
-                ))}
-              </select>
-              {selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin' && (
-                <p style={{ fontSize: '12px', color: '#718096', marginTop: '4px' }}>
-                  Only super admins can modify super admin roles
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div style={gridStyle}>
-            <div>
-              <label style={labelStyle}>
-                Password {selectedAdmin ? '' : '*'}
-              </label>
-              <input
-                type="password"
-                value={adminForm.password}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, password: e.target.value }))}
-                style={inputStyle}
-                placeholder={selectedAdmin ? 'Leave blank to keep current' : 'Enter password'}
-              />
-            </div>
-            
-            <div>
-              <label style={labelStyle}>Confirm Password</label>
-              <input
-                type="password"
-                value={adminForm.confirmPassword}
-                onChange={(e) => setAdminForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                style={inputStyle}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '24px' }}>
-            <label style={labelStyle}>Status</label>
-            <select
-              value={adminForm.isActive ? 'active' : 'inactive'}
-              onChange={(e) => setAdminForm(prev => ({ ...prev, isActive: e.target.value === 'active' }))}
-              style={inputStyle}
-              disabled={selectedAdmin?.role === 'super_admin' && currentUserRole !== 'super_admin'}
-            >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setShowAdminModal(false)}
-              disabled={actionLoading}
-              style={{
-                padding: '10px 20px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                backgroundColor: '#fff',
-                color: '#000',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: actionLoading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleAdminSubmit}
-              disabled={actionLoading || !adminForm.username || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password)}
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                borderRadius: '8px',
-                backgroundColor: '#ff3b30',
-                color: '#fff',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: actionLoading ? 'not-allowed' : 'pointer',
-                opacity: actionLoading || !adminForm.username || !adminForm.email || !adminForm.role || (!selectedAdmin && !adminForm.password) ? 0.7 : 1
-              }}
-            >
-              {actionLoading ? 'Saving...' : selectedAdmin ? 'Update Admin' : 'Create Admin'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// RoleModal component for configuring roles
-const RoleModal = ({ 
-  showRoleModal, 
-  setShowRoleModal, 
-  selectedRole, 
-  roleForm, 
-  setRoleForm, 
-  actionLoading, 
-  handleRoleSubmit,
-  ALL_PERMISSIONS,
-  PERMISSION_CATEGORIES,
-  currentUserRole,
-  ROLE_CONFIG 
-}) => {
-  if (!showRoleModal) return null;
-
-  const togglePermission = (permissionId) => {
-    setRoleForm(prev => ({
-      ...prev,
-      permissions: prev.permissions.includes(permissionId)
-        ? prev.permissions.filter(p => p !== permissionId)
-        : [...prev.permissions, permissionId]
-    }));
-  };
-
-  const toggleCategory = (category) => {
-    const categoryPermissions = ALL_PERMISSIONS
-      .filter(p => p.category === category)
-      .map(p => p.id);
+  // Scrollbar styling
+  useEffect(() => {
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes slideIn {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(0); }
+      }
+    `;
+    document.head.appendChild(style);
     
-    const allCategorySelected = categoryPermissions.every(p => 
-      roleForm.permissions.includes(p)
-    );
-
-    setRoleForm(prev => ({
-      ...prev,
-      permissions: allCategorySelected
-        ? prev.permissions.filter(p => !categoryPermissions.includes(p))
-        : [...new Set([...prev.permissions, ...categoryPermissions])]
-    }));
-  };
-
-  const canEditRole = !selectedRole || 
-    (currentUserRole === 'super_admin') ||
-    (selectedRole.name !== 'super_admin' && ROLE_CONFIG[selectedRole.name]?.priority > ROLE_CONFIG[currentUserRole]?.priority);
-
-  return (
-    <div style={{
-      position: 'fixed',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      zIndex: 1000,
-      padding: '20px'
-    }}>
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        maxWidth: '800px',
-        width: '100%',
-        maxHeight: '90vh',
-        overflow: 'auto'
-      }}>
-        <div style={{
-          padding: '24px',
-          borderBottom: '1px solid #e2e8f0',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center'
-        }}>
-          <h3 style={{ margin: 0, color: '#1a202c', fontSize: '18px', fontWeight: '600' }}>
-            {selectedRole ? `Configure ${selectedRole.name} Role` : 'Create New Role'}
-          </h3>
-          <button
-            onClick={() => setShowRoleModal(false)}
-            style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '24px',
-              cursor: 'pointer',
-              color: '#718096'
-            }}
-          >
-            ×
-          </button>
-        </div>
-
-        <div style={{ padding: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
-                Role Name *
-              </label>
-              <input
-                type="text"
-                value={roleForm.name}
-                onChange={(e) => setRoleForm(prev => ({ ...prev, name: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '2px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-                required
-                disabled={!canEditRole}
-              />
-              {!canEditRole && (
-                <p style={{ fontSize: '12px', color: '#718096', marginTop: '4px' }}>
-                  You don't have permission to edit this role
-                </p>
-              )}
-            </div>
-            
-            <div>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: '600' }}>
-                Description
-              </label>
-              <input
-                type="text"
-                value={roleForm.description}
-                onChange={(e) => setRoleForm(prev => ({ ...prev, description: e.target.value }))}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  border: '2px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontSize: '14px'
-                }}
-                disabled={!canEditRole}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1a202c' }}>
-                Permissions ({roleForm.permissions.length} selected)
-              </h4>
-              {canEditRole && (
-                <button
-                  onClick={() => setRoleForm(prev => ({ ...prev, permissions: ALL_PERMISSIONS.map(p => p.id) }))}
-                  style={{
-                    padding: '6px 12px',
-                    backgroundColor: '#f7fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Select All
-                </button>
-              )}
-            </div>
-
-            <div style={{ maxHeight: '400px', overflow: 'auto', border: '1px solid #e2e8f0', borderRadius: '8px' }}>
-              {Object.entries(PERMISSION_CATEGORIES).map(([categoryKey, category]) => {
-                const categoryPermissions = ALL_PERMISSIONS.filter(p => p.category === categoryKey);
-                const selectedCount = categoryPermissions.filter(p => 
-                  roleForm.permissions.includes(p.id)
-                ).length;
-
-                return (
-                  <div key={categoryKey} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                    <div style={{
-                      padding: '12px 16px',
-                      backgroundColor: '#f8f9fa',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      cursor: canEditRole ? 'pointer' : 'default'
-                    }}
-                    onClick={() => canEditRole && toggleCategory(categoryKey)}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '16px' }}>{category.icon}</span>
-                        <span style={{ fontWeight: '600', color: category.color }}>
-                          {category.name}
-                        </span>
-                        <span style={{ fontSize: '12px', color: '#718096' }}>
-                          ({selectedCount}/{categoryPermissions.length})
-                        </span>
-                      </div>
-                      <span style={{ fontSize: '16px' }}>
-                        {selectedCount === categoryPermissions.length ? '✅' : '⬜'}
-                      </span>
-                    </div>
-                    
-                    <div style={{ padding: '12px' }}>
-                      {categoryPermissions.map(permission => (
-                        <label key={permission.id} style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '8px',
-                          padding: '8px',
-                          cursor: canEditRole ? 'pointer' : 'default',
-                          borderRadius: '4px',
-                          transition: 'background-color 0.2s',
-                          opacity: canEditRole ? 1 : 0.7
-                        }}
-                        onMouseEnter={(e) => canEditRole && (e.target.style.backgroundColor = '#f8f9fa')}
-                        onMouseLeave={(e) => canEditRole && (e.target.style.backgroundColor = 'transparent')}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={roleForm.permissions.includes(permission.id)}
-                            onChange={() => canEditRole && togglePermission(permission.id)}
-                            style={{ width: '16px', height: '16px' }}
-                            disabled={!canEditRole}
-                          />
-                          <span style={{ fontSize: '14px' }}>{permission.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-            <button
-              onClick={() => setShowRoleModal(false)}
-              disabled={actionLoading}
-              style={{
-                padding: '10px 20px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                backgroundColor: '#fff',
-                color: '#718096',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: actionLoading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              Cancel
-            </button>
-            {canEditRole && (
-              <button
-                onClick={handleRoleSubmit}
-                disabled={actionLoading || !roleForm.name}
-                style={{
-                  padding: '10px 20px',
-                  border: 'none',
-                  borderRadius: '8px',
-                  backgroundColor: '#ff3b30',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: actionLoading ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading || !roleForm.name ? 0.7 : 1
-                }}
-              >
-                {actionLoading ? 'Saving...' : selectedRole ? 'Update Role' : 'Create Role'}
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const AdminManagement = () => {
-  const [admins, setAdmins] = useState([]);
-  const [filteredAdmins, setFilteredAdmins] = useState([]);
-  const [roles, setRoles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedAdmins, setSelectedAdmins] = useState([]);
-  const [showAdminModal, setShowAdminModal] = useState(false);
-  const [showRoleModal, setShowRoleModal] = useState(false);
-  const [selectedAdmin, setSelectedAdmin] = useState(null);
-  const [selectedRole, setSelectedRole] = useState(null);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [token, setToken] = useState('');
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
-  const [activeTab, setActiveTab] = useState('admins');
-  const [isMobile, setIsMobile] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
-
-  // Form states
-  const [adminForm, setAdminForm] = useState({
-    username: '',
-    email: '',
-    phone: '',
-    role: '',
-    password: '',
-    confirmPassword: '',
-    isActive: true
-  });
-
-  const [roleForm, setRoleForm] = useState({
-    name: '',
-    description: '',
-    permissions: []
-  });
-
-  // Filters and search state
-  const [filters, setFilters] = useState({
-    search: '',
-    role: '',
-    status: '',
-    page: 1,
-    limit: 25,
-    sortBy: 'username',
-    sortOrder: 'asc'
-  });
-
-  const [pagination, setPagination] = useState({
-    currentPage: 1,
-    totalPages: 1,
-    totalItems: 0,
-    hasNextPage: false,
-    hasPrevPage: false
-  });
-
-  const [stats, setStats] = useState({
-    totalAdmins: 0,
-    activeAdmins: 0,
-    inactiveAdmins: 0,
-    totalRoles: 0
-  });
-
-  // API Base URL Configuration
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
-
-  // Role and permission configurations
-  const ROLE_CONFIG = {
-    super_admin: { color: '#ff3b30', name: 'Super Admin', priority: 1 },
-    admin: { color: '#ff8c00', name: 'Administrator', priority: 2 },
-    manager: { color: '#28a745', name: 'Manager', priority: 3 },
-    support: { color: '#007bff', name: 'Support', priority: 4 },
-    moderator: { color: '#6f42c1', name: 'Moderator', priority: 5 },
-    user: { color: '#6c757d', name: 'User', priority: 6 }
-  };
-
-  const PERMISSION_CATEGORIES = {
-    users: { name: 'User Management', icon: '👥', color: '#007bff' },
-    transactions: { name: 'Transactions', icon: '💳', color: '#28a745' },
-    services: { name: 'Services', icon: '📱', color: '#ff8c00' },
-    financial: { name: 'Financial', icon: '💰', color: '#dc3545' },
-    system: { name: 'System', icon: '⚙️', color: '#6c757d' },
-    reports: { name: 'Reports', icon: '📊', color: '#20c997' }
-  };
-
-  const ALL_PERMISSIONS = [
-    { id: 'users_view', name: 'View Users', category: 'users' },
-    { id: 'users_create', name: 'Create Users', category: 'users' },
-    { id: 'users_edit', name: 'Edit Users', category: 'users' },
-    { id: 'users_delete', name: 'Delete Users', category: 'users' },
-    { id: 'users_suspend', name: 'Suspend Users', category: 'users' },
-    { id: 'transactions_view', name: 'View Transactions', category: 'transactions' },
-    { id: 'transactions_process', name: 'Process Transactions', category: 'transactions' },
-    { id: 'transactions_refund', name: 'Process Refunds', category: 'transactions' },
-    { id: 'services_view', name: 'View Services', category: 'services' },
-    { id: 'services_configure', name: 'Configure Services', category: 'services' },
-    { id: 'services_pricing', name: 'Manage Pricing', category: 'services' },
-    { id: 'financial_view', name: 'View Financials', category: 'financial' },
-    { id: 'financial_reports', name: 'Generate Reports', category: 'financial' },
-    { id: 'system_config', name: 'System Configuration', category: 'system' },
-    { id: 'system_logs', name: 'View System Logs', category: 'system' },
-    { id: 'reports_view', name: 'View Reports', category: 'reports' },
-    { id: 'reports_export', name: 'Export Reports', category: 'reports' }
-  ];
-
-  // Utility functions
-  const showNotification = useCallback((message, type = 'success') => {
-    if (type === 'success') {
-      setSuccess(message);
-      setError(null);
-    } else {
-      setError(message);
-      setSuccess(null);
-    }
-    
-    setTimeout(() => {
-      setSuccess(null);
-      setError(null);
-    }, 5000);
+    return () => {
+      if (style.parentNode) {
+        style.parentNode.removeChild(style);
+      }
+    };
   }, []);
 
-  // Check mobile screen
+  // Responsive check
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 768);
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+    const checkScreenSize = () => {
+      const width = window.innerWidth;
+      setIsSmallMobile(width < 480);
+      setIsMobile(width < 768);
+      setIsTablet(width >= 768 && width < 1024);
+      
+      // Auto-collapse sidebar on mobile
+      if (width < 768 && isExpanded) {
+        setIsExpanded(false);
+      }
+      // Auto-expand sidebar on desktop
+      if (width >= 1024 && !isExpanded) {
+        setIsExpanded(true);
+      }
+    };
 
-  // Token and current user management
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, [isExpanded]);
+
+  // Click outside to close sidebar on mobile
   useEffect(() => {
-    const authToken = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    if (authToken) {
-      setToken(authToken);
-      // Get current user from token or localStorage
-      const userData = localStorage.getItem('admin_user');
-      if (userData) {
-        try {
-          const parsedUser = JSON.parse(userData);
-          setCurrentUser(parsedUser);
-        } catch (e) {
-          console.error('Error parsing user data:', e);
+    const handleClickOutside = (event) => {
+      if (isMobile && isExpanded) {
+        // Check if click is outside sidebar and not on hamburger button
+        if (sidebarRef.current && 
+            !sidebarRef.current.contains(event.target) && 
+            hamburgerRef.current && 
+            !hamburgerRef.current.contains(event.target)) {
+          setIsExpanded(false);
         }
       }
-    } else {
-      showNotification('Please login again', 'error');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 2000);
-    }
-  }, [showNotification]);
+    };
 
-  // Filter admins based on current user's role
-  useEffect(() => {
-    if (admins.length > 0 && currentUser) {
-      if (currentUser.role === 'super_admin') {
-        // Super admin can see all admins
-        setFilteredAdmins(admins);
-      } else {
-        // Non-super admin can only see themselves
-        const currentUserAdmin = admins.filter(admin => 
-          admin._id === currentUser._id || admin.email === currentUser.email
-        );
-        setFilteredAdmins(currentUserAdmin);
-      }
-    } else {
-      setFilteredAdmins([]);
-    }
-  }, [admins, currentUser]);
-
-  // Check permissions
-  const canCreateAdmin = currentUser?.role === 'super_admin';
-  const canDeleteAdmin = (admin) => {
-    if (currentUser?.role === 'super_admin') return true;
-    if (admin.role === 'super_admin') return false;
-    const currentUserPriority = ROLE_CONFIG[currentUser?.role]?.priority || 99;
-    const adminPriority = ROLE_CONFIG[admin.role]?.priority || 99;
-    return adminPriority > currentUserPriority;
-  };
-
-  const canEditAdmin = (admin) => {
-    // Non-super admin can only edit their own profile
-    if (currentUser?.role !== 'super_admin') {
-      return admin._id === currentUser?._id || admin.email === currentUser?.email;
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
     
-    if (admin.role === 'super_admin' && currentUser?.role !== 'super_admin') return false;
-    if (currentUser?.role === 'super_admin') return true;
-    const currentUserPriority = ROLE_CONFIG[currentUser?.role]?.priority || 99;
-    const adminPriority = ROLE_CONFIG[admin.role]?.priority || 99;
-    return adminPriority > currentUserPriority;
-  };
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isMobile, isExpanded]);
 
-  // API Functions
-  const makeApiCall = useCallback(async (endpoint, options = {}) => {
+  // Ticket event listener
+  useEffect(() => {
+    const handleShowTicket = (event) => {
+      setActiveMenu(`ticket-${event.detail.ticketId}`);
+    };
+    
+    window.addEventListener('showTicket', handleShowTicket);
+    return () => {
+      window.removeEventListener('showTicket', handleShowTicket);
+    };
+  }, []);
+
+  // API functions
+  const fetchDashboardStats = async () => {
     try {
-      const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-      const url = `${API_BASE_URL}${formattedEndpoint}`;
-      
-      const defaultOptions = {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/stats', {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          ...options.headers
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch dashboard stats');
+      
+      const data = await response.json();
+      
+      setDashboardStats({
+        todayRevenue: { 
+          value: data.todayRevenue || 0, 
+          change: data.revenueChange || 0, 
+          loading: false 
         },
-        credentials: 'include',
-      };
-
-      const response = await fetch(url, {
-        ...defaultOptions,
-        ...options
+        totalTransactions: { 
+          value: data.totalTransactions || 0, 
+          timeframe: 'Last 24 hours', 
+          loading: false 
+        },
+        activeUsers: { 
+          value: data.activeUsers || 0, 
+          status: 'Online now', 
+          loading: false 
+        },
+        successRate: { 
+          value: data.successRate || 0, 
+          context: 'Last 24 hours', 
+          loading: false 
+        }
       });
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+      setDashboardStats({
+        todayRevenue: { value: 0, change: 0, loading: false },
+        totalTransactions: { value: 0, timeframe: 'Last 24 hours', loading: false },
+        activeUsers: { value: 0, status: 'Offline', loading: false },
+        successRate: { value: 0, context: 'No data', loading: false }
+      });
+    }
+  };
 
+  const fetchRecentActivities = async () => {
+    try {
+      setActivitiesLoading(true);
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/recent-activities', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch activities');
+      
+      const data = await response.json();
+      setRecentActivities(data.activities || data || []);
+    } catch (error) {
+      console.error('Error fetching recent activities:', error);
+      setRecentActivities([
+        { icon: '⚠️', description: 'Unable to load activities - API connection failed', timeAgo: 'Just now' }
+      ]);
+    } finally {
+      setActivitiesLoading(false);
+    }
+  };
+
+  const fetchMenuStats = async () => {
+    try {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      const response = await fetch('https://vtu-application.onrender.com/api/services/stats', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) throw new Error('Failed to fetch menu stats');
+      
+      const data = await response.json();
+      setMenuStats(data.data || data || {});
+    } catch (error) {
+      console.error('Error fetching menu stats:', error);
+      setMenuStats({});
+    }
+  };
+
+  const fetchAdminProfile = async () => {
+    try {
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      
+      if (!token) {
+        window.location.href = '/';
+        return;
+      }
+      
+      const response = await fetch('https://vtu-application.onrender.com/api/admin/profile', {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        credentials: 'include'
+      });
+      
+      if (response.status === 401) {
+        localStorage.removeItem('admin_token');
+        sessionStorage.removeItem('admin_token');
+        window.location.href = '/';
+        return;
+      }
+      
       if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.message || errorMessage;
-        } catch (parseError) {
-          console.warn('Could not parse error response as JSON');
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.success && data.profile) {
+        setAdminProfile({
+          name: data.profile.name || 'Admin User',
+          email: data.profile.email || 'admin@vtuapp.com',
+          role: data.profile.role === 'super_admin' ? 'Super Administrator' : 
+                data.profile.role === 'admin' ? 'Administrator' : 
+                data.profile.role === 'support' ? 'Support Staff' : 'Admin User',
+          phone: data.profile.phone || '+234 123 456 7890',
+          avatar: data.profile.avatar || 'AU'
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching admin profile:', error);
+    }
+  };
+
+  const fetchApiBalances = async () => {
+    try {
+      setApiBalancesLoading(true);
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-        throw new Error(errorMessage);
-      }
-
-      const contentLength = response.headers.get('content-length');
-      if (contentLength === '0' || !response.body) {
-        return { success: true };
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error('API Call failed:', error);
-      
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        throw new Error('Network error: Unable to connect to server.');
-      }
-      
-      throw error;
-    }
-  }, [token, API_BASE_URL]);
-
-  const fetchStats = useCallback(async () => {
-    if (!token) return;
-    
-    try {
-      const data = await makeApiCall('/api/admin/management/stats');
-      setStats(data.stats || {
-        totalAdmins: 0,
-        activeAdmins: 0,
-        inactiveAdmins: 0,
-        totalRoles: 0
       });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      showNotification(`Failed to fetch statistics: ${error.message}`, 'error');
-    }
-  }, [token, makeApiCall, showNotification]);
-
-  const fetchAdmins = useCallback(async () => {
-    if (!token) return;
-    
-    try {
-      setLoading(true);
-      const queryParams = new URLSearchParams();
-      if (filters.search) queryParams.append('search', filters.search);
-      if (filters.role) queryParams.append('role', filters.role);
-      if (filters.status) queryParams.append('status', filters.status);
-      queryParams.append('page', filters.page.toString());
-      queryParams.append('limit', filters.limit.toString());
       
-      const data = await makeApiCall(`/api/admin/management/admins?${queryParams}`);
-      console.log("WHAT FIELDS DO WE GET?", data[0]);
-      
-      let adminsData = [];
-      if (Array.isArray(data)) {
-        adminsData = data;
-      } else if (data && Array.isArray(data.admins)) {
-        adminsData = data.admins;
-      } else if (data && Array.isArray(data.users)) {
-        adminsData = data.users;
-      } else if (data && Array.isArray(data.data)) {
-        adminsData = data.data;
-      }
-      
-      // Process admin data with proper date handling
-      const processedAdmins = adminsData.map(admin => ({
-        _id: admin._id || admin.id || `temp-${Math.random()}`,
-        username: admin.name || admin.username || admin.userName || 'Unknown User',
-        email: admin.email || admin.emailAddress || 'No email',
-        role: admin.role || admin.roleType || admin.userRole || 'user',
-        isActive: admin.isActive !== undefined ? admin.isActive : 
-                  admin.status === 'active' ? true : 
-                  admin.status === 'inactive' ? false : true,
-       lastLogin: admin.updatedAt || admin.lastLogin || admin.last_login || admin.lastSession || admin.lastLoginAt || null,
-        phone: admin.phone || admin.phoneNumber || '',
-        createdAt: admin.createdAt || admin.created_at || admin.registrationDate || null,
-        ...admin
-      }));
-      
-      setAdmins(processedAdmins);
-      setPagination(data.pagination || {
-        currentPage: 1,
-        totalPages: 1,
-        totalItems: processedAdmins.length,
-        hasNextPage: false,
-        hasPrevPage: false
-      });
-    } catch (error) {
-      console.error('Error fetching admins:', error);
-      showNotification(`Failed to fetch admin users: ${error.message}`, 'error');
-      setAdmins([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [filters, token, makeApiCall, showNotification]);
-
-  const fetchRoles = useCallback(async () => {
-    if (!token) return;
-    
-    try {
-      const data = await makeApiCall('/api/admin/management/roles');
-      
-      let rolesData = [];
-      if (Array.isArray(data)) {
-        rolesData = data;
-      } else if (data && Array.isArray(data.roles)) {
-        rolesData = data.roles;
-      } else if (data && Array.isArray(data.data)) {
-        rolesData = data.data;
-      }
-      
-      setRoles(rolesData);
-    } catch (error) {
-      console.error('Error fetching roles:', error);
-      showNotification(`Failed to fetch roles: ${error.message}`, 'error');
-      setRoles([]);
-    }
-  }, [token, makeApiCall, showNotification]);
-
-  // Admin management functions
-  const createAdmin = useCallback(async (adminData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      
-      const dataToSend = {
-        ...adminData,
-        isActive: adminData.isActive !== undefined ? adminData.isActive : true
-      };
-      
-      await makeApiCall('/api/admin/management/admins', {
-        method: 'POST',
-        body: JSON.stringify(dataToSend)
-      });
-      showNotification('Admin user created successfully');
-      await fetchAdmins();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error creating admin:', error);
-      showNotification(`Failed to create admin user: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchAdmins, fetchStats]);
-
-  const updateAdmin = useCallback(async (adminId, adminData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/admins/${adminId}`, {
-        method: 'PUT',
-        body: JSON.stringify(adminData)
-      });
-      showNotification('Admin user updated successfully');
-      await fetchAdmins();
-    } catch (error) {
-      console.error('Error updating admin:', error);
-      showNotification(`Failed to update admin user: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchAdmins]);
-
-  const deleteAdmin = useCallback(async (adminId) => {
-    if (!token) return;
-    if (!window.confirm('Are you sure you want to delete this admin user?')) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/admins/${adminId}`, {
-        method: 'DELETE'
-      });
-      showNotification('Admin user deleted successfully');
-      await fetchAdmins();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error deleting admin:', error);
-      showNotification(`Failed to delete admin user: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchAdmins, fetchStats]);
-
-  const toggleAdminStatus = useCallback(async (adminId, currentStatus) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      const newStatus = !currentStatus;
-      await makeApiCall(`/api/admin/management/admins/${adminId}/status`, {
-        method: 'PUT',
-        body: JSON.stringify({ isActive: newStatus })
-      });
-      showNotification(`Admin ${newStatus ? 'activated' : 'deactivated'} successfully`);
-      await fetchAdmins();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error toggling admin status:', error);
-      showNotification(`Failed to update admin status: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchAdmins, fetchStats]);
-
-  // Role management functions
-  const createRole = useCallback(async (roleData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall('/api/admin/management/roles', {
-        method: 'POST',
-        body: JSON.stringify(roleData)
-      });
-      showNotification('Role created successfully');
-      await fetchRoles();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error creating role:', error);
-      showNotification(`Failed to create role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
-
-  const updateRole = useCallback(async (roleId, roleData) => {
-    if (!token) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
-        method: 'PUT',
-        body: JSON.stringify(roleData)
-      });
-      showNotification('Role updated successfully');
-      await fetchRoles();
-    } catch (error) {
-      console.error('Error updating role:', error);
-      showNotification(`Failed to update role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles]);
-
-  const deleteRole = useCallback(async (roleId) => {
-    if (!token) return;
-    if (!window.confirm('Are you sure you want to delete this role?')) return;
-    
-    try {
-      setActionLoading(true);
-      await makeApiCall(`/api/admin/management/roles/${roleId}`, {
-        method: 'DELETE'
-      });
-      showNotification('Role deleted successfully');
-      await fetchRoles();
-      await fetchStats();
-    } catch (error) {
-      console.error('Error deleting role:', error);
-      showNotification(`Failed to delete role: ${error.message}`, 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  }, [token, makeApiCall, showNotification, fetchRoles, fetchStats]);
-
-  // Data fetching
-  useEffect(() => {
-    if (token) {
-      fetchStats();
-      if (activeTab === 'admins') {
-        fetchAdmins();
-      } else if (activeTab === 'roles') {
-        fetchRoles();
-      }
-    }
-  }, [token, activeTab, filters, fetchStats, fetchAdmins, fetchRoles]);
-
-  // Handle filter changes
-  const handleFilterChange = useCallback((key, value) => {
-    setFilters(prev => {
-      if (prev[key] === value) return prev;
-      return {
-        ...prev,
-        [key]: value,
-        page: key !== 'page' ? 1 : value
-      };
-    });
-  }, []);
-
-  const handleAdminSelect = useCallback((adminId) => {
-    setSelectedAdmins(prev => 
-      prev.includes(adminId) 
-        ? prev.filter(id => id !== adminId)
-        : [...prev, adminId]
-    );
-  }, []);
-
-  const selectAllAdmins = useCallback(() => {
-    if (selectedAdmins.length === filteredAdmins.length && filteredAdmins.length > 0) {
-      setSelectedAdmins([]);
-    } else {
-      setSelectedAdmins(filteredAdmins.map(admin => admin._id).filter(id => id));
-    }
-  }, [selectedAdmins.length, filteredAdmins]);
-
-  // Form handlers
-  const handleAdminSubmit = useCallback(async () => {
-    if (adminForm.password !== adminForm.confirmPassword) {
-      showNotification('Passwords do not match', 'error');
-      return;
-    }
-    
-    const adminData = {
-      name: adminForm.username,
-      email: adminForm.email,
-      phone: adminForm.phone,
-      role: adminForm.role,
-      isActive: adminForm.isActive
-    };
-    
-    if (adminForm.password) {
-      adminData.password = adminForm.password;
-    }
-    
-    try {
-      if (selectedAdmin) {
-        await updateAdmin(selectedAdmin._id, adminData);
-      } else {
-        await createAdmin(adminData);
-      }
-      
-      setShowAdminModal(false);
-      setAdminForm({
-        username: '',
-        email: '',
-        phone: '',
-        role: '',
-        password: '',
-        confirmPassword: '',
-        isActive: true
-      });
-      setSelectedAdmin(null);
-    } catch (error) {
-      // Error handling is done in the API functions
-    }
-  }, [adminForm, selectedAdmin, updateAdmin, createAdmin, showNotification]);
-
-  const handleRoleSubmit = useCallback(async () => {
-    const roleData = {
-      name: roleForm.name,
-      description: roleForm.description,
-      permissions: roleForm.permissions
-    };
-    
-    if (selectedRole) {
-      await updateRole(selectedRole._id, roleData);
-    } else {
-      await createRole(roleData);
-    }
-    
-    setShowRoleModal(false);
-    setRoleForm({
-      name: '',
-      description: '',
-      permissions: []
-    });
-    setSelectedRole(null);
-  }, [roleForm, selectedRole, updateRole, createRole]);
-
-  const handleEditAdmin = useCallback((admin) => {
-    if (!canEditAdmin(admin)) {
-      showNotification('You do not have permission to edit this admin', 'error');
-      return;
-    }
-    setSelectedAdmin(admin);
-    setAdminForm({
-      username: admin.name || admin.username || '',
-      email: admin.email || '',
-      phone: admin.phone || '',
-      role: admin.role || '',
-      password: '',
-      confirmPassword: '',
-      isActive: admin.isActive !== undefined ? admin.isActive : true
-    });
-    setShowAdminModal(true);
-  }, [canEditAdmin, showNotification]);
-
-  const handleNewAdmin = useCallback(() => {
-    if (!canCreateAdmin) {
-      showNotification('Only super admins can create new admin users', 'error');
-      return;
-    }
-    setSelectedAdmin(null);
-    setAdminForm({
-      username: '',
-      email: '',
-      phone: '',
-      role: '',
-      password: '',
-      confirmPassword: '',
-      isActive: true
-    });
-    setShowAdminModal(true);
-  }, [canCreateAdmin, showNotification]);
-
-  const handleConfigureRole = useCallback((role) => {
-    setSelectedRole(role);
-    setRoleForm({
-      name: role.name || '',
-      description: role.description || '',
-      permissions: Array.isArray(role.permissions) ? role.permissions : []
-    });
-    setShowRoleModal(true);
-  }, []);
-
-  const handleNewRole = useCallback(() => {
-    setSelectedRole(null);
-    setRoleForm({
-      name: '',
-      description: '',
-      permissions: []
-    });
-    setShowRoleModal(true);
-  }, []);
-
-  // Status badges and utilities
-  const getStatusBadge = useCallback((isActive) => {
-    const statusConfig = {
-      true: { bg: '#28a745', text: 'Active' },
-      false: { bg: '#6c757d', text: 'Inactive' }
-    };
-
-    const config = statusConfig[isActive] || statusConfig.false;
-
-    return (
-      <span style={{
-        backgroundColor: config.bg,
-        color: '#fff',
-        padding: '4px 8px',
-        borderRadius: '12px',
-        fontSize: '11px',
-        fontWeight: '600',
-        textTransform: 'uppercase'
-      }}>
-        {config.text}
-      </span>
-    );
-  }, []);
-
-  const getRoleBadge = useCallback((role) => {
-    const config = ROLE_CONFIG[role] || { color: '#6c757d', name: role || 'Unknown' };
-    
-    return (
-      <span style={{
-        backgroundColor: config.color,
-        color: '#fff',
-        padding: '4px 8px',
-        borderRadius: '12px',
-        fontSize: '11px',
-        fontWeight: '600',
-        textTransform: 'uppercase'
-      }}>
-        {config.name}
-      </span>
-    );
-  }, []);
-
-  const formatDate = useCallback((dateString) => {
-    if (!dateString) return 'Never';
-    
-    try {
-      const date = new Date(dateString);
-      
-      // Check if date is valid
-      if (isNaN(date.getTime())) {
-        return 'Invalid Date';
-      }
-      
-      // Check if date is in the future (might indicate wrong format)
-      if (date > new Date()) {
-        return 'Never';
-      }
-      
-      const now = new Date();
-      const diffMs = now - date;
-      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-      
-      // If less than 1 day, show relative time
-      if (diffDays === 0) {
-        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-        if (diffHours === 0) {
-          const diffMinutes = Math.floor(diffMs / (1000 * 60));
-          if (diffMinutes === 0) {
-            return 'Just now';
+      if (response.ok) {
+        const data = await response.json();
+        
+        setApiBalances([
+          {
+            provider: 'ClubKonnect',
+            balance: data.data?.clubKonnect?.balance || 0,
+            currency: data.data?.clubKonnect?.currency || '₦',
+            lastUpdated: now,
+            loading: false,
+            status: data.data?.clubKonnect?.status || 'Online'
+          },
+          {
+            provider: 'VTU Service',
+            balance: data.data?.platform?.balance || 0,
+            currency: data.data?.platform?.currency || '₦',
+            lastUpdated: now,
+            loading: false,
+            status: data.data?.platform?.status || 'Online'
           }
-          return `${diffMinutes}m ago`;
-        }
-        return `${diffHours}h ago`;
+        ]);
+      } else {
+        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setApiBalances([
+          {
+            provider: 'ClubKonnect',
+            balance: 15420.75,
+            currency: '₦',
+            lastUpdated: now,
+            loading: false,
+            status: 'Auth Error'
+          },
+          {
+            provider: 'VTU Service',
+            balance: 89250.30,
+            currency: '₦',
+            lastUpdated: now,
+            loading: false,
+            status: 'Auth Error'
+          }
+        ]);
       }
-      
-      // If less than 7 days, show relative days
-      if (diffDays < 7) {
-        return `${diffDays}d ago`;
-      }
-      
-      // Otherwise show formatted date
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
     } catch (error) {
-      console.error('Error formatting date:', dateString, error);
-      return 'Invalid Date';
+      console.error('Network error fetching API balances:', error);
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      setApiBalances([
+        {
+          provider: 'ClubKonnect',
+          balance: 15420.75,
+          currency: '₦',
+          lastUpdated: now,
+          loading: false,
+          status: 'Network Error'
+        },
+        {
+          provider: 'VTU Service',
+          balance: 89250.30,
+          currency: '₦',
+          lastUpdated: now,
+          loading: false,
+          status: 'Network Error'
+        }
+      ]);
+    } finally {
+      setApiBalancesLoading(false);
     }
+  };
+
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchDashboardStats();
+    fetchRecentActivities();
+    fetchMenuStats();
+    fetchAdminProfile();
+    fetchApiBalances();
+
+    // Set up auto-refresh intervals
+    const statsInterval = setInterval(fetchDashboardStats, 30000);
+    const activitiesInterval = setInterval(fetchRecentActivities, 60000);
+    const menuStatsInterval = setInterval(fetchMenuStats, 300000);
+    const profileInterval = setInterval(fetchAdminProfile, 60000);
+    const apiBalanceInterval = setInterval(fetchApiBalances, 120000);
+
+    return () => {
+      clearInterval(statsInterval);
+      clearInterval(activitiesInterval);
+      clearInterval(menuStatsInterval);
+      clearInterval(profileInterval);
+      clearInterval(apiBalanceInterval);
+    };
   }, []);
 
-  const getInitials = useCallback((username) => {
-    if (!username || typeof username !== 'string') return '??';
+  // Menu items with real data from backend
+  const menuItems = [
+    {
+      id: 'dashboard',
+      label: 'Dashboard',
+      icon: '🏠',
+      notifications: 0,
+      searchKeywords: ['dashboard', 'overview', 'analytics', 'home']
+    },
+    {
+      id: 'users',
+      label: 'User Management',
+      icon: '👥',
+      notifications: menuStats.pendingVerifications || 0,
+      searchKeywords: ['users', 'customers', 'kyc', 'verification'],
+      subItems: [
+        { 
+          id: 'all-users', 
+          label: 'All Users', 
+          icon: '👤',
+          description: 'View and manage all registered users',
+          count: menuStats.totalUsers ? menuStats.totalUsers.toLocaleString() : 'Loading...'
+        },
+        { 
+          id: 'user-verification', 
+          label: 'Verification/KYC', 
+          icon: '✅',
+          description: 'Review pending identity verifications',
+          count: menuStats.pendingVerifications ? `${menuStats.pendingVerifications} pending` : 'Loading...'
+        },
+        { 
+          id: 'suspended-users', 
+          label: 'Suspended Users', 
+          icon: '⚠️',
+          description: 'Manage blocked and suspended accounts',
+          count: menuStats.suspendedUsers ? menuStats.suspendedUsers.toString() : 'Loading...'
+        },
+        { 
+          id: 'user-logs', 
+          label: 'Activity Logs', 
+          icon: '📊',
+          description: 'Track user activities and behaviors',
+          count: 'Real-time'
+        }
+      ]
+    },
+    {
+      id: 'transactions',
+      label: 'Transaction Management',
+      icon: '💳',
+      notifications: (menuStats.failedTransactions || 0) + (menuStats.pendingTransactions || 0),
+      searchKeywords: ['transactions', 'payments', 'money'],
+      subItems: [
+        { 
+          id: 'all-transactions', 
+          label: 'All Transactions', 
+          icon: '💳',
+          description: 'View complete transaction history',
+          count: menuStats.totalTransactions ? menuStats.totalTransactions.toLocaleString() : 'Loading...'
+        },
+        { 
+          id: 'failed-transactions', 
+          label: 'Failed Transactions', 
+          icon: '❌',
+          description: 'Review and resolve failed payments',
+          count: menuStats.failedTransactions ? menuStats.failedTransactions.toString() : 'Loading...'
+        },
+        { 
+          id: 'pending-transactions', 
+          label: 'Pending Transactions', 
+          icon: '⏳',
+          description: 'Monitor transactions awaiting completion',
+          count: menuStats.pendingTransactions ? menuStats.pendingTransactions.toString() : 'Loading...'
+        },
+        { 
+          id: 'refunds', 
+          label: 'Refunds & Reversals', 
+          icon: '💰',
+          description: 'Process refunds and transaction reversals',
+          count: menuStats.refundRequests ? menuStats.refundRequests.toString() : '0'
+        }
+      ]
+    },
+    {
+      id: 'services',
+      label: 'Service Management',
+      icon: '📱',
+      notifications: 0,
+      searchKeywords: ['services', 'bills', 'airtime', 'data'],
+      subItems: [
+        { 
+          id: 'airtime', 
+          label: 'Airtime Services', 
+          icon: '📞',
+          description: 'Manage MTN, Airtel, Glo, 9Mobile top-ups',
+          count: '4 providers'
+        },
+        { 
+          id: 'data', 
+          label: 'Data Bundle Plans', 
+          icon: '📶',
+          description: 'Configure data bundle offerings',
+          count: '24 plans'
+        },
+        { 
+          id: 'cable-tv', 
+          label: 'Cable TV', 
+          icon: '📺',
+          description: 'DStv, GOtv, Startimes subscriptions',
+          count: '3 providers'
+        },
+        { 
+          id: 'electricity', 
+          label: 'Electricity Bills', 
+          icon: '⚡',
+          description: 'Electricity bill payment services',
+          count: '11 DISCOs'
+        },
+        { 
+          id: 'service-pricing', 
+          label: 'Service Pricing', 
+          icon: '💲',
+          description: 'Configure service rates and commissions',
+          count: 'Active'
+        },
+        { 
+          id: 'service-status', 
+          label: 'Service Status', 
+          icon: '🔧',
+          description: 'Enable/disable services and maintenance',
+          count: menuStats.servicesOnline ? 'Online' : 'Checking...'
+        }
+      ]
+    },
+    {
+      id: 'financial',
+      label: 'Financial Management',
+      icon: '💰',
+      notifications: 0,
+      searchKeywords: ['financial', 'revenue', 'money', 'reports'],
+      subItems: [
+        { 
+          id: 'revenue', 
+          label: 'Revenue Reports', 
+          icon: '📈',
+          description: 'Track earnings and profit analysis',
+          count: menuStats.todayRevenue ? `₦${(menuStats.todayRevenue / 1000).toFixed(1)}K today` : 'Loading...'
+        },
+        { 
+          id: 'commission', 
+          label: 'Commission Settings', 
+          icon: '📊',
+          description: 'Configure commission structures',
+          count: '2.5% avg'
+        },
+        { 
+          id: 'wallet', 
+          label: 'Wallet Management', 
+          icon: '👛',
+          description: 'Manage user wallet balances',
+          count: menuStats.totalWalletBalance ? `₦${(menuStats.totalWalletBalance / 1000000).toFixed(1)}M total` : 'Loading...'
+        },
+        { 
+          id: 'settlements', 
+          label: 'Settlement Reports', 
+          icon: '📄',
+          description: 'Bank settlement and payout reports',
+          count: 'Daily'
+        }
+      ]
+    },
+    {
+      id: 'system',
+      label: 'System Management',
+      icon: '⚙️',
+      notifications: menuStats.systemAlerts || 0,
+      searchKeywords: ['system', 'api', 'configuration', 'health'],
+      subItems: [
+        { 
+          id: 'api-config', 
+          label: 'API Configuration', 
+          icon: '🔌',
+          description: 'Configure external service APIs',
+          count: '12 APIs'
+        },
+        { 
+          id: 'system-health', 
+          label: 'System Health', 
+          icon: '💚',
+          description: 'Monitor system performance and uptime',
+          count: menuStats.systemUptime || 'Checking...'
+        },
+        { 
+          id: 'error-logs', 
+          label: 'Error Logs', 
+          icon: '🚨',
+          description: 'Review system errors and issues',
+          count: menuStats.todayErrors !== undefined ? `${menuStats.todayErrors} today` : 'Loading...'
+        }
+      ]
+    },
+    {
+      id: 'admin',
+      label: 'Admin Management',
+      icon: '🛡️',
+      notifications: 0,
+      searchKeywords: ['admin', 'users', 'permissions', 'roles'],
+      subItems: [
+        { 
+          id: 'admin-users', 
+          label: 'Admin Users', 
+          icon: '👨‍💼',
+          description: 'Manage administrative user accounts',
+          count: menuStats.adminUsers ? `${menuStats.adminUsers} admins` : 'Loading...'
+        },
+        { 
+          id: 'permissions', 
+          label: 'Role Permissions', 
+          icon: '🔑',
+          description: 'Configure user roles and access levels',
+          count: '5 roles'
+        },
+        { 
+          id: 'admin-logs', 
+          label: 'Admin Activity', 
+          icon: '📝',
+          description: 'Track administrative actions',
+          count: 'Real-time'
+        }
+      ]
+    },
+    {
+      id: 'reports',
+      label: 'Reports & Analytics',
+      icon: '📊',
+      notifications: 0,
+      searchKeywords: ['reports', 'analytics', 'statistics', 'data'],
+      subItems: [
+        { 
+          id: 'sales-reports', 
+          label: 'Sales Reports', 
+          icon: '📈',
+          description: 'Comprehensive sales performance data',
+          count: 'Updated'
+        },
+        { 
+          id: 'customer-analytics', 
+          label: 'Customer Analytics', 
+          icon: '👥',
+          description: 'User behavior and engagement insights',
+          count: 'Live data'
+        },
+        { 
+          id: 'service-performance', 
+          label: 'Service Performance', 
+          icon: '⚡',
+          description: 'Service usage and success rates',
+          count: menuStats.serviceSuccessRate ? `${menuStats.serviceSuccessRate}%` : 'Loading...'
+        }
+      ]
+    },
+    {
+      id: 'notifications',
+      label: 'Notifications',
+      icon: '🔔',
+      notifications: Math.min(menuStats.unreadNotifications || 0, 99),
+      searchKeywords: ['notifications', 'alerts', 'messages']
+    },
+    {
+      id: 'profile',
+      label: 'Profile Settings',
+      icon: '👤',
+      notifications: 0,
+      searchKeywords: ['profile', 'settings', 'account']
+    }
+  ];
+
+  const filteredMenuItems = searchQuery ? menuItems.filter(item => {
+    const query = searchQuery.toLowerCase();
+    return item.searchKeywords.some(keyword => 
+      keyword.toLowerCase().includes(query)
+    ) || item.label.toLowerCase().includes(query);
+  }) : menuItems;
+
+  // FIXED: Hamburger menu toggle function
+  const toggleSidebar = () => {
+    console.log('Toggle sidebar clicked, current state:', isExpanded);
+    setIsExpanded(!isExpanded);
+  };
+
+  const handleMenuClick = (menuId) => {
+    console.log('Menu clicked:', menuId);
+    setActiveMenu(menuId);
+    setShowProfileDropdown(false);
+    if (isMobile) {
+      setIsExpanded(false); // Close sidebar on mobile after selection
+    }
+  };
+
+  const clearSearch = () => setSearchQuery('');
+  
+  const handleLogout = () => {
+    const rememberedUsername = localStorage.getItem('remembered_username');
     
-    const cleanUsername = username.trim().replace(/\s+/g, ' ');
-    const names = cleanUsername.split(' ').filter(name => name.length > 0);
+    const itemsToKeep = ['remembered_username'];
+    Object.keys(localStorage).forEach(key => {
+      if (!itemsToKeep.includes(key)) {
+        localStorage.removeItem(key);
+      }
+    });
     
-    if (names.length === 0) return '??';
+    sessionStorage.clear();
     
-    if (names.length === 1) {
-      return names[0].charAt(0).toUpperCase();
+    document.cookie.split(';').forEach(cookie => {
+      const eqPos = cookie.indexOf('=');
+      const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+    });
+    
+    if (rememberedUsername) {
+      localStorage.setItem('remembered_username', rememberedUsername);
     }
     
-    return (names[0].charAt(0) + names[names.length - 1].charAt(0)).toUpperCase();
-  }, []);
+    window.location.href = '/'; 
+  };
 
-  // Notification Component
-  const NotificationBanner = () => {
-    if (!success && !error) return null;
+  const handleProfile = () => {
+    setActiveMenu('profile');
+    setShowProfileDropdown(false);
+  };
+
+  const currentMenuItem = menuItems.find(item => item.id === activeMenu);
+
+  // Dashboard content with responsive design
+  const renderDashboardContent = () => {
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN',
+        minimumFractionDigits: 0
+      }).format(amount);
+    };
+
+    const formatNumber = (num) => {
+      return new Intl.NumberFormat('en-NG').format(num);
+    };
+
+    const formatBalance = (balance) => {
+      return new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(balance);
+    };
+
+    const statsCards = [
+      { 
+        icon: '💰', 
+        title: "Today's Revenue", 
+        value: dashboardStats.todayRevenue.loading ? 'Loading...' : formatCurrency(dashboardStats.todayRevenue.value),
+        change: dashboardStats.todayRevenue.loading ? '...' : 
+                `${dashboardStats.todayRevenue.change >= 0 ? '+' : ''}${dashboardStats.todayRevenue.change.toFixed(1)}% from yesterday`,
+        color: '#ff3b30',
+        loading: dashboardStats.todayRevenue.loading
+      },
+      { 
+        icon: '💳', 
+        title: 'Total Transactions', 
+        value: dashboardStats.totalTransactions.loading ? 'Loading...' : formatNumber(dashboardStats.totalTransactions.value),
+        change: dashboardStats.totalTransactions.timeframe,
+        color: '#ff3b30',
+        loading: dashboardStats.totalTransactions.loading
+      },
+      { 
+        icon: '👥', 
+        title: 'Active Users', 
+        value: dashboardStats.activeUsers.loading ? 'Loading...' : formatNumber(dashboardStats.activeUsers.value),
+        change: dashboardStats.activeUsers.status,
+        color: '#ff3b30',
+        loading: dashboardStats.activeUsers.loading
+      },
+      { 
+        icon: '📊', 
+        title: 'Success Rate', 
+        value: dashboardStats.successRate.loading ? 'Loading...' : `${dashboardStats.successRate.value.toFixed(1)}%`,
+        change: dashboardStats.successRate.context,
+        color: '#ff3b30',
+        loading: dashboardStats.successRate.loading
+      }
+    ];
 
     return (
       <div style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        zIndex: 2000,
-        maxWidth: '400px',
-        padding: '16px',
-        borderRadius: '8px',
-        backgroundColor: success ? '#d4edda' : '#f8d7da',
-        border: `1px solid ${success ? '#c3e6cb' : '#f5c6cb'}`,
-        color: success ? '#155724' : '#721c24',
-        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)'
+        width: '100%', 
+        maxWidth: '100%',
+        padding: isSmallMobile ? '8px' : '0'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>{success ? '✅' : '❌'}</span>
-          <span style={{ fontSize: '14px', fontWeight: '500' }}>
-            {success || error}
-          </span>
-          <button
-            onClick={() => {
-              setSuccess(null);
-              setError(null);
-            }}
-            style={{
-              marginLeft: 'auto',
-              background: 'none',
-              border: 'none',
-              fontSize: '18px',
-              cursor: 'pointer',
-              color: 'inherit'
-            }}
-          >
-            ×
+        {/* Main Stats Cards */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isSmallMobile ? '1fr' : 
+                            isMobile ? 'repeat(2, 1fr)' : 
+                            'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: isSmallMobile ? '8px' : isMobile ? '10px' : '12px',
+          marginBottom: isSmallMobile ? '12px' : isMobile ? '16px' : '20px',
+          width: '100%'
+        }}>
+          {statsCards.map((item, index) => (
+            <div key={index} style={{
+              backgroundColor: '#fff',
+              padding: isSmallMobile ? '10px' : isMobile ? '12px' : '14px',
+              borderRadius: '8px',
+              boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+              border: '1px solid #e2e8f0',
+              opacity: item.loading ? 0.7 : 1,
+              transition: 'opacity 0.3s ease',
+              minHeight: isSmallMobile ? '80px' : 'auto'
+            }}>
+              <div style={{
+                display: 'flex', 
+                alignItems: 'center', 
+                gap: '8px', 
+                marginBottom: '6px',
+                flexWrap: 'wrap'
+              }}>
+                <div style={{
+                  fontSize: isSmallMobile ? '14px' : isMobile ? '16px' : '18px'
+                }}>{item.icon}</div>
+                <h3 style={{
+                  color: '#1a202c', 
+                  fontSize: isSmallMobile ? '10px' : isMobile ? '11px' : '13px',
+                  fontWeight: '600', 
+                  margin: 0,
+                  lineHeight: '1.2'
+                }}>
+                  {item.title}
+                </h3>
+              </div>
+              <p style={{
+                color: item.loading ? '#718096' : item.color, 
+                fontSize: isSmallMobile ? '12px' : isMobile ? '14px' : '16px',
+                fontWeight: '700', 
+                margin: '4px 0 2px 0',
+                lineHeight: '1.2'
+              }}>
+                {item.value}
+              </p>
+              <p style={{
+                color: '#718096', 
+                fontSize: isSmallMobile ? '9px' : isMobile ? '10px' : '11px',
+                margin: 0,
+                lineHeight: '1.2'
+              }}>
+                {item.change}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* API Balances Section */}
+        <div style={{
+          backgroundColor: '#fff',
+          padding: isSmallMobile ? '12px' : isMobile ? '14px' : '16px',
+          borderRadius: '8px',
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          marginBottom: isSmallMobile ? '12px' : isMobile ? '16px' : '20px',
+          width: '100%'
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: isSmallMobile ? 'flex-start' : 'center',
+            marginBottom: '12px',
+            flexDirection: isSmallMobile ? 'column' : 'row',
+            gap: isSmallMobile ? '8px' : '0'
+          }}>
+            <h3 style={{
+              color: '#1a202c', 
+              fontSize: isSmallMobile ? '14px' : isMobile ? '16px' : '18px', 
+              fontWeight: '600',
+              margin: 0
+            }}>
+              API Provider Balances
+            </h3>
+            <button
+              onClick={fetchApiBalances}
+              disabled={apiBalancesLoading}
+              style={{
+                padding: '6px 12px',
+                backgroundColor: '#ff3b30',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '6px',
+                fontSize: isSmallMobile ? '11px' : '12px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                opacity: apiBalancesLoading ? 0.7 : 1,
+                width: isSmallMobile ? '100%' : 'auto',
+                justifyContent: 'center'
+              }}
+            >
+              {apiBalancesLoading ? 'Refreshing...' : '↻ Refresh'}
+            </button>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isSmallMobile ? '1fr' : 
+                              isMobile ? '1fr' : 
+                              'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: isSmallMobile ? '10px' : isMobile ? '12px' : '16px'
+          }}>
+            {apiBalances.map((api, index) => (
+              <div key={index} style={{
+                backgroundColor: '#f8f9fa',
+                padding: isSmallMobile ? '12px' : isMobile ? '14px' : '16px',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                opacity: api.loading ? 0.7 : 1
+              }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  marginBottom: '12px',
+                  flexDirection: isSmallMobile ? 'column' : 'row',
+                  gap: isSmallMobile ? '8px' : '0'
+                }}>
+                  <div style={{width: '100%'}}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginBottom: '4px'
+                    }}>
+                      <div style={{
+                        width: isSmallMobile ? '32px' : '36px',
+                        height: isSmallMobile ? '32px' : '36px',
+                        backgroundColor: '#ff3b30',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: isSmallMobile ? '14px' : '16px',
+                        fontWeight: 'bold',
+                        color: '#fff',
+                        flexShrink: 0
+                      }}>
+                        {api.provider === 'ClubKonnect' ? 'CK' : 'VTU'}
+                      </div>
+                      <div style={{minWidth: 0}}>
+                        <h4 style={{
+                          fontSize: isSmallMobile ? '13px' : '14px',
+                          fontWeight: '600',
+                          color: '#1a202c',
+                          margin: 0,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}>
+                          {api.provider}
+                        </h4>
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#718096',
+                          backgroundColor: '#e2e8f0',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          display: 'inline-block',
+                          marginTop: '2px'
+                        }}>
+                          {api.status}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div style={{ 
+                    textAlign: isSmallMobile ? 'left' : 'right',
+                    width: isSmallMobile ? '100%' : 'auto'
+                  }}>
+                    <div style={{
+                      fontSize: isSmallMobile ? '14px' : isMobile ? '16px' : '18px',
+                      fontWeight: '700',
+                      color: '#ff3b30',
+                      marginBottom: '4px'
+                    }}>
+                      {api.loading ? 'Loading...' : formatBalance(api.balance)}
+                    </div>
+                    {api.lastUpdated && !api.loading && (
+                      <div style={{
+                        fontSize: '10px',
+                        color: '#718096'
+                      }}>
+                        Updated: {api.lastUpdated}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Low balance warning */}
+                {api.balance < 1000 && api.balance > 0 && !api.loading && (
+                  <div style={{
+                    backgroundColor: '#fff7ed',
+                    border: '1px solid #fed7aa',
+                    color: '#c2410c',
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: isSmallMobile ? '11px' : '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginTop: '8px'
+                  }}>
+                    ⚠️ Low balance! Consider topping up.
+                  </div>
+                )}
+                
+                {api.balance === 0 && !api.loading && (
+                  <div style={{
+                    backgroundColor: '#fff5f5',
+                    border: '1px solid #fed7d7',
+                    color: '#c53030',
+                    padding: '6px',
+                    borderRadius: '6px',
+                    fontSize: isSmallMobile ? '11px' : '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    marginTop: '8px'
+                  }}>
+                    🚨 Zero balance! Top up required.
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Recent Activity Section */}
+        <div style={{
+          backgroundColor: '#fff',
+          padding: isSmallMobile ? '12px' : isMobile ? '14px' : '16px',
+          borderRadius: '8px',
+          boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          width: '100%',
+          maxWidth: '100%'
+        }}>
+          <h3 style={{
+            color: '#1a202c', 
+            fontSize: isSmallMobile ? '14px' : isMobile ? '16px' : '18px', 
+            fontWeight: '600', 
+            marginBottom: '12px'
+          }}>
+            Recent Activity
+          </h3>
+          
+          {activitiesLoading ? (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+              {[1, 2, 3].map((_, index) => (
+                <div key={index} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: isSmallMobile ? '8px' : '12px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f7fafc'
+                }}>
+                  <div style={{
+                    width: '18px',
+                    height: '18px',
+                    backgroundColor: '#e2e8f0',
+                    borderRadius: '50%',
+                    flexShrink: 0
+                  }} />
+                  <div style={{flex: 1, minWidth: 0}}>
+                    <div style={{
+                      height: '12px',
+                      backgroundColor: '#e2e8f0',
+                      borderRadius: '4px',
+                      marginBottom: '4px',
+                      width: `${60 + index * 10}%`
+                    }} />
+                    <div style={{
+                      height: '10px',
+                      backgroundColor: 'rgba(241, 245, 249, 0.8)',
+                      borderRadius: '4px',
+                      width: '40%'
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : recentActivities.length > 0 ? (
+            <div style={{display: 'flex', flexDirection: 'column', gap: '10px'}}>
+              {recentActivities.slice(0, 4).map((activity, index) => (
+                <div key={index} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  padding: isSmallMobile ? '8px' : '12px',
+                  borderRadius: '8px',
+                  backgroundColor: '#f7fafc'
+                }}>
+                  <div style={{
+                    fontSize: isSmallMobile ? '14px' : '16px',
+                    flexShrink: 0
+                  }}>{activity.icon}</div>
+                  <div style={{flex: 1, minWidth: 0}}>
+                    <p style={{
+                      margin: 0, 
+                      fontSize: isSmallMobile ? '12px' : '14px', 
+                      color: '#1a202c',
+                      lineHeight: '1.3'
+                    }}>
+                      {activity.description}
+                    </p>
+                    <p style={{
+                      margin: '2px 0 0 0', 
+                      fontSize: isSmallMobile ? '10px' : '11px', 
+                      color: '#718096'
+                    }}>
+                      {activity.timeAgo}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{
+              textAlign: 'center',
+              padding: '20px',
+              color: '#718096',
+              fontSize: '14px'
+            }}>
+              No recent activities found
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Profile content
+  const renderProfileContent = () => (
+    <div style={{
+      width: '100%', 
+      maxWidth: '100%',
+      padding: isSmallMobile ? '8px' : '0'
+    }}>
+      <div style={{
+        backgroundColor: '#fff',
+        padding: isSmallMobile ? '12px' : isMobile ? '16px' : '24px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+        border: '1px solid #e2e8f0',
+        marginBottom: isSmallMobile ? '12px' : '20px',
+        width: '100%'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: isSmallMobile ? '12px' : '16px',
+          marginBottom: isSmallMobile ? '16px' : '20px',
+          flexDirection: isSmallMobile ? 'column' : 'row',
+          textAlign: isSmallMobile ? 'center' : 'left'
+        }}>
+          <div style={{
+            width: isSmallMobile ? '60px' : isMobile ? '70px' : '80px',
+            height: isSmallMobile ? '60px' : isMobile ? '70px' : '80px',
+            background: 'linear-gradient(135deg, #667eea, #764ba2)',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: isSmallMobile ? '18px' : isMobile ? '20px' : '24px',
+            color: '#fff',
+            fontWeight: 'bold',
+            flexShrink: 0
+          }}>
+            {adminProfile.avatar}
+          </div>
+          <div style={{minWidth: 0}}>
+            <h2 style={{
+              fontSize: isSmallMobile ? '16px' : isMobile ? '18px' : '20px', 
+              fontWeight: '700', 
+              color: '#000000', 
+              margin: '0 0 4px 0',
+              lineHeight: '1.2'
+            }}>
+              {adminProfile.name}
+            </h2>
+            <p style={{
+              fontSize: isSmallMobile ? '12px' : isMobile ? '14px' : '16px', 
+              color: '#000000', 
+              margin: '0 0 6px 0',
+              lineHeight: '1.2'
+            }}>
+              {adminProfile.email}
+            </p>
+            <span style={{
+              backgroundColor: '#28a745',
+              color: '#fff',
+              padding: '3px 8px',
+              borderRadius: '12px',
+              fontSize: isSmallMobile ? '10px' : '11px',
+              fontWeight: '600',
+              display: 'inline-block'
+            }}>
+              {adminProfile.role}
+            </span>
+          </div>
+        </div>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: isSmallMobile ? '1fr' : 
+                            isMobile ? 'repeat(2, 1fr)' : 
+                            'repeat(auto-fit, minmax(200px, 1fr))',
+          gap: isSmallMobile ? '12px' : isMobile ? '16px' : '20px',
+          width: '100%'
+        }}>
+          {[
+            { label: 'Full Name', value: adminProfile.name, type: 'text' },
+            { label: 'Email Address', value: adminProfile.email, type: 'email' },
+            { label: 'Phone Number', value: adminProfile.phone, type: 'tel' },
+            { label: 'Role', value: 'super_admin', type: 'select' }
+          ].map((field, index) => (
+            <div key={index} style={{
+              gridColumn: isSmallMobile && index === 3 ? '1' : 'auto'
+            }}>
+              <label style={{
+                display: 'block', 
+                fontSize: isSmallMobile ? '12px' : '14px', 
+                fontWeight: '600', 
+                color: '#000000', 
+                marginBottom: '6px'
+              }}>
+                {field.label}
+              </label>
+              {field.type === 'select' ? (
+                <select value={field.value} style={{
+                  width: '100%',
+                  padding: '8px 10px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: isSmallMobile ? '13px' : '14px',
+                  backgroundColor: '#ffffff',
+                  color: '#000000',
+                  boxSizing: 'border-box'
+                }}>
+                  <option value="super_admin">Super Administrator</option>
+                  <option value="admin">Administrator</option>
+                  <option value="manager">Manager</option>
+                </select>
+              ) : (
+                <input 
+                  type={field.type} 
+                  value={field.value} 
+                  style={{
+                    width: '100%',
+                    padding: '8px 10px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: isSmallMobile ? '13px' : '14px',
+                    backgroundColor: '#ffffff',
+                    color: '#000000',
+                    boxSizing: 'border-box'
+                  }} 
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div style={{
+          display: 'flex',
+          gap: '10px',
+          marginTop: '20px',
+          flexDirection: isSmallMobile ? 'column' : 'row'
+        }}>
+          <button style={{
+            padding: isSmallMobile ? '8px' : '10px 16px',
+            backgroundColor: '#ff3b30',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '8px',
+            fontSize: isSmallMobile ? '13px' : '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            flex: isSmallMobile ? '1' : 'none',
+            width: isSmallMobile ? '100%' : 'auto'
+          }}>
+            Update Profile
+          </button>
+          <button style={{
+            padding: isSmallMobile ? '8px' : '10px 16px',
+            backgroundColor: '#f7fafc',
+            color: '#000000',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: isSmallMobile ? '13px' : '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            flex: isSmallMobile ? '1' : 'none',
+            width: isSmallMobile ? '100%' : 'auto'
+          }}>
+            Change Password
           </button>
         </div>
       </div>
+    </div>
+  );
+
+  const renderUserManagementContent = () => <UserManagement />;
+
+  // Sub-menu content
+  const renderSubMenuContent = () => {
+    if (!currentMenuItem || !currentMenuItem.subItems) return null;
+
+    return (
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isSmallMobile ? '1fr' : 
+                          isMobile ? 'repeat(2, 1fr)' : 
+                          'repeat(auto-fit, minmax(280px, 1fr))',
+        gap: isSmallMobile ? '12px' : isMobile ? '16px' : '20px',
+        width: '100%',
+        padding: isSmallMobile ? '8px' : '0'
+      }}>
+        {currentMenuItem.subItems.map((subItem) => (
+          <div key={subItem.id} style={{
+            backgroundColor: '#fff',
+            padding: isSmallMobile ? '12px' : isMobile ? '16px' : '20px',
+            borderRadius: '12px',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+            cursor: 'pointer',
+            transition: 'all 0.3s ease',
+            border: '1px solid #e2e8f0',
+            minHeight: isSmallMobile ? '100px' : 'auto'
+          }}>
+            <div style={{display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px'}}>
+              <div style={{
+                fontSize: isSmallMobile ? '16px' : isMobile ? '20px' : '24px',
+                width: isSmallMobile ? '36px' : isMobile ? '40px' : '48px',
+                height: isSmallMobile ? '36px' : isMobile ? '40px' : '48px',
+                backgroundColor: '#fff5f5',
+                borderRadius: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '1px solid #ff3b30',
+                flexShrink: 0
+              }}>
+                {subItem.icon}
+              </div>
+              <div style={{flex: 1, minWidth: 0}}>
+                <h3 style={{
+                  color: '#1a202c',
+                  fontSize: isSmallMobile ? '13px' : isMobile ? '14px' : '16px',
+                  fontWeight: '600',
+                  margin: 0,
+                  lineHeight: '1.2',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}>
+                  {subItem.label}
+                </h3>
+                <p style={{
+                  color: '#718096',
+                  fontSize: isSmallMobile ? '11px' : '12px',
+                  margin: '2px 0 0 0',
+                  fontWeight: '500',
+                  lineHeight: '1.2'
+                }}>
+                  {subItem.count}
+                </p>
+              </div>
+            </div>
+            <p style={{
+              color: '#4a5568',
+              fontSize: isSmallMobile ? '12px' : '13px',
+              margin: 0,
+              lineHeight: '1.4',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden'
+            }}>
+              {subItem.description}
+            </p>
+          </div>
+        ))}
+      </div>
     );
   };
 
-  // Pagination component
-  const PaginationControls = () => (
+  // Admin profile component for header
+  const AdminProfileHeader = () => (
     <div style={{
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginTop: '20px',
-      flexWrap: 'wrap',
-      gap: '16px'
-    }}>
-      <div style={{ fontSize: '14px', color: '#718096' }}>
-        Showing {((pagination.currentPage - 1) * filters.limit) + 1} to{' '}
-        {Math.min(pagination.currentPage * filters.limit, pagination.totalItems)} of{' '}
-        {pagination.totalItems} items
+      gap: isSmallMobile ? '6px' : '8px',
+      padding: '6px 10px',
+      backgroundColor: '#f7fafc',
+      borderRadius: '8px',
+      cursor: 'pointer',
+      position: 'relative',
+      zIndex: 1000
+    }} onClick={() => setShowProfileDropdown(!showProfileDropdown)}>
+      <div style={{
+        width: isSmallMobile ? '28px' : isMobile ? '32px' : '36px',
+        height: isSmallMobile ? '28px' : isMobile ? '32px' : '36px',
+        background: 'linear-gradient(135deg, #667eea, #764ba2)',
+        borderRadius: '50%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: isSmallMobile ? '10px' : isMobile ? '12px' : '14px',
+        color: '#fff',
+        fontWeight: 'bold',
+        flexShrink: 0
+      }}>
+        {adminProfile.avatar}
       </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <button
-          onClick={() => handleFilterChange('page', pagination.currentPage - 1)}
-          disabled={!pagination.hasPrevPage}
-          style={{
-            padding: '8px 12px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            backgroundColor: pagination.hasPrevPage ? '#fff' : '#f8f9fa',
-            color: pagination.hasPrevPage ? '#1a202c' : '#a0aec0',
-            cursor: pagination.hasPrevPage ? 'pointer' : 'not-allowed',
-            fontSize: '14px'
-          }}
-        >
-          Previous
-        </button>
-
-        <span style={{ padding: '8px 12px', fontSize: '14px', color: '#1a202c' }}>
-          Page {pagination.currentPage} of {pagination.totalPages}
-        </span>
-
-        <button
-          onClick={() => handleFilterChange('page', pagination.currentPage + 1)}
-          disabled={!pagination.hasNextPage}
-          style={{
-            padding: '8px 12px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '6px',
-            backgroundColor: pagination.hasNextPage ? '#fff' : '#f8f9fa',
-            color: pagination.hasNextPage ? '#1a202c' : '#a0aec0',
-            cursor: pagination.hasNextPage ? 'pointer' : 'not-allowed',
-            fontSize: '14px'
-          }}
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-
-  // Tab navigation
-  const TabNavigation = () => (
-    <div style={{
-      display: 'flex',
-      gap: '8px',
-      marginBottom: '24px',
-      borderBottom: '1px solid #e2e8f0',
-      overflowX: 'auto'
-    }}>
-      {[
-        { id: 'admins', label: 'Admin Users', icon: '👨‍💼', count: filteredAdmins.length },
-        { id: 'roles', label: 'Roles & Permissions', icon: '🔑', count: stats.totalRoles }
-      ].map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => setActiveTab(tab.id)}
-          style={{
-            padding: '12px 16px',
-            border: 'none',
-            borderBottom: activeTab === tab.id ? '2px solid #ff3b30' : '2px solid transparent',
-            backgroundColor: 'transparent',
-            color: activeTab === tab.id ? '#ff3b30' : '#718096',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            whiteSpace: 'nowrap'
-          }}
-        >
-          <span>{tab.icon}</span>
-          <span>{tab.label}</span>
-          {tab.count !== null && (
-            <span style={{
-              backgroundColor: activeTab === tab.id ? '#ff3b30' : '#e2e8f0',
-              color: activeTab === tab.id ? '#fff' : '#718096',
-              padding: '2px 6px',
-              borderRadius: '10px',
-              fontSize: '10px',
-              fontWeight: '700'
-            }}>
-              {tab.count}
-            </span>
-          )}
-        </button>
-      ))}
-    </div>
-  );
-
-  // Admin Users Tab Content
-  const AdminUsersContent = () => {
-    // Hide filters and search for non-super admins since they can only see themselves
-    const showFilters = currentUser?.role === 'super_admin';
-    
-    return (
-      <div>
-        {/* Filters and Search - Only show for super admin */}
-        {showFilters && (
-          <div style={{
-            display: 'flex',
-            flexDirection: isMobile ? 'column' : 'row',
-            gap: '16px',
-            alignItems: 'stretch',
-            marginBottom: '24px'
+      {!isMobile && (
+        <div style={{minWidth: 0}}>
+          <p style={{
+            fontSize: '14px', 
+            fontWeight: '600', 
+            color: '#1a202c', 
+            margin: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            maxWidth: isTablet ? '120px' : '150px'
           }}>
-            {/* Search */}
-            <div style={{ flex: '1', position: 'relative' }}>
-              <input
-                type="text"
-                placeholder="Search admin users..."
-                value={filters.search}
-                onChange={(e) => handleFilterChange('search', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px 12px 40px',
-                  border: '2px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  backgroundColor: '#fff',
-                  boxSizing: 'border-box'
-                }}
-              />
-              <span style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#718096',
-                fontSize: '16px'
-              }}>
-                🔍
-              </span>
-            </div>
-
-            {/* Role Filter */}
-            <select
-              value={filters.role}
-              onChange={(e) => handleFilterChange('role', e.target.value)}
-              style={{
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '14px',
-                backgroundColor: '#fff',
-                minWidth: '140px'
-              }}
-            >
-              <option value="">All Roles</option>
-              {Object.entries(ROLE_CONFIG).map(([key, config]) => (
-                <option key={key} value={key}>{config.name}</option>
-              ))}
-            </select>
-
-            {/* Status Filter */}
-            <select
-              value={filters.status}
-              onChange={(e) => handleFilterChange('status', e.target.value)}
-              style={{
-                padding: '12px 16px',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '14px',
-                backgroundColor: '#fff',
-                minWidth: '120px'
-              }}
-            >
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-            </select>
-
-            {/* Add Admin Button */}
+            {adminProfile.name}
+          </p>
+          <p style={{
+            fontSize: '12px', 
+            color: '#718096', 
+            margin: 0,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
+          }}>
+            {adminProfile.role}
+          </p>
+        </div>
+      )}
+      
+      {/* Profile Dropdown */}
+      {showProfileDropdown && (
+        <div style={{
+          position: 'absolute',
+          top: '100%',
+          right: 0,
+          marginTop: '8px',
+          backgroundColor: '#fff',
+          borderRadius: '8px',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0',
+          minWidth: isSmallMobile ? '140px' : '160px',
+          zIndex: 1001,
+          width: isSmallMobile ? '100vw' : 'auto',
+          maxWidth: isSmallMobile ? '300px' : 'none',
+          right: isSmallMobile ? '-10px' : '0'
+        }}>
+          <div style={{padding: '6px 0'}}>
             <button
-              onClick={handleNewAdmin}
-              disabled={!canCreateAdmin}
+              onClick={handleProfile}
               style={{
-                padding: '12px 16px',
-                backgroundColor: canCreateAdmin ? '#ff3b30' : '#cbd5e0',
-                color: '#fff',
+                width: '100%',
+                padding: '10px 12px',
                 border: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: canCreateAdmin ? 'pointer' : 'not-allowed',
-                whiteSpace: 'nowrap'
+                background: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: isSmallMobile ? '13px' : '14px',
+                color: '#1a202c',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
               }}
             >
-              + Add Admin
+              <span>👤</span>
+              Profile Settings
+            </button>
+            <hr style={{margin: '6px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
+            <button
+              onClick={handleLogout}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: 'none',
+                background: 'none',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: isSmallMobile ? '13px' : '14px',
+                color: '#ff3b30',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}
+            >
+              <span>🚪</span>
+              Logout
             </button>
           </div>
-        )}
-
-        {/* Admin Users Table */}
-        <div style={{ overflowX: 'auto' }}>
-          {loading ? (
-            <div style={{ padding: '40px', textAlign: 'center' }}>
-              <div style={{
-                display: 'inline-block',
-                width: '40px',
-                height: '40px',
-                border: '4px solid #f3f3f3',
-                borderTop: '4px solid #ff3b30',
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite'
-              }} />
-              <p style={{ marginTop: '16px', color: '#718096' }}>Loading admin users...</p>
-            </div>
-          ) : !Array.isArray(filteredAdmins) || filteredAdmins.length === 0 ? (
-            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#718096' }}>
-              <div style={{ fontSize: '48px', marginBottom: '16px' }}>👨‍💼</div>
-              <h3 style={{ color: '#1a202c', marginBottom: '8px' }}>No admin users found</h3>
-              <p>No admin users match your search criteria</p>
-            </div>
-          ) : (
-            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
-              <thead>
-                <tr style={{ backgroundColor: '#f8f9fa' }}>
-                  {currentUser?.role === 'super_admin' && (
-                    <th style={{ padding: '16px', textAlign: 'left', borderBottom: '1px solid #e2e8f0', width: '50px' }}>
-                      <input
-                        type="checkbox"
-                        checked={selectedAdmins.length === filteredAdmins.length && filteredAdmins.length > 0}
-                        onChange={selectAllAdmins}
-                        style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                      />
-                    </th>
-                  )}
-                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                    Admin User
-                  </th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                    Role
-                  </th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                    Status
-                  </th>
-                  <th style={{ padding: '16px', textAlign: 'left', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0' }}>
-                    Last Login
-                  </th>
-                  <th style={{ padding: '16px', textAlign: 'right', fontSize: '14px', fontWeight: '600', color: '#1a202c', borderBottom: '1px solid #e2e8f0', width: '150px' }}>
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredAdmins.map((admin) => (
-                  <tr
-                    key={admin._id}
-                    style={{
-                      borderBottom: '1px solid #f1f5f9',
-                      backgroundColor: selectedAdmins.includes(admin._id) ? '#fff5f5' : '#fff'
-                    }}
-                  >
-                    {currentUser?.role === 'super_admin' && (
-                      <td style={{ padding: '16px' }}>
-                        <input
-                          type="checkbox"
-                          checked={selectedAdmins.includes(admin._id)}
-                          onChange={() => handleAdminSelect(admin._id)}
-                          style={{ width: '16px', height: '16px', cursor: 'pointer' }}
-                        />
-                      </td>
-                    )}
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{
-                          width: '40px',
-                          height: '40px',
-                          background: 'linear-gradient(135deg, #667eea, #764ba2)',
-                          borderRadius: '50%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '14px',
-                          color: '#fff',
-                          fontWeight: 'bold'
-                        }}>
-                          {getInitials(admin.username)}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: '600', color: '#1a202c', fontSize: '14px' }}>
-                            {admin.username}
-                          </div>
-                          <div style={{ color: '#718096', fontSize: '12px' }}>
-                            {admin.email}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      {getRoleBadge(admin.role)}
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      {getStatusBadge(admin.isActive)}
-                    </td>
-                    <td style={{ padding: '16px' }}>
-                      <div style={{ color: '#1a202c', fontSize: '14px' }}>
-                        {formatDate(admin.lastLogin)}
-                      </div>
-                    </td>
-                    <td style={{ padding: '16px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                        <button
-                          onClick={() => handleEditAdmin(admin)}
-                          disabled={!canEditAdmin(admin)}
-                          style={{
-                            padding: '4px 8px',
-                            backgroundColor: canEditAdmin(admin) ? '#f7fafc' : '#f0f0f0',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            color: canEditAdmin(admin) ? '#1a202c' : '#a0aec0',
-                            cursor: canEditAdmin(admin) ? 'pointer' : 'not-allowed'
-                          }}
-                        >
-                          Edit
-                        </button>
-                        {currentUser?.role === 'super_admin' && (
-                          <>
-                            <button
-                              onClick={() => toggleAdminStatus(admin._id, admin.isActive)}
-                              disabled={actionLoading || !canEditAdmin(admin)}
-                              style={{
-                                padding: '4px 8px',
-                                backgroundColor: admin.isActive ? (canEditAdmin(admin) ? '#ff8c00' : '#cbd5e0') : (canEditAdmin(admin) ? '#28a745' : '#cbd5e0'),
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                cursor: (actionLoading || !canEditAdmin(admin)) ? 'not-allowed' : 'pointer',
-                                opacity: actionLoading ? 0.7 : 1
-                              }}
-                            >
-                              {admin.isActive ? 'Deactivate' : 'Activate'}
-                            </button>
-                            <button
-                              onClick={() => deleteAdmin(admin._id)}
-                              disabled={actionLoading || !canDeleteAdmin(admin)}
-                              style={{
-                                padding: '4px 8px',
-                                backgroundColor: canDeleteAdmin(admin) ? '#dc3545' : '#cbd5e0',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '12px',
-                                fontWeight: '600',
-                                cursor: (actionLoading || !canDeleteAdmin(admin)) ? 'not-allowed' : 'pointer',
-                                opacity: actionLoading ? 0.7 : 1
-                              }}
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
         </div>
+      )}
+    </div>
+  );
 
-        {/* Show pagination only for super admin */}
-        {currentUser?.role === 'super_admin' && !loading && Array.isArray(filteredAdmins) && filteredAdmins.length > 0 && <PaginationControls />}
-      </div>
-    );
-  };
-
-  // Roles & Permissions Tab Content
-  const RolesPermissionsContent = () => (
-    <div>
-      <div style={{
-        display: 'flex',
-        justifyContent: 'flex-end',
-        marginBottom: '24px'
-      }}>
-        <button
-          onClick={handleNewRole}
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      width: '100%',
+      height: '100%',
+      display: 'flex',
+      backgroundColor: '#f8f9fa',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      overflow: 'hidden',
+      fontSize: isSmallMobile ? '14px' : '16px'
+    }}>
+      {/* Mobile Overlay - FIXED: Now properly positioned */}
+      {isMobile && isExpanded && (
+        <div
           style={{
-            padding: '12px 16px',
-            backgroundColor: '#ff3b30',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '600',
-            cursor: 'pointer',
-            whiteSpace: 'nowrap'
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 999,
+            animation: 'fadeIn 0.3s ease'
           }}
-        >
-          + Create New Role
-        </button>
-      </div>
+          onClick={() => setIsExpanded(false)}
+        />
+      )}
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '20px',
-        marginBottom: '32px'
-      }}>
-        {Array.isArray(roles) && roles.map((role) => {
-          const roleConfig = ROLE_CONFIG[role.name] || { color: '#6c757d', name: role.name, priority: 99 };
-          return (
-            <div
-              key={role._id || role.id || Math.random()}
-              style={{
-                backgroundColor: '#fff',
-                padding: '24px',
-                borderRadius: '12px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                border: '1px solid #e2e8f0'
-              }}
-            >
+      {/* Sidebar - FIXED: Added ref and fixed positioning */}
+      <div 
+        ref={sidebarRef}
+        style={{
+          backgroundColor: '#fff',
+          boxShadow: isMobile && isExpanded ? '2px 0 8px rgba(0, 0, 0, 0.15)' : 'none',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          position: isMobile ? 'fixed' : 'relative',
+          left: isMobile ? (isExpanded ? 0 : '-280px') : 0,
+          top: 0,
+          zIndex: 1000,
+          width: isExpanded ? (isSmallMobile ? '260px' : isMobile ? '280px' : '280px') : (isMobile ? '0' : '80px'),
+          borderRight: '1px solid #e2e8f0',
+          transition: 'left 0.3s ease, width 0.3s ease',
+          overflow: 'hidden',
+          willChange: 'left, width'
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: isSmallMobile ? '12px' : '16px',
+          borderBottom: '1px solid #e2e8f0',
+          flexShrink: 0,
+          display: isExpanded ? 'block' : 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          height: isExpanded ? 'auto' : '60px'
+        }}>
+          {isExpanded ? (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '12px'
+            }}>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '16px'
+                gap: '10px',
+                minWidth: 0
               }}>
-                <div>
-                  <h3 style={{
-                    color: roleConfig.color,
-                    fontSize: '16px',
-                    fontWeight: '700',
-                    margin: '0 0 4px 0'
-                  }}>
-                    {roleConfig.name}
-                  </h3>
-                  <p style={{
-                    color: '#718096',
-                    fontSize: '12px',
-                    margin: 0
-                  }}>
-                    {role.description || 'No description provided'}
-                  </p>
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button
-                    onClick={() => handleConfigureRole(role)}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: roleConfig.color,
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Configure
-                  </button>
-                  <button
-                    onClick={() => deleteRole(role._id)}
-                    disabled={actionLoading || role.name === 'super_admin'}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: role.name === 'super_admin' ? '#cbd5e0' : '#dc3545',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      cursor: (actionLoading || role.name === 'super_admin') ? 'not-allowed' : 'pointer',
-                      opacity: actionLoading ? 0.7 : 1
-                    }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-
-              <div style={{ marginBottom: '16px' }}>
-                <h4 style={{
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  color: '#1a202c',
-                  margin: '0 0 8px 0'
-                }}>
-                  Permissions ({Array.isArray(role.permissions) ? role.permissions.length : 0})
-                </h4>
                 <div style={{
+                  width: isSmallMobile ? '40px' : '48px',
+                  height: isSmallMobile ? '40px' : '48px',
+                  borderRadius: '8px',
                   display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: '6px'
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
+                  flexShrink: 0
                 }}>
-                  {Object.entries(PERMISSION_CATEGORIES).map(([categoryKey, category]) => {
-                    const categoryPermissions = Array.isArray(role.permissions) ? 
-                      role.permissions.filter(p => 
-                        ALL_PERMISSIONS.find(ap => ap.id === p && ap.category === categoryKey)
-                      ) : [];
-                    
-                    if (categoryPermissions.length === 0) return null;
-                    
-                    return (
-                      <span
-                        key={categoryKey}
-                        style={{
-                          backgroundColor: category.color + '20',
-                          color: category.color,
-                          padding: '2px 6px',
-                          borderRadius: '8px',
-                          fontSize: '10px',
-                          fontWeight: '600',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px'
-                        }}
-                      >
-                        <span>{category.icon}</span>
-                        <span>{category.name} ({categoryPermissions.length})</span>
-                      </span>
-                    );
-                  })}
+                  <img 
+                    src="/src/assets/logo.png" 
+                    alt="VTU Logo"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain'
+                    }}
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.parentElement.innerHTML = '<div style="width:100%;height:100%;background:#ff3b30;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;">CP</div>';
+                    }}
+                  />
+                </div>
+                <div style={{minWidth: 0}}>
+                  <h1 style={{
+                    fontSize: isSmallMobile ? '14px' : '16px', 
+                    fontWeight: '700', 
+                    color: 'red', 
+                    margin: 0,
+                    lineHeight: '1.2',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
+                  }}>
+                    Connectpay
+                  </h1>
+                  <p style={{
+                    fontSize: '11px', 
+                    color: 'black', 
+                    margin: '2px 0 0 0',
+                    lineHeight: '1.2'
+                  }}>Control Panel</p>
                 </div>
               </div>
 
-              <div style={{
-                backgroundColor: '#f8f9fa',
-                padding: '12px',
+              <button
+                onClick={toggleSidebar}
+                style={{
+                  padding: '6px',
+                  border: 'none',
+                  background: '#f7fafc',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  color: '#718096',
+                  width: '28px',
+                  height: '28px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0
+                }}
+                aria-label={isExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              >
+                {isExpanded ? '«' : '»'}
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={toggleSidebar}
+              style={{
+                padding: '8px',
+                border: 'none',
+                background: 'transparent',
                 borderRadius: '8px',
-                fontSize: '12px',
-                color: '#718096'
+                cursor: 'pointer',
+                fontSize: '20px',
+                color: '#718096',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+              aria-label="Open sidebar"
+            >
+              <div style={{
+                width: '40px',
+                height: '40px',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                overflow: 'hidden'
               }}>
-                Access to {Array.isArray(role.permissions) ? role.permissions.length : 0} of {ALL_PERMISSIONS.length} total permissions
+                <img 
+                  src="/src/assets/logo.png" 
+                  alt="VTU Logo"
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain'
+                  }}
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = '<div style="width:100%;height:100%;background:#ff3b30;color:white;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;">CP</div>';
+                  }}
+                />
               </div>
+            </button>
+          )}
+
+          {/* Search Bar */}
+          {isExpanded && (
+            <div style={{position: 'relative'}}>
+              <div style={{
+                position: 'absolute',
+                left: '10px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#718096',
+                fontSize: '14px',
+                zIndex: 1
+              }}>🔍</div>
+              <input
+                type="text"
+                placeholder="Search menu..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px 10px 8px 32px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: isSmallMobile ? '13px' : '14px',
+                  backgroundColor: '#f7fafc',
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  color: '#000000'
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={clearSearch}
+                  style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#718096',
+                    fontSize: '12px'
+                  }}
+                >
+                  ✕
+                </button>
+              )}
             </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-
-  return (
-    <ErrorBoundary>
-      <div style={{
-        width: '100%',
-        maxWidth: '100%'
-      }}>
-        <style>{`
-          @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-        `}</style>
-        
-        <NotificationBanner />
-        
-        {/* Header Stats Cards - Show different stats based on role */}
-       <div style={{
-  display: 'grid',
-  gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))',
-  gap: isMobile ? '10px' : '12px',
-  marginBottom: isMobile ? '20px' : '24px',
-  width: '100%'
-}}>
-  {/* If super admin, show admin stats */}
-  {currentUser?.role === 'super_admin' && [
-    { label: 'Total Admins', value: stats?.totalAdmins || 0, color: '#ff3b30', icon: '👨‍💼' },
-    { label: 'Active Admins', value: stats?.activeAdmins || 0, color: '#ff3b30', icon: '✅' },
-    { label: 'Inactive', value: stats?.inactiveAdmins || 0, color: '#ff3b30', icon: '⏸️' },
-    { label: 'Total Roles', value: stats?.totalRoles || 0, color: '#ff3b30', icon: '🔑' }
-  ].map((stat, index) => (
-    <div key={index} style={{
-      backgroundColor: '#fff',
-      padding: isMobile ? '12px' : '16px',
-      borderRadius: '8px',
-      boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e2e8f0',
-      opacity: 1,
-      transition: 'opacity 0.3s ease'
-    }}>
-      <div style={{
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '8px', 
-        marginBottom: '8px'
-      }}>
-        <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
-        <h3 style={{
-          color: '#1a202c', 
-          fontSize: isMobile ? '12px' : '14px', 
-          fontWeight: '600', 
-          margin: 0
-        }}>
-          {stat.label}
-        </h3>
-      </div>
-      <p style={{
-        color: stat.color, 
-        fontSize: isMobile ? '16px' : '18px', 
-        fontWeight: '700', 
-        margin: 0
-      }}>
-        {stat.value.toLocaleString()}
-      </p>
-    </div>
-  ))}
-  
-  {/* If NOT super admin, show personal info */}
-  {currentUser?.role !== 'super_admin' && [
-    { label: 'Your Role', value: ROLE_CONFIG[currentUser?.role]?.name || 'Unknown', color: '#ff3b30', icon: '👤', isText: true },
-    { label: 'Status', value: currentUser?.isActive ? 'Active' : 'Inactive', color: currentUser?.isActive ? '#28a745' : '#ff3b30', icon: currentUser?.isActive ? '✅' : '⏸️', isText: true },
-    { label: 'Last Login', value: formatDate(currentUser?.lastLogin), color: '#ff3b30', icon: '🕒', isText: true },
-    { label: 'Email', value: currentUser?.email ? currentUser.email.substring(0, 15) + (currentUser.email.length > 15 ? '...' : '') : 'N/A', color: '#ff3b30', icon: '📧', isText: true }
-  ].map((stat, index) => (
-    <div key={index} style={{
-      backgroundColor: '#fff',
-      padding: isMobile ? '12px' : '16px',
-      borderRadius: '8px',
-      boxShadow: '0 1px 4px rgba(0, 0, 0, 0.1)',
-      border: '1px solid #e2e8f0',
-      opacity: 1,
-      transition: 'opacity 0.3s ease'
-    }}>
-      <div style={{
-        display: 'flex', 
-        alignItems: 'center', 
-        gap: '8px', 
-        marginBottom: '8px'
-      }}>
-        <div style={{fontSize: isMobile ? '18px' : '20px'}}>{stat.icon}</div>
-        <h3 style={{
-          color: '#1a202c', 
-          fontSize: isMobile ? '12px' : '14px', 
-          fontWeight: '600', 
-          margin: 0
-        }}>
-          {stat.label}
-        </h3>
-      </div>
-      <p style={{
-        color: stat.color, 
-        fontSize: isMobile ? '14px' : '16px', 
-        fontWeight: '600', 
-        margin: 0,
-        whiteSpace: 'nowrap',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis'
-      }}>
-        {stat.value}
-      </p>
-    </div>
-  ))}
-</div>
-
-        {/* Main Content Card */}
-        <div style={{
-          backgroundColor: '#fff',
-          borderRadius: '12px',
-          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e2e8f0',
-          overflow: 'hidden'
-        }}>
-          {/* Tab Navigation Header */}
-          <div style={{
-            padding: isMobile ? '16px' : '20px',
-            borderBottom: '1px solid #e2e8f0',
-            backgroundColor: '#f7fafc'
-          }}>
-            <div style={{
-              display: 'flex',
-              flexDirection: isMobile ? 'column' : 'row',
-              gap: '16px',
-              alignItems: isMobile ? 'stretch' : 'center',
-              justifyContent: 'space-between',
-              marginBottom: '20px'
-            }}>
-              <h2 style={{
-                color: '#1a202c',
-                fontSize: isMobile ? '18px' : '20px',
-                fontWeight: '700',
-                margin: 0
-              }}>
-                Admin Management {currentUser?.role !== 'super_admin' && '(Your Profile)'}
-              </h2>
-            </div>
-            
-            <TabNavigation />
-          </div>
-
-          {/* Tab Content */}
-          <div style={{ padding: isMobile ? '16px' : '20px' }}>
-            {activeTab === 'admins' && <AdminUsersContent />}
-            {activeTab === 'roles' && <RolesPermissionsContent />}
-          </div>
+          )}
         </div>
 
-        {/* Modals */}
-        <AdminModal 
-          showAdminModal={showAdminModal}
-          setShowAdminModal={setShowAdminModal}
-          selectedAdmin={selectedAdmin}
-          adminForm={adminForm}
-          setAdminForm={setAdminForm}
-          actionLoading={actionLoading}
-          handleAdminSubmit={handleAdminSubmit}
-          ROLE_CONFIG={ROLE_CONFIG}
-          currentUserRole={currentUser?.role}
-        />
+        {/* Menu Items */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: isExpanded ? '10px 0' : '6px 0',
+          WebkitOverflowScrolling: 'touch'
+        }}>
+          <nav>
+            {filteredMenuItems.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: isExpanded ? 'space-between' : 'center',
+                  padding: isExpanded ? '8px 12px' : '8px 0',
+                  margin: isExpanded ? '0 6px 4px 6px' : '0 10px 4px 10px',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  color: activeMenu === item.id ? '#fff' : '#1a202c',
+                  backgroundColor: activeMenu === item.id ? '#ff3b30' : 'transparent',
+                  minHeight: '40px',
+                  transition: 'all 0.2s ease'
+                }}
+                onClick={() => handleMenuClick(item.id)}
+                title={!isExpanded ? item.label : ''}
+              >
+                {isExpanded ? (
+                  <>
+                    <div style={{
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: '10px',
+                      minWidth: 0
+                    }}>
+                      <span style={{
+                        fontSize: isSmallMobile ? '14px' : '16px', 
+                        width: '20px', 
+                        textAlign: 'center',
+                        flexShrink: 0
+                      }}>
+                        {item.icon}
+                      </span>
+                      <span style={{
+                        fontSize: isSmallMobile ? '13px' : '14px', 
+                        fontWeight: '600',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
+                        {item.label}
+                      </span>
+                    </div>
 
-        <RoleModal 
-          showRoleModal={showRoleModal}
-          setShowRoleModal={setShowRoleModal}
-          selectedRole={selectedRole}
-          roleForm={roleForm}
-          setRoleForm={setRoleForm}
-          actionLoading={actionLoading}
-          handleRoleSubmit={handleRoleSubmit}
-          ALL_PERMISSIONS={ALL_PERMISSIONS}
-          PERMISSION_CATEGORIES={PERMISSION_CATEGORIES}
-          currentUserRole={currentUser?.role}
-          ROLE_CONFIG={ROLE_CONFIG}
-        />
+                    {item.notifications > 0 && (
+                      <span style={{
+                        backgroundColor: activeMenu === item.id ? 'rgba(255, 255, 255, 0.2)' : '#ff3b30',
+                        color: '#fff',
+                        padding: '1px 5px',
+                        borderRadius: '8px',
+                        fontSize: '9px',
+                        fontWeight: '700',
+                        minWidth: '16px',
+                        textAlign: 'center',
+                        flexShrink: 0
+                      }}>
+                        {item.notifications}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <div style={{
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <span style={{fontSize: '16px'}}>
+                      {item.icon}
+                    </span>
+                    {item.notifications > 0 && (
+                      <span style={{
+                        position: 'absolute',
+                        top: '-4px',
+                        right: '-4px',
+                        backgroundColor: '#ff3b30',
+                        color: '#fff',
+                        padding: '1px 4px',
+                        borderRadius: '6px',
+                        fontSize: '8px',
+                        fontWeight: '700',
+                        minWidth: '12px',
+                        textAlign: 'center',
+                        lineHeight: '1'
+                      }}>
+                        {item.notifications}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </nav>
+
+          {/* No search results */}
+          {searchQuery && filteredMenuItems.length === 0 && isExpanded && (
+            <div style={{
+              textAlign: 'center',
+              padding: '16px',
+              color: '#718096',
+              fontSize: '13px'
+            }}>
+              <div style={{fontSize: '20px', marginBottom: '6px'}}>🔍</div>
+              No items found for "{searchQuery}"
+              <br />
+              <button
+                onClick={clearSearch}
+                style={{
+                  marginTop: '6px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#ff3b30',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  textDecoration: 'underline'
+                }}
+              >
+                Clear search
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Simple footer without admin profile */}
+        {isExpanded && (
+          <div style={{
+            padding: isSmallMobile ? '10px 12px' : '12px 16px',
+            borderTop: '1px solid #e2e8f0',
+            backgroundColor: '#f7fafc',
+            flexShrink: 0,
+            textAlign: 'center'
+          }}>
+            <p style={{
+              fontSize: '11px', 
+              color: '#718096', 
+              margin: 0,
+              lineHeight: '1.2'
+            }}>
+              VTU Admin Panel v1.0
+            </p>
+          </div>
+        )}
       </div>
-    </ErrorBoundary>
+
+      {/* Main Content Area - FIXED: Added margin-left adjustment */}
+      <div style={{
+        flex: 1,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        backgroundColor: '#f8f9fa',
+        overflow: 'hidden',
+        marginLeft: isMobile ? 0 : (isExpanded ? '280px' : '80px'),
+        transition: 'margin-left 0.3s ease',
+        position: 'relative',
+        width: '100%',
+        // FIXED: Ensure content takes full width on mobile when sidebar is hidden
+        transform: isMobile && isExpanded ? 'translateX(280px)' : 'translateX(0)',
+        transition: 'transform 0.3s ease'
+      }}>
+        {/* Mobile Header Bar - FIXED: Added ref to hamburger button */}
+        {isMobile && (
+          <div style={{
+            backgroundColor: '#fff',
+            padding: isSmallMobile ? '8px 12px' : '10px 14px',
+            borderBottom: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0,
+            zIndex: 997
+          }}>
+            <button
+              ref={hamburgerRef}
+              onClick={toggleSidebar}
+              style={{
+                padding: '6px',
+                border: 'none',
+                background: '#f7fafc',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                color: '#718096',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              aria-label="Toggle sidebar"
+            >
+              ☰
+            </button>
+            <div style={{minWidth: 0, flex: 1, margin: '0 10px'}}>
+              <h1 style={{
+                fontSize: isSmallMobile ? '13px' : '14px', 
+                fontWeight: '700', 
+                color: '#ff3b30', 
+                margin: 0,
+                textAlign: 'center',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>
+                {currentMenuItem ? currentMenuItem.label : 'Dashboard'}
+              </h1>
+            </div>
+            <AdminProfileHeader />
+          </div>
+        )}
+
+        {/* Content Header */}
+        {!isMobile && (
+          <div style={{
+            backgroundColor: '#fff',
+            padding: isTablet ? '10px 20px' : '12px 24px',
+            borderBottom: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+            flexShrink: 0,
+            zIndex: 997
+          }}>
+            <div style={{
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between', 
+              flexWrap: 'wrap', 
+              gap: '10px'
+            }}>
+              <div style={{minWidth: 0}}>
+                <h1 style={{
+                  fontSize: isTablet ? '18px' : '20px',
+                  fontWeight: '700', 
+                  color: '#ff3b30',
+                  margin: 0,
+                  lineHeight: '1.2'
+                }}>
+                  {currentMenuItem ? currentMenuItem.label : 'Dashboard'}
+                </h1>
+                <p style={{
+                  fontSize: isTablet ? '12px' : '13px',
+                  color: '#718096', 
+                  margin: '2px 0 0 0',
+                  lineHeight: '1.2'
+                }}>
+                  {currentMenuItem && currentMenuItem.subItems 
+                    ? `Manage ${currentMenuItem.label.toLowerCase()} settings`
+                    : activeMenu === 'profile'
+                    ? 'Manage your account settings'
+                    : 'Welcome back! Here\'s your system overview'
+                  }
+                </p>
+              </div>
+              <AdminProfileHeader />
+            </div>
+          </div>
+        )}
+
+        {/* Content Body */}
+        <div style={{
+          flex: 1,
+          padding: isSmallMobile ? '12px' : isMobile ? '16px' : isTablet ? '20px' : '24px',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          WebkitOverflowScrolling: 'touch'
+        }}>
+          {activeMenu === 'dashboard' 
+            ? renderDashboardContent() 
+            : activeMenu === 'profile' 
+            ? renderProfileContent()
+            : activeMenu === 'users' || activeMenu === 'all-users'
+            ? renderUserManagementContent()
+            : activeMenu === 'transactions' || 
+              activeMenu === 'all-transactions' || 
+              activeMenu === 'failed-transactions' || 
+              activeMenu === 'pending-transactions' || 
+              activeMenu === 'refunds'
+            ? <TransactionManagement />
+            : activeMenu === 'services' || 
+              activeMenu === 'airtime' || 
+              activeMenu === 'data' || 
+              activeMenu === 'cable-tv' || 
+              activeMenu === 'electricity' || 
+              activeMenu === 'service-pricing' || 
+              activeMenu === 'service-status'
+            ? <ServiceManagement />
+            : activeMenu === 'financial' ||
+              activeMenu === 'revenue' ||
+              activeMenu === 'commission' ||
+              activeMenu === 'wallet' ||
+              activeMenu === 'settlements' ||
+              activeMenu === 'tax-reports'
+            ? <FinancialManagement />
+            : activeMenu === 'system' || 
+              activeMenu === 'api-config' || 
+              activeMenu === 'system-health' || 
+              activeMenu === 'error-logs'
+            ? <SystemManagement />
+            : activeMenu === 'admin' ||
+              activeMenu === 'admin-users' ||
+              activeMenu === 'permissions' ||
+              activeMenu === 'admin-logs'
+            ? <AdminManagement />
+            : activeMenu === 'notifications'
+            ? <NotificationManagement />
+            : activeMenu.startsWith('ticket-')
+            ? <SupportTicketDetail ticketId={activeMenu.replace('ticket-', '')} />
+            : renderSubMenuContent()
+          }
+        </div>
+      </div>
+
+      {/* Backdrop for dropdown */}
+      {showProfileDropdown && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 998
+          }}
+          onClick={() => setShowProfileDropdown(false)}
+        />
+      )}
+    </div>
   );
 };
 
-export default AdminManagement;
+export default AdminDashboard;
