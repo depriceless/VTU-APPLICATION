@@ -188,21 +188,23 @@ app.use(helmet());
 // === CORS CONFIGURATION ===
 try {
   app.use(cors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:8081', 
-      'exp://localhost:19000',
-      'http://localhost:19006',
-      'http://localhost:5173',
-      'http://192.168.126.7:5173'
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 200
-  }));
-  
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:8081', 
+    'exp://localhost:19000',
+    'http://localhost:19006',
+    'http://localhost:5173',
+    'http://192.168.126.7:5173',
+    'https://admin-connectpay.netlify.app',  // ← ADD THIS
+    'https://*.netlify.app'                  // ← OR this for all Netlify subdomains
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 200
+}));
+
   app.options('*', cors());
   console.log('✅ CORS configured');
 } catch (err) {
