@@ -7,24 +7,24 @@ const { authenticate } = require('../middleware/auth');
 const Transaction = require('../models/Transaction');
 const Wallet = require('../models/Wallet');
 
-// ClubKonnect Configuration
-const CK_CONFIG = {
-  userId: process.env.CLUBKONNECT_USER_ID,
-  apiKey: process.env.CLUBKONNECT_API_KEY,
-  baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
+// NelloBytes Configuration
+const NELLOBYTES_CONFIG = {
+  userId: process.env.NELLOBYTES_USER_ID || process.env.CLUBKONNECT_USER_ID,
+  apiKey: process.env.NELLOBYTES_API_KEY || process.env.CLUBKONNECT_API_KEY,
+  baseUrl: process.env.NELLOBYTES_BASE_URL || 'https://www.nellobytesystems.com'
 };
 
 // Helper function to make API requests
 const makeRequest = async (endpoint, params) => {
   try {
     const queryParams = new URLSearchParams({
-      UserID: CK_CONFIG.userId,
-      APIKey: CK_CONFIG.apiKey,
+      UserID: NELLOBYTES_CONFIG.userId,
+      APIKey: NELLOBYTES_CONFIG.apiKey,
       ...params
     });
     
-    const url = `${CK_CONFIG.baseUrl}${endpoint}?${queryParams}`;
-    console.log('🌐 ClubKonnect Request:', url.replace(CK_CONFIG.apiKey, 'API_KEY_HIDDEN'));
+    const url = `${NELLOBYTES_CONFIG.baseUrl}${endpoint}?${queryParams}`;
+    console.log('🌐 NelloBytes Request:', url.replace(NELLOBYTES_CONFIG.apiKey, 'API_KEY_HIDDEN'));
     
     const response = await axios.get(url, {
       timeout: 15000,
@@ -34,10 +34,10 @@ const makeRequest = async (endpoint, params) => {
       }
     });
     
-    console.log('✅ ClubKonnect Response:', response.data);
+    console.log('✅ NelloBytes Response:', response.data);
     return response.data;
   } catch (error) {
-    console.error('❌ ClubKonnect Error:', {
+    console.error('❌ NelloBytes Error:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status
@@ -80,16 +80,16 @@ router.get('/dashboard-balance', async (req, res) => {
   try {
     console.log('📊 Dashboard balance request received');
     
-    // Validate ClubKonnect credentials
-    if (!CK_CONFIG.userId || !CK_CONFIG.apiKey) {
-      console.error('❌ ClubKonnect credentials missing');
+    // Validate NelloBytes credentials
+    if (!NELLOBYTES_CONFIG.userId || !NELLOBYTES_CONFIG.apiKey) {
+      console.error('❌ NelloBytes credentials missing');
       return res.json({
         success: true,
         data: {
-          clubKonnect: {
+          nelloBytes: {
             balance: 0,
             currency: 'NGN',
-            provider: 'ClubKonnect',
+            provider: 'NelloBytes',
             status: 'Config Error',
             lastUpdated: new Date().toISOString(),
             error: 'API credentials not configured'
@@ -105,41 +105,77 @@ router.get('/dashboard-balance', async (req, res) => {
       });
     }
     
-    let clubKonnectBalance = 0;
+    let nelloBytesBalance = 0;
     let status = 'Online';
     let errorMessage = null;
     
     try {
-      const balanceData = await makeRequest('/APIWalletBalanceV1.asp', {});
+      // Build the NelloBytes API URL
+      const url = `${NELLOBYTES_CONFIG.baseUrl}/APIWalletBalanceV1.asp?UserID=${NELLOBYTES_CONFIG.userId}&APIKey=${NELLOBYTES_CONFIG.apiKey}`;
+      console.log('🌐 Calling NelloBytes API:', url.replace(NELLOBYTES_CONFIG.apiKey, 'API_KEY_HIDDEN'));
       
-      // Parse balance from various possible response formats
-      if (typeof balanceData === 'string') {
-        const matches = balanceData.match(/[\d,]+\.?\d*/);
-        clubKonnectBalance = matches ? parseFloat(matches[0].replace(/,/g, '')) : 0;
-      } else if (balanceData.wallet_balance !== undefined) {
-        clubKonnectBalance = parseFloat(balanceData.wallet_balance);
-      } else if (balanceData.balance !== undefined) {
-        clubKonnectBalance = parseFloat(balanceData.balance);
-      } else if (balanceData.data?.balance !== undefined) {
-        clubKonnectBalance = parseFloat(balanceData.data.balance);
-      } else if (balanceData.walletBalance !== undefined) {
-        clubKonnectBalance = parseFloat(balanceData.walletBalance);
+      const response = await axios.get(url, {
+        timeout: 10000,
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'VTU-Application/1.0'
+        }
+      });
+      
+      console.log('✅ NelloBytes raw response:', response.data);
+      
+      // The API returns JSON with structure: {"date":"...","id":"...","phoneno":"...","balance":"..."}
+      const data = response.data;
+      
+      if (data && typeof data === 'object') {
+        // Check for error responses first
+        if (data === 'INVALID_CREDENTIALS') {
+          status = 'Auth Error';
+          errorMessage = 'Invalid UserID or API Key';
+        } else if (data === 'MISSING_CREDENTIALS') {
+          status = 'Auth Error';
+          errorMessage = 'URL format is not valid';
+        } else if (data === 'MISSING_USERID') {
+          status = 'Auth Error';
+          errorMessage = 'Username field is empty';
+        } else if (data === 'MISSING_APIKEY') {
+          status = 'Auth Error';
+          errorMessage = 'API Key field is empty';
+        }
+        // If we have a balance field
+        else if (data.balance !== undefined) {
+          // Balance comes as string, convert to number
+          nelloBytesBalance = parseFloat(data.balance);
+          
+          if (isNaN(nelloBytesBalance)) {
+            status = 'Parse Error';
+            errorMessage = `Invalid balance format: ${data.balance}`;
+            nelloBytesBalance = 0;
+          } else {
+            console.log(`✅ Successfully parsed balance: ₦${nelloBytesBalance}`);
+          }
+        } else {
+          status = 'Parse Error';
+          errorMessage = 'No balance field in response';
+          console.warn('⚠️ Unexpected NelloBytes response structure:', data);
+        }
       } else {
-        console.warn('⚠️ Unexpected balance format:', balanceData);
         status = 'Parse Error';
-        errorMessage = 'Unexpected API response format';
-      }
-      
-      if (isNaN(clubKonnectBalance)) {
-        clubKonnectBalance = 0;
-        status = 'Parse Error';
+        errorMessage = 'Invalid API response format';
+        console.error('❌ NelloBytes returned non-JSON:', data);
       }
       
     } catch (apiError) {
-      console.error('❌ ClubKonnect API failed:', apiError.message);
+      console.error('❌ NelloBytes API failed:', apiError.message);
       status = 'API Error';
       errorMessage = apiError.message;
-      clubKonnectBalance = 0;
+      
+      // Check if it's a network error or API error
+      if (apiError.response) {
+        console.error('❌ API Response status:', apiError.response.status);
+        console.error('❌ API Response data:', apiError.response.data);
+        errorMessage = `HTTP ${apiError.response.status}: ${apiError.response.data || apiError.message}`;
+      }
     }
     
     const platformBalance = await getPlatformWalletBalance();
@@ -147,10 +183,10 @@ router.get('/dashboard-balance', async (req, res) => {
     res.json({
       success: true,
       data: {
-        clubKonnect: {
-          balance: clubKonnectBalance,
+        nelloBytes: {
+          balance: nelloBytesBalance,
           currency: 'NGN',
-          provider: 'ClubKonnect',
+          provider: 'NelloBytes',
           status: status,
           lastUpdated: new Date().toISOString(),
           ...(errorMessage && { error: errorMessage })
@@ -173,10 +209,10 @@ router.get('/dashboard-balance', async (req, res) => {
       message: 'Failed to fetch balances',
       error: error.message,
       data: {
-        clubKonnect: {
+        nelloBytes: {
           balance: 0,
           currency: 'NGN',
-          provider: 'ClubKonnect',
+          provider: 'NelloBytes',
           status: 'Server Error',
           lastUpdated: new Date().toISOString()
         },
@@ -194,23 +230,23 @@ router.get('/dashboard-balance', async (req, res) => {
 
 // ========== DEBUG ENDPOINTS - NO AUTHENTICATION ==========
 
-// Test ClubKonnect connection
+// Test NelloBytes connection
 router.get('/test-connection', async (req, res) => {
   try {
-    console.log('🧪 Testing ClubKonnect connection...');
+    console.log('🧪 Testing NelloBytes connection...');
     
     const config = {
-      userId: CK_CONFIG.userId ? '✅ Set' : '❌ Missing',
-      apiKey: CK_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
-      baseUrl: CK_CONFIG.baseUrl
+      userId: NELLOBYTES_CONFIG.userId ? '✅ Set' : '❌ Missing',
+      apiKey: NELLOBYTES_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
+      baseUrl: NELLOBYTES_CONFIG.baseUrl
     };
     
     console.log('📝 Config:', config);
     
-    if (!CK_CONFIG.userId || !CK_CONFIG.apiKey) {
+    if (!NELLOBYTES_CONFIG.userId || !NELLOBYTES_CONFIG.apiKey) {
       return res.json({
         success: false,
-        message: 'ClubKonnect credentials not configured',
+        message: 'NelloBytes credentials not configured',
         config: config
       });
     }
@@ -219,19 +255,19 @@ router.get('/test-connection', async (req, res) => {
     
     res.json({ 
       success: true, 
-      message: 'ClubKonnect connection successful!',
+      message: 'NelloBytes connection successful!',
       data: data,
       config: config
     });
   } catch (error) {
     res.status(500).json({ 
       success: false, 
-      message: 'ClubKonnect connection failed',
+      message: 'NelloBytes connection failed',
       error: error.message,
       config: {
-        userId: CK_CONFIG.userId ? '✅ Set' : '❌ Missing',
-        apiKey: CK_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
-        baseUrl: CK_CONFIG.baseUrl
+        userId: NELLOBYTES_CONFIG.userId ? '✅ Set' : '❌ Missing',
+        apiKey: NELLOBYTES_CONFIG.apiKey ? '✅ Set' : '❌ Missing',
+        baseUrl: NELLOBYTES_CONFIG.baseUrl
       }
     });
   }
@@ -241,12 +277,12 @@ router.get('/test-connection', async (req, res) => {
 router.get('/test', (req, res) => {
   res.json({ 
     success: true, 
-    message: 'ClubKonnect routes are working!',
+    message: 'NelloBytes routes are working!',
     timestamp: new Date().toISOString(),
     config: {
-      userId: CK_CONFIG.userId ? 'Set ✓' : 'Not set ✗',
-      apiKey: CK_CONFIG.apiKey ? 'Set ✓' : 'Not set ✗',
-      baseUrl: CK_CONFIG.baseUrl
+      userId: NELLOBYTES_CONFIG.userId ? 'Set ✓' : 'Not set ✗',
+      apiKey: NELLOBYTES_CONFIG.apiKey ? 'Set ✓' : 'Not set ✗',
+      baseUrl: NELLOBYTES_CONFIG.baseUrl
     }
   });
 });
@@ -786,4 +822,4 @@ router.post('/transaction/cancel', authenticate, async (req, res) => {
   }
 });
 
-module.exports = router;  
+module.exports = router;

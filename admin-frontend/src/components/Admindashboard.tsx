@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import UserManagement from './UserManagement';
 import TransactionManagement from './TransactionManagement';
@@ -36,23 +37,24 @@ const AdminDashboard = () => {
 
   // API Balance State
   const [apiBalances, setApiBalances] = useState([
-    {
-      provider: 'ClubKonnect',
-      balance: 0,
-      currency: '₦',
-      lastUpdated: '',
-      loading: true,
-      status: 'Checking...'
-    },
-    {
-      provider: 'VTU Service',
-      balance: 0,
-      currency: '₦',
-      lastUpdated: '',
-      loading: true,
-      status: 'Checking...'
-    }
-  ]);
+  {
+    provider: 'NelloBytes',  // Changed from 'ClubKonnect' to 'NelloBytes'
+    balance: 0,
+    currency: '₦',
+    lastUpdated: '',
+    loading: true,
+    status: 'Checking...'
+  },
+  {
+    provider: 'VTU Service',
+    balance: 0,
+    currency: '₦',
+    lastUpdated: '',
+    loading: true,
+    status: 'Checking...'
+  }
+]);
+
   const [apiBalancesLoading, setApiBalancesLoading] = useState(true);
 
   // Scrollbar styling
@@ -258,20 +260,13 @@ const AdminDashboard = () => {
       }
     }
   };
-
-  // NEW: Fetch API Balances
- const fetchApiBalances = async () => {
+const fetchApiBalances = async () => {
   try {
     setApiBalancesLoading(true);
     const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
     
-    console.log('🔍 Debug - Token exists?', token ? 'YES' : 'NO');
-    console.log('Token length:', token ? token.length : 'N/A');
-    console.log('Token preview:', token ? token.substring(0, 20) + '...' : 'N/A');
+    console.log('🔍 Starting API balance fetch...');
     
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // First try with token
     const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -279,108 +274,101 @@ const AdminDashboard = () => {
       }
     });
     
-    console.log('Response status:', response.status);
-    console.log('Response status text:', response.statusText);
+    // Get the response as text first
+    const responseText = await response.text();
+    console.log('📊 RAW API RESPONSE:', responseText);
+    console.log('📊 Response status:', response.status);
     
-    if (response.ok) {
-      const data = await response.json();
-      console.log('✅ API response with token:', data);
+    // Try to parse it
+    let data;
+    try {
+      data = JSON.parse(responseText);
+      console.log('✅ Successfully parsed JSON:', data);
+    } catch (parseError) {
+      console.error('❌ JSON Parse Error:', parseError.message);
+      
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      // Check if response contains "balance" somewhere
+      const balanceMatch = responseText.match(/(\d+\.?\d*)/);
+      const foundBalance = balanceMatch ? parseFloat(balanceMatch[0]) : 0;
+      
+      console.log('🔍 Found balance in response text:', foundBalance);
       
       setApiBalances([
         {
-          provider: 'ClubKonnect',
-          balance: data.data?.clubKonnect?.balance || 0,
-          currency: data.data?.clubKonnect?.currency || '₦',
-          lastUpdated: now,
-          loading: false,
-          status: data.data?.clubKonnect?.status || 'Online'
-        },
-        {
-          provider: 'VTU Service',
-          balance: data.data?.platform?.balance || 0,
-          currency: data.data?.platform?.currency || '₦',
-          lastUpdated: now,
-          loading: false,
-          status: data.data?.platform?.status || 'Online'
-        }
-      ]);
-      
-    } else if (response.status === 401) {
-      console.log('🚨 401 Unauthorized - trying without token...');
-      
-      // Try without token
-      const response2 = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('Response without token status:', response2.status);
-      
-      if (response2.ok) {
-        const data = await response2.json();
-        console.log('✅ Success without token! Data:', data);
-        
-        setApiBalances([
-          {
-            provider: 'ClubKonnect',
-            balance: data.data?.clubKonnect?.balance || 0,
-            currency: data.data?.clubKonnect?.currency || '₦',
-            lastUpdated: now,
-            loading: false,
-            status: data.data?.clubKonnect?.status || 'Online'
-          },
-          {
-            provider: 'VTU Service',
-            balance: data.data?.platform?.balance || 0,
-            currency: data.data?.platform?.currency || '₦',
-            lastUpdated: now,
-            loading: false,
-            status: data.data?.platform?.status || 'Online'
-          }
-        ]);
-      } else {
-        console.log('❌ Both attempts failed - using mock data');
-        setApiBalances([
-          {
-            provider: 'ClubKonnect',
-            balance: 15420.75,
-            currency: '₦',
-            lastUpdated: now,
-            loading: false,
-            status: 'Auth Error'
-          },
-          {
-            provider: 'VTU Service',
-            balance: 89250.30,
-            currency: '₦',
-            lastUpdated: now,
-            loading: false,
-            status: 'Auth Error'
-          }
-        ]);
-      }
-    } else {
-      console.log('❌ Other error:', response.status);
-      setApiBalances([
-        {
-          provider: 'ClubKonnect',
-          balance: 15420.75,
+          provider: 'NelloBytes',
+          balance: foundBalance,
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: `Error ${response.status}`
+          status: 'Parse Error'
         },
         {
           provider: 'VTU Service',
-          balance: 89250.30,
+          balance: 0,
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: `Error ${response.status}`
+          status: 'Parse Error'
         }
       ]);
+      return;
     }
+    
+    // If we got here, JSON parsing succeeded
+    console.log('🔍 Parsed data structure:', JSON.stringify(data, null, 2));
+    
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    
+    // Extract balances from the new structure
+    let nelloBytesBalance = 0;
+    let platformBalance = 0;
+    let nelloBytesStatus = 'Online';
+    let platformStatus = 'Online';
+    
+    // Check for the new structure (nelloBytes)
+    if (data.data?.nelloBytes) {
+      nelloBytesBalance = data.data.nelloBytes.balance || 0;
+      nelloBytesStatus = data.data.nelloBytes.status || 'Online';
+    } 
+    // Fallback to old structure (clubKonnect) for backward compatibility
+    else if (data.data?.clubKonnect) {
+      nelloBytesBalance = data.data.clubKonnect.balance || 0;
+      nelloBytesStatus = data.data.clubKonnect.status || 'Online';
+    }
+    
+    // Get platform balance
+    if (data.data?.platform) {
+      platformBalance = data.data.platform.balance || 0;
+      platformStatus = data.data.platform.status || 'Online';
+    }
+    
+    console.log('💰 Extracted balances:', { 
+      nelloBytesBalance, 
+      platformBalance,
+      nelloBytesStatus,
+      platformStatus
+    });
+    
+    setApiBalances([
+      {
+        provider: 'NelloBytes',
+        balance: nelloBytesBalance,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: nelloBytesStatus
+      },
+      {
+        provider: 'VTU Service',
+        balance: platformBalance,
+        currency: '₦',
+        lastUpdated: now,
+        loading: false,
+        status: platformStatus
+      }
+    ]);
     
   } catch (error) {
     console.error('❌ Network error fetching API balances:', error);
@@ -388,16 +376,16 @@ const AdminDashboard = () => {
     
     setApiBalances([
       {
-        provider: 'ClubKonnect',
-        balance: 15420.75,
+        provider: 'NelloBytes',
+        balance: 0,
         currency: '₦',
         lastUpdated: now,
         loading: false,
-        status: 'Network Error'
+        status: 'Network Error: ' + error.message
       },
       {
         provider: 'VTU Service',
-        balance: 89250.30,
+        balance: 0,
         currency: '₦',
         lastUpdated: now,
         loading: false,
@@ -946,19 +934,19 @@ const AdminDashboard = () => {
                       marginBottom: '4px'
                     }}>
                       <div style={{
-                        width: '36px',
-                        height: '36px',
-                        backgroundColor: '#ff3b30',
-                        borderRadius: '8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '16px',
-                        fontWeight: 'bold',
-                        color: '#fff'
-                      }}>
-                        {api.provider === 'ClubKonnect' ? 'CK' : 'VTU'}
-                      </div>
+  width: '36px',
+  height: '36px',
+  backgroundColor: '#ff3b30',
+  borderRadius: '8px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: '16px',
+  fontWeight: 'bold',
+  color: '#fff'
+}}>
+  {api.provider === 'NelloBytes' ? 'NB' : 'VTU'}
+</div>
                       <div>
                         <h4 style={{
                           fontSize: '14px',
