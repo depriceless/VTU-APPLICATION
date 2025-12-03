@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import UserManagement from './UserManagement';
 import TransactionManagement from './TransactionManagement';
 import ServiceManagement from './ServiceManagement';
@@ -15,6 +14,9 @@ const AdminDashboard = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const sidebarRef = useRef(null);
+  const profileDropdownRef = useRef(null);
+  const profileButtonRef = useRef(null);
 
   // Dashboard state
   const [dashboardStats, setDashboardStats] = useState({
@@ -37,23 +39,23 @@ const AdminDashboard = () => {
 
   // API Balance State
   const [apiBalances, setApiBalances] = useState([
-  {
-    provider: 'NelloBytes',  // Changed from 'ClubKonnect' to 'NelloBytes'
-    balance: 0,
-    currency: '₦',
-    lastUpdated: '',
-    loading: true,
-    status: 'Checking...'
-  },
-  {
-    provider: 'VTU Service',
-    balance: 0,
-    currency: '₦',
-    lastUpdated: '',
-    loading: true,
-    status: 'Checking...'
-  }
-]);
+    {
+      provider: 'NelloBytes',
+      balance: 0,
+      currency: '₦',
+      lastUpdated: '',
+      loading: true,
+      status: 'Checking...'
+    },
+    {
+      provider: 'VTU Service',
+      balance: 0,
+      currency: '₦',
+      lastUpdated: '',
+      loading: true,
+      status: 'Checking...'
+    }
+  ]);
 
   const [apiBalancesLoading, setApiBalancesLoading] = useState(true);
 
@@ -96,16 +98,14 @@ const AdminDashboard = () => {
   useEffect(() => {
     const checkScreenSize = () => {
       const mobile = window.innerWidth < 768;
+      console.log('📱 Screen width:', window.innerWidth, 'isMobile:', mobile);
       setIsMobile(mobile);
-      if (mobile && isExpanded) {
-        setIsExpanded(false);
-      }
     };
 
     checkScreenSize();
     window.addEventListener('resize', checkScreenSize);
     return () => window.removeEventListener('resize', checkScreenSize);
-  }, [isExpanded]);
+  }, []);
 
   // Ticket event listener
   useEffect(() => {
@@ -118,6 +118,72 @@ const AdminDashboard = () => {
       window.removeEventListener('showTicket', handleShowTicket);
     };
   }, []);
+
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      // Don't close if clicking hamburger button
+      if (event.target.closest('.hamburger-btn')) {
+        return;
+      }
+      
+      if (isMobile && 
+          isExpanded && 
+          sidebarRef.current && 
+          !sidebarRef.current.contains(event.target)) {
+        setIsExpanded(false);
+      }
+    };
+
+    // Only add listeners when sidebar is open on mobile
+    if (isMobile && isExpanded) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isMobile, isExpanded]);
+
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutsideProfile = (event) => {
+      if (showProfileDropdown && 
+          profileDropdownRef.current && 
+          !profileDropdownRef.current.contains(event.target) &&
+          profileButtonRef.current &&
+          !profileButtonRef.current.contains(event.target)) {
+        setShowProfileDropdown(false);
+      }
+    };
+
+    if (showProfileDropdown) {
+      document.addEventListener('mousedown', handleClickOutsideProfile);
+      document.addEventListener('touchstart', handleClickOutsideProfile);
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutsideProfile);
+      document.removeEventListener('touchstart', handleClickOutsideProfile);
+    };
+  }, [showProfileDropdown]);
+
+  // Prevent body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (isMobile) {
+      if (isExpanded) {
+        document.body.style.overflow = 'hidden';
+      } else {
+        document.body.style.overflow = 'auto';
+      }
+    }
+    
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isMobile, isExpanded]);
 
   // API functions
   const fetchDashboardStats = async () => {
@@ -260,49 +326,129 @@ const AdminDashboard = () => {
       }
     }
   };
-const fetchApiBalances = async () => {
-  try {
-    setApiBalancesLoading(true);
-    const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-    
-    console.log('🔍 Starting API balance fetch...');
-    
-    const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    
-    // Get the response as text first
-    const responseText = await response.text();
-    console.log('📊 RAW API RESPONSE:', responseText);
-    console.log('📊 Response status:', response.status);
-    
-    // Try to parse it
-    let data;
+
+  const fetchApiBalances = async () => {
     try {
-      data = JSON.parse(responseText);
-      console.log('✅ Successfully parsed JSON:', data);
-    } catch (parseError) {
-      console.error('❌ JSON Parse Error:', parseError.message);
+      setApiBalancesLoading(true);
+      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+      
+      console.log('🔍 Starting API balance fetch...');
+      
+      const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Get the response as text first
+      const responseText = await response.text();
+      console.log('📊 RAW API RESPONSE:', responseText);
+      console.log('📊 Response status:', response.status);
+      
+      // Try to parse it
+      let data;
+      try {
+        data = JSON.parse(responseText);
+        console.log('✅ Successfully parsed JSON:', data);
+      } catch (parseError) {
+        console.error('❌ JSON Parse Error:', parseError.message);
+        
+        const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        // Check if response contains "balance" somewhere
+        const balanceMatch = responseText.match(/(\d+\.?\d*)/);
+        const foundBalance = balanceMatch ? parseFloat(balanceMatch[0]) : 0;
+        
+        console.log('🔍 Found balance in response text:', foundBalance);
+        
+        setApiBalances([
+          {
+            provider: 'NelloBytes',
+            balance: foundBalance,
+            currency: '₦',
+            lastUpdated: now,
+            loading: false,
+            status: 'Parse Error'
+          },
+          {
+            provider: 'VTU Service',
+            balance: 0,
+            currency: '₦',
+            lastUpdated: now,
+            loading: false,
+            status: 'Parse Error'
+          }
+        ]);
+        return;
+      }
+      
+      // If we got here, JSON parsing succeeded
+      console.log('🔍 Parsed data structure:', JSON.stringify(data, null, 2));
       
       const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
-      // Check if response contains "balance" somewhere
-      const balanceMatch = responseText.match(/(\d+\.?\d*)/);
-      const foundBalance = balanceMatch ? parseFloat(balanceMatch[0]) : 0;
+      // Extract balances from the new structure
+      let nelloBytesBalance = 0;
+      let platformBalance = 0;
+      let nelloBytesStatus = 'Online';
+      let platformStatus = 'Online';
       
-      console.log('🔍 Found balance in response text:', foundBalance);
+      // Check for the new structure (nelloBytes)
+      if (data.data?.nelloBytes) {
+        nelloBytesBalance = data.data.nelloBytes.balance || 0;
+        nelloBytesStatus = data.data.nelloBytes.status || 'Online';
+      } 
+      // Fallback to old structure (clubKonnect) for backward compatibility
+      else if (data.data?.clubKonnect) {
+        nelloBytesBalance = data.data.clubKonnect.balance || 0;
+        nelloBytesStatus = data.data.clubKonnect.status || 'Online';
+      }
+      
+      // Get platform balance
+      if (data.data?.platform) {
+        platformBalance = data.data.platform.balance || 0;
+        platformStatus = data.data.platform.status || 'Online';
+      }
+      
+      console.log('💰 Extracted balances:', { 
+        nelloBytesBalance, 
+        platformBalance,
+        nelloBytesStatus,
+        platformStatus
+      });
       
       setApiBalances([
         {
           provider: 'NelloBytes',
-          balance: foundBalance,
+          balance: nelloBytesBalance,
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Parse Error'
+          status: nelloBytesStatus
+        },
+        {
+          provider: 'VTU Service',
+          balance: platformBalance,
+          currency: '₦',
+          lastUpdated: now,
+          loading: false,
+          status: platformStatus
+        }
+      ]);
+      
+    } catch (error) {
+      console.error('❌ Network error fetching API balances:', error);
+      const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      
+      setApiBalances([
+        {
+          provider: 'NelloBytes',
+          balance: 0,
+          currency: '₦',
+          lastUpdated: now,
+          loading: false,
+          status: 'Network Error: ' + error.message
         },
         {
           provider: 'VTU Service',
@@ -310,92 +456,13 @@ const fetchApiBalances = async () => {
           currency: '₦',
           lastUpdated: now,
           loading: false,
-          status: 'Parse Error'
+          status: 'Network Error'
         }
       ]);
-      return;
+    } finally {
+      setApiBalancesLoading(false);
     }
-    
-    // If we got here, JSON parsing succeeded
-    console.log('🔍 Parsed data structure:', JSON.stringify(data, null, 2));
-    
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // Extract balances from the new structure
-    let nelloBytesBalance = 0;
-    let platformBalance = 0;
-    let nelloBytesStatus = 'Online';
-    let platformStatus = 'Online';
-    
-    // Check for the new structure (nelloBytes)
-    if (data.data?.nelloBytes) {
-      nelloBytesBalance = data.data.nelloBytes.balance || 0;
-      nelloBytesStatus = data.data.nelloBytes.status || 'Online';
-    } 
-    // Fallback to old structure (clubKonnect) for backward compatibility
-    else if (data.data?.clubKonnect) {
-      nelloBytesBalance = data.data.clubKonnect.balance || 0;
-      nelloBytesStatus = data.data.clubKonnect.status || 'Online';
-    }
-    
-    // Get platform balance
-    if (data.data?.platform) {
-      platformBalance = data.data.platform.balance || 0;
-      platformStatus = data.data.platform.status || 'Online';
-    }
-    
-    console.log('💰 Extracted balances:', { 
-      nelloBytesBalance, 
-      platformBalance,
-      nelloBytesStatus,
-      platformStatus
-    });
-    
-    setApiBalances([
-      {
-        provider: 'NelloBytes',
-        balance: nelloBytesBalance,
-        currency: '₦',
-        lastUpdated: now,
-        loading: false,
-        status: nelloBytesStatus
-      },
-      {
-        provider: 'VTU Service',
-        balance: platformBalance,
-        currency: '₦',
-        lastUpdated: now,
-        loading: false,
-        status: platformStatus
-      }
-    ]);
-    
-  } catch (error) {
-    console.error('❌ Network error fetching API balances:', error);
-    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    setApiBalances([
-      {
-        provider: 'NelloBytes',
-        balance: 0,
-        currency: '₦',
-        lastUpdated: now,
-        loading: false,
-        status: 'Network Error: ' + error.message
-      },
-      {
-        provider: 'VTU Service',
-        balance: 0,
-        currency: '₦',
-        lastUpdated: now,
-        loading: false,
-        status: 'Network Error'
-      }
-    ]);
-  } finally {
-    setApiBalancesLoading(false);
-  }
-};
+  };
 
   // Fetch data on component mount
   useEffect(() => {
@@ -403,14 +470,14 @@ const fetchApiBalances = async () => {
     fetchRecentActivities();
     fetchMenuStats();
     fetchAdminProfile();
-    fetchApiBalances(); // NEW: Fetch API balances
+    fetchApiBalances();
 
     // Set up auto-refresh intervals
     const statsInterval = setInterval(fetchDashboardStats, 30000);
     const activitiesInterval = setInterval(fetchRecentActivities, 60000);
     const menuStatsInterval = setInterval(fetchMenuStats, 300000);
     const profileInterval = setInterval(fetchAdminProfile, 60000);
-    const apiBalanceInterval = setInterval(fetchApiBalances, 120000); // NEW: Refresh API balances every 2 minutes
+    const apiBalanceInterval = setInterval(fetchApiBalances, 120000);
 
     return () => {
       clearInterval(statsInterval);
@@ -705,42 +772,87 @@ const fetchApiBalances = async () => {
     ) || item.label.toLowerCase().includes(query);
   }) : menuItems;
 
-  const toggleSidebar = () => setIsExpanded(!isExpanded);
+  const toggleSidebar = (e) => {
+    if (e) {
+      e.stopPropagation();
+    }
+    setIsExpanded(prev => !prev);
+  };
+  
   const handleMenuClick = (menuId) => {
     setActiveMenu(menuId);
     setShowProfileDropdown(false);
-    if (isMobile && isExpanded) setIsExpanded(false);
+    if (isMobile && isExpanded) {
+      setIsExpanded(false);
+    }
   };
+  
   const clearSearch = () => setSearchQuery('');
   
-  const handleLogout = () => {
+  // FIXED: Enhanced logout function with mobile support
+  const handleLogout = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    
+    console.log('Logout triggered, isMobile:', isMobile);
+    
     const rememberedUsername = localStorage.getItem('remembered_username');
     
-    const itemsToKeep = ['remembered_username'];
-    Object.keys(localStorage).forEach(key => {
-      if (!itemsToKeep.includes(key)) {
-        localStorage.removeItem(key);
-      }
-    });
-    
+    // Clear storage
+    localStorage.clear();
     sessionStorage.clear();
     
+    // Clear cookies
     document.cookie.split(';').forEach(cookie => {
       const eqPos = cookie.indexOf('=');
       const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
       document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
     });
     
+    // Restore remembered username
     if (rememberedUsername) {
       localStorage.setItem('remembered_username', rememberedUsername);
     }
     
-    window.location.href = '/'; 
+    // Close dropdown
+    setShowProfileDropdown(false);
+    
+    // Force redirect with different approach for mobile
+    if (isMobile) {
+      // Use replace to prevent back button navigation
+      setTimeout(() => {
+        window.location.replace('/');
+        // Double check after a moment
+        setTimeout(() => {
+          if (window.location.pathname !== '/') {
+            window.location.href = '/';
+          }
+        }, 100);
+      }, 50);
+    } else {
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 50);
+    }
   };
 
-  const handleProfile = () => {
+  const handleProfile = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
     setActiveMenu('profile');
     setShowProfileDropdown(false);
+  };
+
+  const toggleProfileDropdown = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    setShowProfileDropdown(prev => !prev);
   };
 
   const currentMenuItem = menuItems.find(item => item.id === activeMenu);
@@ -934,19 +1046,19 @@ const fetchApiBalances = async () => {
                       marginBottom: '4px'
                     }}>
                       <div style={{
-  width: '36px',
-  height: '36px',
-  backgroundColor: '#ff3b30',
-  borderRadius: '8px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: '16px',
-  fontWeight: 'bold',
-  color: '#fff'
-}}>
-  {api.provider === 'NelloBytes' ? 'NB' : 'VTU'}
-</div>
+                        width: '36px',
+                        height: '36px',
+                        backgroundColor: '#ff3b30',
+                        borderRadius: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '16px',
+                        fontWeight: 'bold',
+                        color: '#fff'
+                      }}>
+                        {api.provider === 'NelloBytes' ? 'NB' : 'VTU'}
+                      </div>
                       <div>
                         <h4 style={{
                           fontSize: '14px',
@@ -1330,18 +1442,33 @@ const fetchApiBalances = async () => {
     );
   };
 
-  // Admin profile component for header
-  const AdminProfileHeader = () => (
-    <div style={{
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      padding: '6px 12px',
-      backgroundColor: '#f7fafc',
-      borderRadius: '8px',
-      cursor: 'pointer',
-      position: 'relative'
-    }} onClick={() => setShowProfileDropdown(!showProfileDropdown)}>
+ const AdminProfileHeader = () => (
+    <div 
+      ref={profileButtonRef}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        padding: '6px 12px',
+        backgroundColor: '#f7fafc',
+        borderRadius: '8px',
+        cursor: 'pointer',
+        position: 'relative',
+        touchAction: 'manipulation',
+        WebkitTapHighlightColor: 'transparent',
+        zIndex: 1002
+      }} 
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleProfileDropdown(e);
+      }}
+      onTouchEnd={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleProfileDropdown(e);
+      }}
+    >
       <div style={{
         width: isMobile ? '32px' : '36px',
         height: isMobile ? '32px' : '36px',
@@ -1352,80 +1479,24 @@ const fetchApiBalances = async () => {
         justifyContent: 'center',
         fontSize: isMobile ? '12px' : '14px',
         color: '#fff',
-        fontWeight: 'bold'
+        fontWeight: 'bold',
+        flexShrink: 0
       }}>
         {adminProfile.avatar}
       </div>
       {!isMobile && (
-        <div>
-          <p style={{fontSize: '14px', fontWeight: '600', color: '#1a202c', margin: 0}}>
+        <div style={{minWidth: 0}}>
+          <p style={{fontSize: '14px', fontWeight: '600', color: '#1a202c', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
             {adminProfile.name}
           </p>
-          <p style={{fontSize: '12px', color: '#718096', margin: 0}}>
+          <p style={{fontSize: '12px', color: '#718096', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>
             {adminProfile.role}
           </p>
         </div>
       )}
-      
-      {/* Profile Dropdown */}
-      {showProfileDropdown && (
-        <div style={{
-          position: 'absolute',
-          top: '100%',
-          right: 0,
-          marginTop: '8px',
-          backgroundColor: '#fff',
-          borderRadius: '8px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.1)',
-          border: '1px solid #e2e8f0',
-          minWidth: isMobile ? '160px' : '180px',
-          zIndex: 1001
-        }}>
-          <div style={{padding: '8px 0'}}>
-            <button
-              onClick={handleProfile}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: 'none',
-                background: 'none',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontSize: '14px',
-                color: '#1a202c',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}
-            >
-              <span>👤</span>
-              Profile Settings
-            </button>
-            <hr style={{margin: '6px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
-            <button
-              onClick={handleLogout}
-              style={{
-                width: '100%',
-                padding: '10px 12px',
-                border: 'none',
-                background: 'none',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontSize: '14px',
-                color: '#ff3b30',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}
-            >
-              <span>🚪</span>
-              Logout
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
+
 
   return (
     <div style={{
@@ -1443,65 +1514,68 @@ const fetchApiBalances = async () => {
       {isMobile && isExpanded && (
         <div
           style={{
-            position: 'absolute',
+            position: 'fixed',
             top: 0,
             left: 0,
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 998
+            zIndex: 998,
+            transition: 'opacity 0.3s ease'
           }}
           onClick={() => setIsExpanded(false)}
+          onTouchStart={() => setIsExpanded(false)}
         />
       )}
 
       {/* Sidebar */}
-      <div style={{
-        backgroundColor: '#fff',
-        boxShadow: isMobile && isExpanded ? '2px 0 8px rgba(0, 0, 0, 0.15)' : 'none',
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        position: isMobile ? 'fixed' : 'relative',
-        left: isMobile ? (isExpanded ? 0 : '-280px') : 0,
-        top: 0,
-        zIndex: 999,
-        width: isExpanded ? (isMobile ? '280px' : '280px') : isMobile ? '0' : '80px',
-        borderRight: '1px solid #e2e8f0',
-        transition: 'all 0.3s ease',
-        overflow: 'hidden'
-      }}>
+      <div 
+        ref={sidebarRef}
+        style={{
+          backgroundColor: '#fff',
+          boxShadow: '2px 0 8px rgba(0, 0, 0, 0.15)',
+          height: '100%',
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          zIndex: 999,
+          width: isMobile ? (isExpanded ? '280px' : '0') : (isExpanded ? '280px' : '80px'),
+          borderRight: '1px solid #e2e8f0',
+          transition: 'all 0.3s ease',
+          overflow: 'hidden',
+          transform: isMobile && !isExpanded ? 'translateX(-100%)' : 'translateX(0)',
+          opacity: isMobile && !isExpanded ? 0 : 1
+        }}
+      >
         {/* Header */}
         <div style={{
           padding: isMobile ? '16px' : '16px',
           borderBottom: '1px solid #e2e8f0',
           flexShrink: 0,
-          display: isExpanded ? 'block' : 'flex',
-          justifyContent: 'center',
+          display: 'flex',
+          justifyContent: isExpanded ? 'space-between' : 'center',
           alignItems: 'center',
-          height: isExpanded ? 'auto' : '60px'
+          height: '60px',
+          minHeight: '60px'
         }}>
           {isExpanded ? (
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '16px'
-            }}>
+            <>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 gap: '12px'
               }}>
-              <div style={{
-width: isMobile ? '48px' : '56px', // Increased to 48px/56px
-  height: isMobile ? '48px' : '56px', // Increased to 48px/56px
-  borderRadius: '10px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  overflow: 'hidden'
-}}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '10px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden'
+                }}>
                   <img 
                     src="/src/assets/logo.png" 
                     alt="VTU Logo"
@@ -1513,7 +1587,7 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
                   />
                 </div>
                 <div>
-                  <h1 style={{fontSize: isMobile ? '16px' : '18px', fontWeight: '700', color: 'red', margin: 0}}>
+                  <h1 style={{fontSize: '16px', fontWeight: '700', color: 'red', margin: 0}}>
                     Connectpay
                   </h1>
                   <p style={{fontSize: '12px', color: 'black', margin: 0}}>Control Panel</p>
@@ -1521,6 +1595,7 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
               </div>
 
               <button
+                className="hamburger-btn"
                 style={{
                   padding: '6px',
                   border: 'none',
@@ -1536,12 +1611,14 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
                   justifyContent: 'center'
                 }}
                 onClick={toggleSidebar}
+                onTouchStart={(e) => e.stopPropagation()}
               >
-                {isExpanded ? '«' : '»'}
+                «
               </button>
-            </div>
+            </>
           ) : (
             <button
+              className="hamburger-btn"
               style={{
                 padding: '8px',
                 border: 'none',
@@ -1552,6 +1629,7 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
                 color: '#718096'
               }}
               onClick={toggleSidebar}
+              onTouchStart={(e) => e.stopPropagation()}
             >
               <div style={{
                 width: '48px',
@@ -1574,56 +1652,60 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
               </div>
             </button>
           )}
-
-          {/* Search Bar */}
-          {isExpanded && (
-            <div style={{position: 'relative'}}>
-              <div style={{
-                position: 'absolute',
-                left: '12px',
-                top: '50%',
-                transform: 'translateY(-50%)',
-                color: '#718096',
-                fontSize: '14px'
-              }}>🔍</div>
-              <input
-                type="text"
-                placeholder="Search menu items..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px 10px 36px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  fontSize: '14px',
-                  backgroundColor: '#f7fafc',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                  color: '#000000'
-                }}
-              />
-              {searchQuery && (
-                <button
-                  onClick={clearSearch}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#718096',
-                    fontSize: '14px'
-                  }}
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          )}
         </div>
+
+        {/* Search Bar - Only show when expanded */}
+        {isExpanded && (
+          <div style={{
+            padding: '0 16px 16px 16px',
+            borderBottom: '1px solid #e2e8f0',
+            position: 'relative'
+          }}>
+            <div style={{
+              position: 'absolute',
+              left: '28px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#718096',
+              fontSize: '14px'
+            }}>🔍</div>
+            <input
+              type="text"
+              placeholder="Search menu items..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px 10px 36px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                backgroundColor: '#f7fafc',
+                outline: 'none',
+                boxSizing: 'border-box',
+                color: '#000000'
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={clearSearch}
+                style={{
+                  position: 'absolute',
+                  right: '28px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#718096',
+                  fontSize: '14px'
+                }}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Menu Items */}
         <div style={{
@@ -1645,9 +1727,15 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
                   cursor: 'pointer',
                   color: activeMenu === item.id ? '#fff' : '#1a202c',
                   backgroundColor: activeMenu === item.id ? '#ff3b30' : 'transparent',
-                  minHeight: '44px'
+                  minHeight: '44px',
+                  transition: 'all 0.2s ease',
+                  touchAction: 'manipulation'
                 }}
                 onClick={() => handleMenuClick(item.id)}
+                onTouchStart={(e) => {
+                  e.stopPropagation();
+                  handleMenuClick(item.id);
+                }}
                 title={!isExpanded ? item.label : ''}
               >
                 {isExpanded ? (
@@ -1742,7 +1830,7 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
         {/* Simple footer without admin profile */}
         {isExpanded && (
           <div style={{
-            padding: isMobile ? '12px 16px' : '12px 16px',
+            padding: '12px 16px',
             borderTop: '1px solid #e2e8f0',
             backgroundColor: '#f7fafc',
             flexShrink: 0,
@@ -1762,7 +1850,10 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: '#f8f9fa',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        marginLeft: isMobile ? '0' : (isExpanded ? '280px' : '80px'),
+        transition: 'margin-left 0.3s ease',
+        width: '100%'
       }}>
         {/* Mobile Header Bar */}
         {isMobile && (
@@ -1774,23 +1865,36 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            flexShrink: 0
+            flexShrink: 0,
+            zIndex: 997,
+            position: 'sticky',
+            top: 0
           }}>
             <button
-              onClick={toggleSidebar}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded(prev => !prev);
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
               style={{
-                padding: '6px',
+                padding: '8px',
                 border: 'none',
                 background: '#f7fafc',
                 borderRadius: '6px',
                 cursor: 'pointer',
-                fontSize: '14px',
-                color: '#718096'
+                fontSize: '16px',
+                color: '#718096',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '40px',
+                height: '40px',
+                touchAction: 'manipulation'
               }}
             >
               ☰
             </button>
-            <div>
+            <div style={{flex: 1, textAlign: 'center'}}>
               <h1 style={{fontSize: '14px', fontWeight: '700', color: '#ff3b30', margin: 0}}>
                 {currentMenuItem ? currentMenuItem.label : 'Dashboard'}
               </h1>
@@ -1799,7 +1903,7 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
           </div>
         )}
 
-        {/* Content Header */}
+        {/* Content Header - Desktop */}
         {!isMobile && (
           <div style={{
             backgroundColor: '#fff',
@@ -1841,7 +1945,8 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
           flex: 1,
           padding: isMobile ? '16px' : '24px',
           overflowY: 'auto',
-          overflowX: 'hidden'
+          overflowX: 'hidden',
+          width: '100%'
         }}>
           {activeMenu === 'dashboard' 
             ? renderDashboardContent() 
@@ -1889,19 +1994,108 @@ width: isMobile ? '48px' : '56px', // Increased to 48px/56px
         </div>
       </div>
 
-      {/* Backdrop for dropdown */}
+    {/* Backdrop and Dropdown at root level */}
       {showProfileDropdown && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            zIndex: 999
-          }}
-          onClick={() => setShowProfileDropdown(false)}
-        />
+        <>
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              zIndex: 1000,
+              backgroundColor: 'transparent'
+            }}
+            onClick={() => setShowProfileDropdown(false)}
+            onTouchEnd={() => setShowProfileDropdown(false)}
+          />
+          
+          {/* Profile Dropdown */}
+          <div 
+            ref={profileDropdownRef}
+            style={{
+              position: 'fixed',
+              top: isMobile ? '60px' : '70px',
+              right: isMobile ? '14px' : '30px',
+              backgroundColor: '#fff',
+              borderRadius: '8px',
+              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
+              border: '1px solid #e2e8f0',
+              minWidth: isMobile ? '180px' : '200px',
+              zIndex: 1001,
+              overflow: 'hidden'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{padding: '8px 0'}}>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleProfile(e);
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleProfile(e);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  border: 'none',
+                  background: 'none',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#1a202c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  minHeight: '48px',
+                  touchAction: 'manipulation',
+                  WebkitTapHighlightColor: 'transparent'
+                }}
+              >
+                <span style={{fontSize: '18px'}}>👤</span>
+                <span style={{fontWeight: '500'}}>Profile Settings</span>
+              </button>
+              <hr style={{margin: '6px 0', border: 'none', borderTop: '1px solid #e2e8f0'}} />
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleLogout(e);
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleLogout(e);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 16px',
+                  border: 'none',
+                  background: 'none',
+                  textAlign: 'left',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  color: '#ff3b30',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  minHeight: '48px',
+                  touchAction: 'manipulation',
+                  WebkitTapHighlightColor: 'transparent',
+                  fontWeight: '500'
+                }}
+              >
+                <span style={{fontSize: '18px'}}>🚪</span>
+                <span>Logout</span>
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
