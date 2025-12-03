@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-
+import PaymentGatewayConfig from './PaymentGatewayConfig'; // ADD THIS LINE
 const SystemManagement = () => {
   const [activeTab, setActiveTab] = useState('api-config');
   const [loading, setLoading] = useState(false);
@@ -143,13 +143,14 @@ const SystemManagement = () => {
   ]);
 
   // Tab navigation
-  const tabs = [
-    { id: 'api-config', label: 'API Configuration', icon: '🔌' },
-    { id: 'providers', label: 'Service Providers', icon: '🏢' },
-    { id: 'health', label: 'System Health', icon: '💚' },
-    { id: 'maintenance', label: 'Maintenance', icon: '🔧' },
-    { id: 'logs', label: 'Error Logs', icon: '🚨' }
-  ];
+ const tabs = [
+  { id: 'api-config', label: 'API Configuration', icon: '🔌' },
+  { id: 'payment-gateway', label: 'Payment Gateway', icon: '💳' }, // ADD THIS
+  { id: 'providers', label: 'Service Providers', icon: '🏢' },
+  { id: 'health', label: 'System Health', icon: '💚' },
+  { id: 'maintenance', label: 'Maintenance', icon: '🔧' },
+  { id: 'logs', label: 'Error Logs', icon: '🚨' }
+];
 
   // Utility functions
   const showNotification = useCallback((message, type = 'success') => {
@@ -1373,6 +1374,7 @@ const SystemManagement = () => {
           {activeTab === 'health' && renderSystemHealth()}
           {activeTab === 'maintenance' && renderMaintenanceMode()}
           {activeTab === 'logs' && renderErrorLogs()}
+          {activeTab === 'payment-gateway' && <PaymentGatewayConfig />}
         </div>
       </div>
     </div>

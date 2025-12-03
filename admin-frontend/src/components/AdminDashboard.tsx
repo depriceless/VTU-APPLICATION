@@ -6,6 +6,7 @@ import FinancialManagement from './FinancialManagement';
 import SystemManagement from './SystemManagement';
 import AdminManagement from './AdminManagement';
 import NotificationManagement from './NotificationManagement';
+import PaymentGatewayConfig from './PaymentGatewayConfig';
 import SupportTicketDetail from './SupportTicketDetail';
 
 const AdminDashboard = () => {
@@ -1375,18 +1376,21 @@ const AdminDashboard = () => {
   const renderUserManagementContent = () => <UserManagement />;
 
   // Sub-menu content
-  const renderSubMenuContent = () => {
-    if (!currentMenuItem || !currentMenuItem.subItems) return null;
+const renderSubMenuContent = () => {
+  if (!currentMenuItem || !currentMenuItem.subItems) return null;
 
-    return (
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
-        gap: isMobile ? '16px' : '20px',
-        width: '100%'
-      }}>
-        {currentMenuItem.subItems.map((subItem) => (
-          <div key={subItem.id} style={{
+  return (
+    <div style={{
+      display: 'grid',
+      gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
+      gap: isMobile ? '16px' : '20px',
+      width: '100%'
+    }}>
+      {currentMenuItem.subItems.map((subItem) => (
+        <div 
+          key={subItem.id} 
+          onClick={() => handleMenuClick(subItem.id)}  // ← ADD THIS LINE
+          style={{
             backgroundColor: '#fff',
             padding: isMobile ? '16px' : '20px',
             borderRadius: '12px',
@@ -1576,15 +1580,15 @@ const AdminDashboard = () => {
                   justifyContent: 'center',
                   overflow: 'hidden'
                 }}>
-                  <img 
-                    src="/src/assets/logo.png" 
-                    alt="VTU Logo"
-                    style={{
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'contain'
-                    }}
-                  />
+<img 
+  src="/logo.png" 
+  alt="VTU Logo"
+  style={{
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain'
+  }}
+/>
                 </div>
                 <div>
                   <h1 style={{fontSize: '16px', fontWeight: '700', color: 'red', margin: 0}}>
@@ -1975,11 +1979,12 @@ const AdminDashboard = () => {
               activeMenu === 'settlements' ||
               activeMenu === 'tax-reports'
             ? <FinancialManagement />
-            : activeMenu === 'system' || 
-              activeMenu === 'api-config' || 
-              activeMenu === 'system-health' || 
-              activeMenu === 'error-logs'
-            ? <SystemManagement />
+           : activeMenu === 'system' || 
+           activeMenu === 'system-health' || 
+           activeMenu === 'error-logs'
+          ? <SystemManagement />
+          : activeMenu === 'api-config'
+          ? <PaymentGatewayConfig />
             : activeMenu === 'admin' ||
               activeMenu === 'admin-users' ||
               activeMenu === 'permissions' ||
