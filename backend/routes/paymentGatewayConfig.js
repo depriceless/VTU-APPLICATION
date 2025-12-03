@@ -1,7 +1,26 @@
 const express = require('express');
 const router = express.Router();
-const { authenticate, isAdmin } = require('../middleware/auth');
+const { authenticate } = require('../middleware/auth');
 const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
+
+// Import isAdmin middleware safely
+let isAdmin;
+try {
+  const authMiddleware = require('../middleware/auth');
+  isAdmin = authMiddleware.isAdmin || authMiddleware.requireAdmin;
+} catch (err) {
+  console.log('⚠️ isAdmin middleware not found, creating fallback');
+  // Fallback admin check
+  isAdmin = async (req, res, next) => {
+    if (!req.user || req.user.role !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.'
+      });
+    }
+    next();
+  };
+}
 
 // Get current payment gateway configuration
 router.get('/config', authenticate, isAdmin, async (req, res) => {
