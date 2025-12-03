@@ -3,16 +3,17 @@ const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const PaystackAccount = require('../models/PaystackAccount');
+const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
 
-// Payment Gateway Configuration
-// Change this to switch between providers: 'monnify' or 'paystack'
-const ACTIVE_GATEWAY = process.env.ACTIVE_PAYMENT_GATEWAY || 'paystack';
-
-console.log(`💳 Active Payment Gateway: ${ACTIVE_GATEWAY.toUpperCase()}`);
+console.log('💳 Payment Gateway routes initializing...');
 
 // Get user's virtual account (automatically selects based on active gateway)
 router.get('/virtual-account', authenticate, async (req, res) => {
   try {
+    // Get active gateway from database instead of env variable
+    const config = await PaymentGatewayConfig.getConfig();
+    const ACTIVE_GATEWAY = config.activeGateway;
+    
     console.log(`📍 Fetching ${ACTIVE_GATEWAY} account for user:`, req.user.id);
     
     let accountData;
@@ -78,6 +79,10 @@ router.get('/all-accounts', authenticate, async (req, res) => {
   try {
     console.log('📍 Fetching all payment accounts for user:', req.user.id);
     
+    // Get active gateway from database
+    const config = await PaymentGatewayConfig.getConfig();
+    const ACTIVE_GATEWAY = config.activeGateway;
+    
     const monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
     const paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
 
@@ -111,15 +116,35 @@ router.get('/all-accounts', authenticate, async (req, res) => {
 });
 
 // Get active gateway info
-router.get('/active-gateway', (req, res) => {
-  res.json({
-    success: true,
-    activeGateway: ACTIVE_GATEWAY,
-    availableGateways: ['monnify', 'paystack']
-  });
+router.get('/active-gateway', async (req, res) => {
+  try {
+    // Get active gateway from database
+    const config = await PaymentGatewayConfig.getConfig();
+    
+    res.json({
+      success: true,
+      activeGateway: config.activeGateway,
+      availableGateways: ['monnify', 'paystack'],
+      gateways: {
+        paystack: {
+          enabled: config.gateways.paystack.enabled,
+          configured: !!(config.gateways.paystack.publicKey && config.gateways.paystack.secretKey)
+        },
+        monnify: {
+          enabled: config.gateways.monnify.enabled,
+          configured: !!(config.gateways.monnify.apiKey && config.gateways.monnify.secretKey)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Get active gateway error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get active gateway'
+    });
+  }
 });
 
 console.log('✅ Payment Gateway routes initialized');
-console.log(`   Active Gateway: ${ACTIVE_GATEWAY}`);
 
 module.exports = router;

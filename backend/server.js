@@ -508,6 +508,7 @@ try {
 }
 
 // === UNIFIED PAYMENT GATEWAY ROUTES ===
+// === UNIFIED PAYMENT GATEWAY ROUTES ===
 try {
   const paymentRoutes = require('./routes/payment');
   app.use('/api/payment', paymentRoutes);
@@ -515,6 +516,20 @@ try {
 } catch (err) {
   console.error('❌ Payment gateway routes error:', err.message);
 }
+
+// === PAYMENT GATEWAY ADMIN CONFIG ROUTES ===
+try {
+  const paymentGatewayConfigRoutes = require('./routes/paymentGatewayConfig');
+  app.use('/api/admin/payment-gateway', paymentGatewayConfigRoutes);
+  console.log('✅ Payment gateway admin config routes registered at /api/admin/payment-gateway');
+  console.log('   - GET /api/admin/payment-gateway/config - Get gateway configuration');
+  console.log('   - POST /api/admin/payment-gateway/switch - Switch active gateway');
+  console.log('   - PUT /api/admin/payment-gateway/keys/:gateway - Update API keys');
+  console.log('   - PATCH /api/admin/payment-gateway/toggle/:gateway - Enable/disable gateway');
+} catch (err) {
+  console.error('❌ Payment gateway admin config routes error:', err.message);
+}
+
 
 try {
   const cardRoutes = require('./routes/card');
