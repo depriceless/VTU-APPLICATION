@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Loader from './ui/Loader';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api';
+import { API_CONFIG } from '../config/api.config';
 
 
 // Import your logo
@@ -157,28 +157,28 @@ const AdminLogin: React.FC = () => {
     return errors;
   };
 
-  const makeAuthRequest = async (endpoint: string, data: any) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-        credentials: 'include'
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Request failed with status ${response.status}`);
-      }
-      
-      return await response.json();
-    } catch (error: any) {
-      if (error.name === 'TypeError' || error.message.includes('fetch')) {
-        throw new Error('Unable to connect to server. Please check your connection.');
-      }
-      throw error;
+const makeAuthRequest = async (endpoint: string, data: any) => {
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+      credentials: 'include'
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.message || `Request failed with status ${response.status}`);
     }
-  };
+    
+    return await response.json();
+  } catch (error: any) {
+    if (error.name === 'TypeError' || error.message.includes('fetch')) {
+      throw new Error('Unable to connect to server. Please check your connection.');
+    }
+    throw error;
+  }
+};
 
   const processLogin = async () => {
     setError(null);
@@ -193,7 +193,7 @@ const AdminLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
- const response = await makeAuthRequest('/api/admin/auth/login', {
+const response = await makeAuthRequest(API_CONFIG.ADMIN_AUTH + '/login', {
         username: credentials.username.trim(),
         password: credentials.password
       });
