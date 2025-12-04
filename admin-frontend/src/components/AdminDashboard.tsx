@@ -9,7 +9,7 @@ import NotificationManagement from './NotificationManagement';
 import PaymentGatewayConfig from './PaymentGatewayConfig';
 import SupportTicketDetail from './SupportTicketDetail';
 
- const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
+import { API_CONFIG } from '../config/api.config';
 
 const AdminDashboard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -192,7 +192,7 @@ const AdminDashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`, {
+    const response = await fetch(`${API_CONFIG.DASHBOARD}/stats`, {
         headers: {
          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
@@ -240,7 +240,7 @@ const AdminDashboard = () => {
     try {
       setActivitiesLoading(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch(`${API_BASE_URL}/api/dashboard/recent-activities`, {
+    const response = await fetch(`${API_CONFIG.DASHBOARD}/recent-activities`, {
         headers: {
         'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
@@ -264,7 +264,7 @@ const AdminDashboard = () => {
   const fetchMenuStats = async () => {
     try {
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch(`${API_BASE_URL}/api/services/stats`, {
+      const response = await fetch(`${API_CONFIG.SERVICES}/stats`, {
         headers: {
           'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
@@ -290,7 +290,7 @@ const fetchAdminProfile = async () => {
       return;
     }
     
-   const response = await fetch(`${API_BASE_URL}/api/admin/profile`, {
+  const response = await fetch(`${API_CONFIG.ADMIN_PROFILE}`, {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + token
@@ -335,7 +335,7 @@ const fetchAdminProfile = async () => {
       setApiBalancesLoading(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
       
-      console.log('🔍 Starting API balance fetch...');const response = await fetch(`${API_BASE_URL}/api/clubkonnect/dashboard-balance`, {
+      console.log('🔍 Starting API balance fetch...');const response = await fetch(`${API_CONFIG.BASE_URL}/api/clubkonnect/dashboard-balance`, {
       
     
         headers: {
