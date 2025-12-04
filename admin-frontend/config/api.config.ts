@@ -5,10 +5,15 @@ const BASE_URL = isDevelopment
   ? 'http://localhost:5002' 
   : 'https://vtu-application.onrender.com';
 
+console.log('🔌 Using API:', BASE_URL);
+console.log('🌍 Is Development:', isDevelopment);
+
 export const API_CONFIG = {
   BASE_URL: BASE_URL,
   ADMIN_AUTH: `${BASE_URL}/api/admin/auth`,
   ADMIN: `${BASE_URL}/api/admin`,
   ADMIN_MANAGEMENT: `${BASE_URL}/api/admin/management`,
-  ADMIN_PROFILE: `${BASE_URL}/api/admin/profile`, // Add this
+  ADMIN_PROFILE: `${BASE_URL}/api/admin/profile`,
+  SERVICES: `${BASE_URL}/api/services`,
+  DASHBOARD: `${BASE_URL}/api/dashboard`,
 };

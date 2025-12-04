@@ -12,7 +12,7 @@ const makeRequest = async (endpoint: string, options: RequestInit = {}) => {
     throw new Error('No authentication token found');
   }
 
-  const response = await fetch(`${API_CONFIG.BASE_URL}/api/admin/clubkonnect${endpoint}`, {
+  const response = await fetch(`https://vtu-application.onrender.com/api/admin/clubkonnect${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',

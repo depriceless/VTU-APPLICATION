@@ -249,152 +249,137 @@ const useVirtualAccount = (token: string) => {
     };
   }, []);
 
-  const loadFromCache = useCallback(async () => {
-    try {
+  // Replace the loadFromCache and fetchAccountDetails functions in your FundWallet component
+
+const loadFromCache = useCallback(async () => {
+  try {
+    const cached = await AsyncStorage.getItem(STORAGE_KEYS.CACHED_ACCOUNT);
+    if (cached) {
+      const data = JSON.parse(cached);
+      const cacheAge = Date.now() - data.timestamp;
+      const cacheValid = cacheAge < 3600000; // 1 hour
+      
+      console.log('[Cache] Cache age:', cacheAge / 1000, 'seconds');
+      console.log('[Cache] Cached gateway:', data.gateway);
+      
+      if (cacheValid) {
+        console.log('[Cache] Loaded account from cache');
+        setBankData(data.bankData);
+        setActiveGateway(data.gateway);
+        
+        // Verify gateway in background - if different, refetch
+        fetchActiveGateway().then(currentGateway => {
+          if (currentGateway && currentGateway !== data.gateway) {
+            console.log('[Cache] Gateway changed! Old:', data.gateway, 'New:', currentGateway);
+            console.log('[Cache] Invalidating cache and refetching...');
+            fetchAccountDetails(false); // Force refetch without cache
+          }
+        });
+        
+        return true;
+      } else {
+        console.log('[Cache] Cache expired');
+      }
+    }
+  } catch (error) {
+    console.log('[Cache] Load failed:', error);
+  }
+  return false;
+}, [fetchActiveGateway]);
+
+const fetchAccountDetails = useCallback(async (useCache = true) => {
+  if (!mountedRef.current) return;
+  
+  console.log('[Account] Starting fetch, useCache:', useCache);
+  setLoading(true);
+  setError('');
+
+  try {
+    // Fetch active gateway first to check if it changed
+    const currentGateway = await fetchActiveGateway();
+    console.log('[Account] Current active gateway:', currentGateway);
+
+    // Try cache only if enabled AND gateway matches
+    if (useCache) {
       const cached = await AsyncStorage.getItem(STORAGE_KEYS.CACHED_ACCOUNT);
       if (cached) {
         const data = JSON.parse(cached);
-        if (Date.now() - data.timestamp < 3600000) { // 1 hour cache
-          console.log('[Cache] Loaded account from cache');
+        const cacheAge = Date.now() - data.timestamp;
+        const cacheValid = cacheAge < 3600000;
+        
+        // Check if gateway has changed
+        if (data.gateway !== currentGateway) {
+          console.log('[Cache] Gateway mismatch! Cached:', data.gateway, 'Active:', currentGateway);
+          console.log('[Cache] Invalidating cache...');
+          await AsyncStorage.removeItem(STORAGE_KEYS.CACHED_ACCOUNT);
+        } else if (cacheValid) {
+          console.log('[Cache] Using valid cache');
           setBankData(data.bankData);
           setActiveGateway(data.gateway);
-          return true;
-        } else {
-          console.log('[Cache] Cache expired');
+          if (mountedRef.current) {
+            setLoading(false);
+          }
+          return;
         }
       }
-    } catch (error) {
-      console.log('[Cache] Load failed:', error);
     }
-    return false;
-  }, []);
 
-  const saveToCache = useCallback(async (data: BankData, gateway: string) => {
-    try {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.CACHED_ACCOUNT,
-        JSON.stringify({
-          bankData: data,
-          gateway,
-          timestamp: Date.now(),
-        })
-      );
-      console.log('[Cache] Account saved to cache');
-    } catch (error) {
-      console.log('[Cache] Save failed:', error);
-    }
-  }, []);
+    // Fetch from API
+    console.log('[Account] Fetching from API...');
+    const accountResponse = await makeRequest(API_CONFIG.ENDPOINTS.VIRTUAL_ACCOUNT);
 
-  const fetchActiveGateway = useCallback(async () => {
-    try {
-      console.log('[Gateway] Fetching active gateway...');
-      const response = await makeRequest(API_CONFIG.ENDPOINTS.ACTIVE_GATEWAY);
-      if (response.success && response.activeGateway) {
-        console.log('[Gateway] Active gateway:', response.activeGateway);
-        setActiveGateway(response.activeGateway);
-        return response.activeGateway;
+    if (!mountedRef.current) return;
+
+    console.log('[Account] API response gateway:', accountResponse.data?.gateway);
+
+    if (accountResponse.success && accountResponse.data) {
+      const processed = processAccountData(accountResponse.data);
+      
+      // Double check gateway matches
+      if (currentGateway && processed.gateway !== currentGateway) {
+        console.warn('[Account] WARNING: API returned different gateway than active gateway!');
+        console.warn('[Account] API gateway:', processed.gateway, 'Active gateway:', currentGateway);
       }
-    } catch (error: any) {
-      console.log('[Gateway] Fetch failed:', error.message);
-    }
-    return null;
-  }, [makeRequest]);
-
-  const processAccountData = useCallback((data: any): BankData => {
-    console.log('[Process] Processing account data for gateway:', data.gateway);
-    
-    if (data.gateway === 'paystack') {
-      return {
-        accounts: [{
-          bankName: data.bankName,
-          accountNumber: data.accountNumber,
-          accountName: data.accountName,
-        }],
-        gateway: 'paystack',
-      };
+      
+      setBankData(processed);
+      setActiveGateway(processed.gateway);
+      await saveToCache(processed, processed.gateway);
+      console.log('[Account] Successfully loaded account details for gateway:', processed.gateway);
     } else {
-      // Monnify
-      const accounts = data.accounts.map((acc: any) => ({
-        bankName: acc.bankName || acc.bank_name,
-        accountNumber: acc.accountNumber || acc.account_number,
-        accountName: acc.accountName || acc.account_name,
-      }));
-
-      return {
-        accounts,
-        reference: data.accountReference,
-        gateway: 'monnify',
-      };
+      throw new Error(accountResponse.message || 'Failed to load account details');
     }
-  }, []);
-
-  const fetchAccountDetails = useCallback(async (useCache = true) => {
+  } catch (error: any) {
     if (!mountedRef.current) return;
     
-    console.log('[Account] Starting fetch, useCache:', useCache);
-    setLoading(true);
-    setError('');
+    console.error('[Account] Error:', error.message);
+    const errorMessage = error.message || 'Failed to load account details';
+    setError(errorMessage);
 
-    try {
-      // Try cache first
-      if (useCache && await loadFromCache()) {
-        if (mountedRef.current) {
-          setLoading(false);
-        }
-        return;
-      }
-
-      // Fetch from API
-      console.log('[Account] Fetching from API...');
-      const [accountResponse] = await Promise.all([
-        makeRequest(API_CONFIG.ENDPOINTS.VIRTUAL_ACCOUNT),
-        fetchActiveGateway(),
-      ]);
-
-      if (!mountedRef.current) return;
-
-      console.log('[Account] API response:', accountResponse);
-
-      if (accountResponse.success && accountResponse.data) {
-        const processed = processAccountData(accountResponse.data);
-        setBankData(processed);
-        await saveToCache(processed, accountResponse.data.gateway);
-        console.log('[Account] Successfully loaded account details');
-      } else {
-        throw new Error(accountResponse.message || 'Failed to load account details');
-      }
-    } catch (error: any) {
-      if (!mountedRef.current) return;
-      
-      console.error('[Account] Error:', error.message);
-      const errorMessage = error.message || 'Failed to load account details';
-      setError(errorMessage);
-
-      if (errorMessage.includes('Authentication') || errorMessage.includes('401') || errorMessage.includes('403')) {
-        Alert.alert(
-          'Authentication Error',
-          'Your session may have expired. Please log in again.',
-          [{ text: 'OK' }]
-        );
-      } else if (errorMessage.includes('404') || errorMessage.includes('not found')) {
-        Alert.alert(
-          'Account Setup Required',
-          'Your virtual account needs to be set up. Please contact support.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert(
-          'Connection Error',
-          errorMessage,
-          [{ text: 'OK' }]
-        );
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-      }
+    if (errorMessage.includes('Authentication') || errorMessage.includes('401') || errorMessage.includes('403')) {
+      Alert.alert(
+        'Authentication Error',
+        'Your session may have expired. Please log in again.',
+        [{ text: 'OK' }]
+      );
+    } else if (errorMessage.includes('404') || errorMessage.includes('not found')) {
+      Alert.alert(
+        'Account Setup Required',
+        'Your virtual account needs to be set up. Please contact support.',
+        [{ text: 'OK' }]
+      );
+    } else {
+      Alert.alert(
+        'Connection Error',
+        errorMessage,
+        [{ text: 'OK' }]
+      );
     }
-  }, [makeRequest, fetchActiveGateway, loadFromCache, saveToCache, processAccountData]);
+  } finally {
+    if (mountedRef.current) {
+      setLoading(false);
+    }
+  }
+}, [makeRequest, fetchActiveGateway, saveToCache, processAccountData]);
 
   useEffect(() => {
     if (token && token.trim()) {

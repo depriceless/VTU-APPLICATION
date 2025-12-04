@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import Loader from './ui/Loader';
 
-import { API_CONFIG } from "../config/api.config";
-const API_BASE_URL = API_CONFIG.ADMIN_AUTH;
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002/api';
+
 
 // Import your logo
 import Logo from '../assets/logo.png';
@@ -193,7 +193,7 @@ const AdminLogin: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await makeAuthRequest('/login', {
+ const response = await makeAuthRequest('/api/admin/auth/login', {
         username: credentials.username.trim(),
         password: credentials.password
       });

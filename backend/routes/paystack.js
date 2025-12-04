@@ -399,4 +399,75 @@ router.get('/test', (req, res) => {
 
 console.log('✅ Paystack routes initialized');
 
+// Replace your existing health check code in routes/paystack.js with this:
+
+// Immediate + Periodic Health Check
+let healthCheckInterval = null;
+
+const runHealthCheck = async () => {
+  try {
+    console.log('🏥 Paystack Health Check:', new Date().toISOString());
+    
+    // Check configuration
+    const configStatus = {
+      secretKey: !!PAYSTACK_CONFIG.secretKey,
+      publicKey: !!PAYSTACK_CONFIG.publicKey,
+      baseUrl: PAYSTACK_CONFIG.baseUrl
+    };
+    
+    console.log('📊 Paystack Config Status:', configStatus);
+    
+    // Check database connection
+    const accountCount = await PaystackAccount.countDocuments();
+    console.log('💾 Total Paystack accounts in DB:', accountCount);
+    
+    // Optional: Ping Paystack API to verify keys
+    if (PAYSTACK_CONFIG.secretKey) {
+      try {
+        const response = await axios.get(
+          `${PAYSTACK_CONFIG.baseUrl}/bank`,
+          {
+            headers: {
+              'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`
+            },
+            timeout: 5000
+          }
+        );
+        console.log('✅ Paystack API: Reachable and responding');
+        console.log('📋 Available banks:', response.data.data?.length || 0);
+      } catch (apiError) {
+        if (apiError.response?.status === 401) {
+          console.log('⚠️ Paystack API: Invalid API key (401 Unauthorized)');
+        } else if (apiError.code === 'ECONNABORTED') {
+          console.log('⚠️ Paystack API: Request timeout');
+        } else {
+          console.log('⚠️ Paystack API: Connection issue -', apiError.message);
+        }
+      }
+    }
+    
+  } catch (error) {
+    console.error('❌ Paystack health check error:', error.message);
+  }
+};
+
+const startHealthCheck = () => {
+  if (healthCheckInterval) return; // Prevent multiple intervals
+  
+  console.log('🔄 Starting Paystack health monitoring...');
+  
+  // Run immediately on startup
+  runHealthCheck();
+  
+  // Then run every 5 minutes
+  healthCheckInterval = setInterval(runHealthCheck, 5 * 60 * 1000);
+  
+  console.log('✅ Paystack health checks: Immediate + Every 5 minutes');
+};
+
+// Start health checks
+startHealthCheck();
+
+console.log('✅ Paystack routes initialized with health monitoring');
+
 module.exports = router;

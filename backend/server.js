@@ -129,7 +129,7 @@ try {
   console.log('✅ Admin auth import successful');
   console.log('📋 Admin auth exports:', Object.keys(adminAuthImport));
   
-  adminAuthRoutes = adminAuthImport.router;
+  adminAuthRoutes = adminAuthImport.router;  // ← FIXED: Extract router here
   console.log('📋 Router extracted:', adminAuthRoutes ? 'exists' : 'missing');
   
   if (adminAuthRoutes && adminAuthRoutes.stack) {

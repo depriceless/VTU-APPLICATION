@@ -9,6 +9,8 @@ import NotificationManagement from './NotificationManagement';
 import PaymentGatewayConfig from './PaymentGatewayConfig';
 import SupportTicketDetail from './SupportTicketDetail';
 
+ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
+
 const AdminDashboard = () => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeMenu, setActiveMenu] = useState('dashboard');
@@ -111,7 +113,7 @@ const AdminDashboard = () => {
   // Ticket event listener
   useEffect(() => {
     const handleShowTicket = (event) => {
-      setActiveMenu(`ticket-${event.detail.ticketId}`);
+      setActiveMenu('ticket-' + event.detail.ticketId);
     };
     
     window.addEventListener('showTicket', handleShowTicket);
@@ -190,9 +192,9 @@ const AdminDashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/stats', {
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/stats`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+         'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }
       });
@@ -238,9 +240,9 @@ const AdminDashboard = () => {
     try {
       setActivitiesLoading(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch('https://vtu-application.onrender.com/api/dashboard/recent-activities', {
+      const response = await fetch(`${API_BASE_URL}/api/dashboard/recent-activities`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+        'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }
       });
@@ -262,9 +264,9 @@ const AdminDashboard = () => {
   const fetchMenuStats = async () => {
     try {
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      const response = await fetch('https://vtu-application.onrender.com/api/services/stats', {
+      const response = await fetch(`${API_BASE_URL}/api/services/stats`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }
       });
@@ -279,65 +281,65 @@ const AdminDashboard = () => {
     }
   };
 
-  const fetchAdminProfile = async () => {
-    try {
-      const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
-      
-      if (!token) {
-        window.location.href = '/';
-        return;
-      }
-      
-      const response = await fetch('https://vtu-application.onrender.com/api/admin/profile', {
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        credentials: 'include'
-      });
-      
-      if (response.status === 401) {
-        localStorage.removeItem('admin_token');
-        sessionStorage.removeItem('admin_token');
-        window.location.href = '/';
-        return;
-      }
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success && data.profile) {
-        setAdminProfile({
-          name: data.profile.name || 'Admin User',
-          email: data.profile.email || 'admin@vtuapp.com',
-          role: data.profile.role === 'super_admin' ? 'Super Administrator' : 
-                data.profile.role === 'admin' ? 'Administrator' : 
-                data.profile.role === 'support' ? 'Support Staff' : 'Admin User',
-          phone: data.profile.phone || '+234 123 456 7890',
-          avatar: data.profile.avatar || 'AU'
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching admin profile:', error);
-      if (error.name === 'TypeError' && error.message.includes('fetch')) {
-        console.log('Network error - using cached profile data');
-      }
+const fetchAdminProfile = async () => {
+  try {
+    const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
+    
+    if (!token) {
+      window.location.href = '/';
+      return;
     }
-  };
+    
+   const response = await fetch(`${API_BASE_URL}/api/admin/profile`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      credentials: 'include'
+    });
+    
+    if (response.status === 401) {
+      localStorage.removeItem('admin_token');
+      sessionStorage.removeItem('admin_token');
+      window.location.href = '/';
+      return;
+    }
+    
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status + ': ' + response.statusText);
+    }
+    
+    const data = await response.json();
+    
+    if (data.success && data.profile) {
+      setAdminProfile({
+        name: data.profile.name || 'Admin User',
+        email: data.profile.email || 'admin@vtuapp.com',
+        role: data.profile.role === 'super_admin' ? 'Super Administrator' : 
+              data.profile.role === 'admin' ? 'Administrator' : 
+              data.profile.role === 'support' ? 'Support Staff' : 'Admin User',
+        phone: data.profile.phone || '+234 123 456 7890',
+        avatar: data.profile.avatar || 'AU'
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching admin profile:', error);
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      console.log('Network error - using cached profile data');
+    }
+  }
+};
 
   const fetchApiBalances = async () => {
     try {
       setApiBalancesLoading(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
       
-      console.log('🔍 Starting API balance fetch...');
+      console.log('🔍 Starting API balance fetch...');const response = await fetch(`${API_BASE_URL}/api/clubkonnect/dashboard-balance`, {
       
-      const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+    
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': 'Bearer ' + token,
           'Content-Type': 'application/json'
         }
       });
@@ -517,7 +519,7 @@ const AdminDashboard = () => {
           label: 'Verification/KYC', 
           icon: '✅',
           description: 'Review pending identity verifications',
-          count: menuStats.pendingVerifications ? `${menuStats.pendingVerifications} pending` : 'Loading...'
+          count: menuStats.pendingVerifications ? menuStats.pendingVerifications + ' pending' : 'Loading...'
         },
         { 
           id: 'suspended-users', 
@@ -635,7 +637,7 @@ const AdminDashboard = () => {
           label: 'Revenue Reports', 
           icon: '📈',
           description: 'Track earnings and profit analysis',
-          count: menuStats.todayRevenue ? `₦${(menuStats.todayRevenue / 1000).toFixed(1)}K today` : 'Loading...'
+          count: menuStats.todayRevenue ? '₦' + (menuStats.todayRevenue / 1000).toFixed(1) + 'K today' : 'Loading...'
         },
         { 
           id: 'commission', 
@@ -649,7 +651,7 @@ const AdminDashboard = () => {
           label: 'Wallet Management', 
           icon: '👛',
           description: 'Manage user wallet balances',
-          count: menuStats.totalWalletBalance ? `₦${(menuStats.totalWalletBalance / 1000000).toFixed(1)}M total` : 'Loading...'
+          count: menuStats.totalWalletBalance ? '₦' + (menuStats.totalWalletBalance / 1000000).toFixed(1) + 'M total' : 'Loading...'
         },
         { 
           id: 'settlements', 
@@ -686,7 +688,7 @@ const AdminDashboard = () => {
           label: 'Error Logs', 
           icon: '🚨',
           description: 'Review system errors and issues',
-          count: menuStats.todayErrors !== undefined ? `${menuStats.todayErrors} today` : 'Loading...'
+          count: menuStats.todayErrors !== undefined ? menuStats.todayErrors + ' today' : 'Loading...'
         }
       ]
     },
@@ -702,7 +704,7 @@ const AdminDashboard = () => {
           label: 'Admin Users', 
           icon: '👨‍💼',
           description: 'Manage administrative user accounts',
-          count: menuStats.adminUsers ? `${menuStats.adminUsers} admins` : 'Loading...'
+          count: menuStats.adminUsers ? menuStats.adminUsers + ' admins' : 'Loading...'
         },
         { 
           id: 'permissions', 
@@ -746,7 +748,7 @@ const AdminDashboard = () => {
           label: 'Service Performance', 
           icon: '⚡',
           description: 'Service usage and success rates',
-          count: menuStats.serviceSuccessRate ? `${menuStats.serviceSuccessRate}%` : 'Loading...'
+          count: menuStats.serviceSuccessRate ? menuStats.serviceSuccessRate + '%' : 'Loading...'
         }
       ]
     },
@@ -809,7 +811,7 @@ const AdminDashboard = () => {
     document.cookie.split(';').forEach(cookie => {
       const eqPos = cookie.indexOf('=');
       const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
-      document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
+      document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
     });
     
     // Restore remembered username
@@ -887,7 +889,7 @@ const AdminDashboard = () => {
         title: "Today's Revenue", 
         value: dashboardStats.todayRevenue.loading ? 'Loading...' : formatCurrency(dashboardStats.todayRevenue.value),
         change: dashboardStats.todayRevenue.loading ? '...' : 
-                `${dashboardStats.todayRevenue.change >= 0 ? '+' : ''}${dashboardStats.todayRevenue.change.toFixed(1)}% from yesterday`,
+                (dashboardStats.todayRevenue.change >= 0 ? '+' : '') + dashboardStats.todayRevenue.change.toFixed(1) + '% from yesterday',
         color: '#ff3b30',
         loading: dashboardStats.todayRevenue.loading
       },
@@ -910,7 +912,7 @@ const AdminDashboard = () => {
       { 
         icon: '📊', 
         title: 'Success Rate', 
-        value: dashboardStats.successRate.loading ? 'Loading...' : `${dashboardStats.successRate.value.toFixed(1)}%`,
+        value: dashboardStats.successRate.loading ? 'Loading...' : dashboardStats.successRate.value.toFixed(1) + '%',
         change: dashboardStats.successRate.context,
         color: '#ff3b30',
         loading: dashboardStats.successRate.loading
@@ -1181,7 +1183,7 @@ const AdminDashboard = () => {
                       backgroundColor: '#e2e8f0',
                       borderRadius: '4px',
                       marginBottom: '4px',
-                      width: `${60 + index * 10}%`
+                      width: (60 + index * 10) + '%'
                     }} />
                     <div style={{
                       height: '12px',
@@ -1932,7 +1934,7 @@ const renderSubMenuContent = () => {
                   margin: '2px 0 0 0'
                 }}>
                   {currentMenuItem && currentMenuItem.subItems 
-                    ? `Manage ${currentMenuItem.label.toLowerCase()} settings and view analytics`
+                    ? 'Manage ' + currentMenuItem.label.toLowerCase() + ' settings and view analytics'
                     : activeMenu === 'profile'
                     ? 'Manage your account settings and preferences'
                     : 'Welcome back! Here\'s your system overview'

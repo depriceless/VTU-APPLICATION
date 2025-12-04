@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
 
 // TypeScript Interfaces
 interface GatewayData {
@@ -70,7 +71,7 @@ const PaymentGatewayConfig: React.FC = () => {
       setLoading(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
       
-      const response = await fetch('https://vtu-application.onrender.com/api/admin/payment-gateway/config', {
+     const response = await fetch(`${API_BASE_URL}/api/admin/payment-gateway/config`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
@@ -106,7 +107,7 @@ const PaymentGatewayConfig: React.FC = () => {
       setSwitching(true);
       const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
 
-      const response = await fetch('https://vtu-application.onrender.com/api/admin/payment-gateway/switch', {
+     const response = await fetch(`${API_BASE_URL}/api/admin/payment-gateway/switch`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
