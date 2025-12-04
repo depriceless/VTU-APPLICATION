@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
 
 // TypeScript interfaces (keep your existing interfaces)
 interface Transaction {
@@ -78,7 +79,8 @@ interface ApiResponse {
 }
 
 // API configuration
-const API_BASE_URL = 'https://vtu-application.onrender.com';
+
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 // Transaction Details Modal Component (keep your existing modal)
 const TransactionDetailsModal: React.FC<{

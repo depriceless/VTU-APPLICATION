@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-
+import React, { useState, useEffect, useCallback } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
 const UserManagement = () => {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +47,7 @@ const UserManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
+ const API_BASE_URL = API_CONFIG.BASE_URL;
 
   // Check mobile screen
   useEffect(() => {

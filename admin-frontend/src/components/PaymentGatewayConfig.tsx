@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
+
+// TypeScript Interfaces
+const API_BASE_URL = API_CONFIG.BASE_URL;  // ADD THIS LINE
+
 
 // TypeScript Interfaces
 interface GatewayData {

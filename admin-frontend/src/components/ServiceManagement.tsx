@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
 
 const ServiceManagement = () => {
   const [services, setServices] = useState([]);
@@ -51,12 +52,9 @@ const ServiceManagement = () => {
     inactiveServices: 0
   });
 
-  // API Base URL Configuration
-const isDevelopment = window.location.hostname === 'localhost' || 
-                     window.location.hostname === '127.0.0.1';
-const API_BASE_URL = isDevelopment 
-  ? 'http://localhost:5002' 
-  : 'https://vtu-application.onrender.com';
+  
+// API Base URL Configuration
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
   // Service type icons and colors
   const SERVICE_CONFIG = {

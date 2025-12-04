@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LI
 
 const NotificationManagement = () => {
   const [notifications, setNotifications] = useState([]);
@@ -33,7 +34,7 @@ const NotificationManagement = () => {
   };
 
   // API Base URL - update this to match your server
-  const API_BASE_URL = 'https://vtu-application.onrender.com';
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
   // Fetch notifications from API
   const fetchNotifications = async () => {

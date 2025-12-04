@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
 
 interface ApiBalance {
   provider: string;
@@ -37,8 +38,8 @@ const ApiBalanceComponent: React.FC = () => {
     setLoading(true);
     const token = localStorage.getItem('admin_token') || sessionStorage.getItem('admin_token');
     
-    // CORRECTED ENDPOINT
-    const response = await fetch('https://vtu-application.onrender.com/api/clubkonnect/dashboard-balance', {
+       // CORRECTED ENDPOINT
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/clubkonnect/dashboard-balance`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'

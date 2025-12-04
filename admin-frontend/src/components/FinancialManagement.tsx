@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_CONFIG } from '../config/api.config';  // ADD THIS LINE
 
 const FinancialManagement = () => {
   const [activeTab, setActiveTab] = useState('revenue-reports');
@@ -105,8 +106,7 @@ const FinancialManagement = () => {
   });
 
   // API Base URL Configuration
-  const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://vtu-application.onrender.com';
-
+const API_BASE_URL = API_CONFIG.BASE_URL;
   // Check mobile screen
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
