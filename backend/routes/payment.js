@@ -8,20 +8,6 @@ const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
 const User = require('../models/User');
 
 console.log('💳 Payment Gateway routes initializing...');
-// Add this temporarily to routes/payment.js at the top after PAYSTACK_CONFIG definition
-
-console.log('🔍 ===== PAYSTACK CONFIGURATION DEBUG =====');
-console.log('Secret Key exists:', !!PAYSTACK_CONFIG.secretKey);
-console.log('Secret Key length:', PAYSTACK_CONFIG.secretKey?.length || 0);
-console.log('Secret Key prefix:', PAYSTACK_CONFIG.secretKey?.substring(0, 7) || 'MISSING');
-console.log('Public Key exists:', !!PAYSTACK_CONFIG.publicKey);
-console.log('Public Key prefix:', PAYSTACK_CONFIG.publicKey?.substring(0, 7) || 'MISSING');
-console.log('Base URL:', PAYSTACK_CONFIG.baseUrl);
-console.log('==========================================');
-
-// Expected outputs:
-// Secret Key should start with: sk_test_ (test mode) or sk_live_ (production)
-// Public Key should start with: pk_test_ (test mode) or pk_live_ (production)
 
 // Paystack Configuration
 const PAYSTACK_CONFIG = {
@@ -37,6 +23,13 @@ const MONNIFY_CONFIG = {
   contractCode: process.env.MONNIFY_CONTRACT_CODE,
   baseUrl: process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com'
 };
+
+// Debug configuration
+console.log('🔍 Payment Gateway Configuration Check:');
+console.log('   Paystack Secret Key:', PAYSTACK_CONFIG.secretKey ? '✅ Set' : '❌ Missing');
+console.log('   Paystack Public Key:', PAYSTACK_CONFIG.publicKey ? '✅ Set' : '❌ Missing');
+console.log('   Monnify API Key:', MONNIFY_CONFIG.apiKey ? '✅ Set' : '❌ Missing');
+console.log('   Monnify Secret Key:', MONNIFY_CONFIG.secretKey ? '✅ Set' : '❌ Missing');
 
 // Get Monnify Access Token
 const getMonnifyToken = async () => {
@@ -232,7 +225,6 @@ async function createMonnifyAccount(userId) {
     } catch (error) {
       console.log('⚠️ Bulk creation failed, trying individual creation...');
       
-      // If bulk creation fails, try creating accounts individually
       for (let i = 0; i < bankConfigs.length; i++) {
         try {
           const bank = bankConfigs[i];
@@ -308,7 +300,44 @@ async function createMonnifyAccount(userId) {
   }
 }
 
-// Get user's virtual account (automatically creates if doesn't exist)
+// ROUTE 1: Get active gateway info (NO AUTHENTICATION REQUIRED)
+router.get('/active-gateway', async (req, res) => {
+  try {
+    console.log('🔍 [Active Gateway] Request received');
+    
+    const config = await PaymentGatewayConfig.getConfig();
+    
+    console.log('🔍 [Active Gateway] Config retrieved:', {
+      activeGateway: config.activeGateway,
+      configId: config._id
+    });
+    
+    res.json({
+      success: true,
+      activeGateway: config.activeGateway,
+      availableGateways: ['monnify', 'paystack'],
+      gateways: {
+        paystack: {
+          enabled: config.gateways.paystack.enabled,
+          configured: !!(config.gateways.paystack.publicKey && config.gateways.paystack.secretKey)
+        },
+        monnify: {
+          enabled: config.gateways.monnify.enabled,
+          configured: !!(config.gateways.monnify.apiKey && config.gateways.monnify.secretKey)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('❌ Get active gateway error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get active gateway',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message
+    });
+  }
+});
+
+// ROUTE 2: Get user's virtual account (with auto-creation)
 router.get('/virtual-account', authenticate, async (req, res) => {
   try {
     const config = await PaymentGatewayConfig.getConfig();
@@ -321,7 +350,6 @@ router.get('/virtual-account', authenticate, async (req, res) => {
     if (ACTIVE_GATEWAY === 'paystack') {
       let paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
       
-      // Auto-create if doesn't exist
       if (!paystackAccount) {
         console.log('⚠️ No Paystack account found. Auto-creating...');
         try {
@@ -353,7 +381,6 @@ router.get('/virtual-account', authenticate, async (req, res) => {
     } else if (ACTIVE_GATEWAY === 'monnify') {
       let monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
       
-      // Auto-create if doesn't exist
       if (!monnifyAccount) {
         console.log('⚠️ No Monnify account found. Auto-creating...');
         try {
@@ -387,12 +414,13 @@ router.get('/virtual-account', authenticate, async (req, res) => {
     console.error('❌ Get virtual account error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve virtual account'
+      message: 'Failed to retrieve virtual account',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 });
 
-// Get all payment accounts (both Monnify and Paystack)
+// ROUTE 3: Get all payment accounts
 router.get('/all-accounts', authenticate, async (req, res) => {
   try {
     console.log('📍 Fetching all payment accounts for user:', req.user.id);
@@ -427,48 +455,33 @@ router.get('/all-accounts', authenticate, async (req, res) => {
     console.error('❌ Get all accounts error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve payment accounts'
+      message: 'Failed to retrieve payment accounts',
+      error: process.env.NODE_ENV === 'production' ? undefined : error.message
     });
   }
 });
 
-// Get active gateway info
-router.get('/active-gateway', async (req, res) => {
-  try {
-    console.log('🔍 [Active Gateway] Fetching config from database...');
-    
-    const config = await PaymentGatewayConfig.getConfig();
-    
-    console.log('🔍 [Active Gateway] Config retrieved:', {
-      activeGateway: config.activeGateway,
-      configId: config._id,
-      lastSwitchedAt: config.lastSwitchedAt
-    });
-    
-    res.json({
-      success: true,
-      activeGateway: config.activeGateway,
-      availableGateways: ['monnify', 'paystack'],
-      gateways: {
-        paystack: {
-          enabled: config.gateways.paystack.enabled,
-          configured: !!(config.gateways.paystack.publicKey && config.gateways.paystack.secretKey)
-        },
-        monnify: {
-          enabled: config.gateways.monnify.enabled,
-          configured: !!(config.gateways.monnify.apiKey && config.gateways.monnify.secretKey)
-        }
-      }
-    });
-  } catch (error) {
-    console.error('❌ Get active gateway error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get active gateway'
-    });
-  }
+// ROUTE 4: Test endpoint
+router.get('/test', (req, res) => {
+  console.log('📍 Payment routes test endpoint hit');
+  res.json({
+    success: true,
+    message: 'Payment routes are working!',
+    timestamp: new Date().toISOString(),
+    routes: [
+      'GET /api/payment/active-gateway',
+      'GET /api/payment/virtual-account (requires auth)',
+      'GET /api/payment/all-accounts (requires auth)',
+      'GET /api/payment/test'
+    ]
+  });
 });
 
-console.log('✅ Payment Gateway routes initialized with auto-creation for both gateways');
+console.log('✅ Payment Gateway routes initialized');
+console.log('   📋 Available routes:');
+console.log('      GET /api/payment/active-gateway');
+console.log('      GET /api/payment/virtual-account (auth required)');
+console.log('      GET /api/payment/all-accounts (auth required)');
+console.log('      GET /api/payment/test');
 
 module.exports = router;
