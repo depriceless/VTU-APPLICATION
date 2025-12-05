@@ -1,16 +1,302 @@
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const { authenticate } = require('../middleware/auth');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const PaystackAccount = require('../models/PaystackAccount');
 const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
+const User = require('../models/User');
 
 console.log('💳 Payment Gateway routes initializing...');
 
-// Get user's virtual account (automatically selects based on active gateway)
+// Paystack Configuration
+const PAYSTACK_CONFIG = {
+  secretKey: process.env.PAYSTACK_SECRET_KEY,
+  publicKey: process.env.PAYSTACK_PUBLIC_KEY,
+  baseUrl: 'https://api.paystack.co'
+};
+
+// Monnify Configuration
+const MONNIFY_CONFIG = {
+  apiKey: process.env.MONNIFY_API_KEY,
+  secretKey: process.env.MONNIFY_SECRET_KEY,
+  contractCode: process.env.MONNIFY_CONTRACT_CODE,
+  baseUrl: process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com'
+};
+
+// Get Monnify Access Token
+const getMonnifyToken = async () => {
+  try {
+    const auth = Buffer.from(`${MONNIFY_CONFIG.apiKey}:${MONNIFY_CONFIG.secretKey}`).toString('base64');
+    
+    const response = await axios.post(
+      `${MONNIFY_CONFIG.baseUrl}/api/v1/auth/login`,
+      {},
+      {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    return response.data.responseBody.accessToken;
+  } catch (error) {
+    console.error('❌ Monnify token error:', error.response?.data || error.message);
+    throw new Error('Failed to get Monnify access token');
+  }
+};
+
+// Helper function to generate varied account names for Monnify
+const generateAccountNames = (userName, bankName) => {
+  const variations = [
+    userName,
+    userName.toUpperCase(),
+    userName.split(' ').reverse().join(' '),
+  ];
+  
+  const bankIndex = {
+    'Moniepoint': 0,
+    'Access Bank': 1,
+    'Wema Bank': 2
+  };
+  
+  return variations[bankIndex[bankName] || 0];
+};
+
+// Helper function to create Paystack account
+async function createPaystackAccount(userId) {
+  console.log('🔄 Auto-creating Paystack account for user:', userId);
+  
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    console.log('🔍 Creating Paystack virtual account for:', user.email);
+
+    // Step 1: Create or get customer
+    let customerId;
+    try {
+      const customerResponse = await axios.post(
+        `${PAYSTACK_CONFIG.baseUrl}/customer`,
+        {
+          email: user.email,
+          first_name: user.name.split(' ')[0],
+          last_name: user.name.split(' ').slice(1).join(' ') || user.name.split(' ')[0],
+          phone: user.phone || ''
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      customerId = customerResponse.data.data.customer_code;
+      console.log('✅ Customer created:', customerId);
+    } catch (error) {
+      if (error.response?.status === 400) {
+        const fetchResponse = await axios.get(
+          `${PAYSTACK_CONFIG.baseUrl}/customer/${user.email}`,
+          {
+            headers: {
+              'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`
+            }
+          }
+        );
+        customerId = fetchResponse.data.data.customer_code;
+        console.log('✅ Existing customer retrieved:', customerId);
+      } else {
+        throw error;
+      }
+    }
+
+    // Step 2: Create dedicated virtual account
+    const accountResponse = await axios.post(
+      `${PAYSTACK_CONFIG.baseUrl}/dedicated_account`,
+      {
+        customer: customerId,
+        preferred_bank: 'wema-bank'
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const accountData = accountResponse.data.data;
+    console.log('✅ Paystack virtual account created:', accountData.account_number);
+
+    const paystackAccount = new PaystackAccount({
+      userId: userId,
+      customerId: customerId,
+      accountNumber: accountData.account_number,
+      accountName: accountData.account_name,
+      bankName: accountData.bank.name,
+      bankCode: accountData.bank.id,
+      accountReference: accountData.id,
+      customerEmail: user.email,
+      customerName: user.name,
+      isActive: true
+    });
+
+    await paystackAccount.save();
+    console.log('✅ Paystack account saved to database');
+
+    return paystackAccount;
+
+  } catch (error) {
+    console.error('❌ Auto-create Paystack account error:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+// Helper function to create Monnify account
+async function createMonnifyAccount(userId) {
+  console.log('🔄 Auto-creating Monnify account for user:', userId);
+  
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    console.log('🔍 Creating Monnify accounts for:', user.email);
+
+    const accessToken = await getMonnifyToken();
+    console.log('✅ Monnify access token obtained');
+
+    const bankConfigs = [
+      { code: "50515", name: "Moniepoint" },
+      { code: "044", name: "Access Bank" },
+      { code: "035", name: "Wema Bank" }
+    ];
+
+    let allAccounts = [];
+    const accountReference = `USER_${userId}_${Date.now()}`;
+
+    // Try creating with all banks first
+    try {
+      const requestBody = {
+        accountReference: accountReference,
+        accountName: user.name,
+        currencyCode: "NGN",
+        contractCode: MONNIFY_CONFIG.contractCode,
+        customerEmail: user.email,
+        customerName: user.name,
+        getAllAvailableBanks: false,
+        preferredBanks: ["50515", "044", "035"]
+      };
+
+      console.log('📤 Attempting to create all Monnify accounts at once...');
+
+      const monnifyResponse = await axios.post(
+        `${MONNIFY_CONFIG.baseUrl}/api/v2/bank-transfer/reserved-accounts`,
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const accountData = monnifyResponse.data.responseBody;
+      allAccounts = accountData.accounts.map(acc => ({
+        bankName: acc.bankName,
+        bankCode: acc.bankCode,
+        accountNumber: acc.accountNumber,
+        accountName: acc.accountName
+      }));
+
+      console.log(`✅ Created ${allAccounts.length} Monnify accounts successfully`);
+
+    } catch (error) {
+      console.log('⚠️ Bulk creation failed, trying individual creation...');
+      
+      // If bulk creation fails, try creating accounts individually
+      for (let i = 0; i < bankConfigs.length; i++) {
+        try {
+          const bank = bankConfigs[i];
+          const individualRef = `${accountReference}_${bank.code}`;
+          
+          const requestBody = {
+            accountReference: individualRef,
+            accountName: generateAccountNames(user.name, bank.name),
+            currencyCode: "NGN",
+            contractCode: MONNIFY_CONFIG.contractCode,
+            customerEmail: user.email,
+            customerName: user.name,
+            getAllAvailableBanks: false,
+            preferredBanks: [bank.code]
+          };
+
+          console.log(`📤 Creating account for ${bank.name}...`);
+
+          const response = await axios.post(
+            `${MONNIFY_CONFIG.baseUrl}/api/v2/bank-transfer/reserved-accounts`,
+            requestBody,
+            {
+              headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          const accountData = response.data.responseBody;
+          if (accountData.accounts && accountData.accounts.length > 0) {
+            allAccounts.push({
+              bankName: accountData.accounts[0].bankName,
+              bankCode: accountData.accounts[0].bankCode,
+              accountNumber: accountData.accounts[0].accountNumber,
+              accountName: accountData.accounts[0].accountName
+            });
+            console.log(`✅ Created ${bank.name} account successfully`);
+          }
+
+          await new Promise(resolve => setTimeout(resolve, 500));
+
+        } catch (individualError) {
+          console.error(`❌ Failed to create ${bankConfigs[i].name} account:`, 
+            individualError.response?.data || individualError.message);
+        }
+      }
+    }
+
+    if (allAccounts.length === 0) {
+      throw new Error('Failed to create any Monnify virtual accounts');
+    }
+
+    const monnifyAccount = new MonnifyAccount({
+      userId: userId,
+      accountReference: accountReference,
+      accounts: allAccounts,
+      customerEmail: user.email,
+      customerName: user.name
+    });
+
+    await monnifyAccount.save();
+    console.log(`✅ ${allAccounts.length} Monnify account(s) saved to database`);
+
+    const createdBanks = allAccounts.map(acc => acc.bankName).join(', ');
+    console.log(`📋 Created accounts for: ${createdBanks}`);
+
+    return monnifyAccount;
+
+  } catch (error) {
+    console.error('❌ Auto-create Monnify account error:', error.response?.data || error.message);
+    throw error;
+  }
+}
+
+// Get user's virtual account (automatically creates if doesn't exist)
 router.get('/virtual-account', authenticate, async (req, res) => {
   try {
-    // Get active gateway from database instead of env variable
     const config = await PaymentGatewayConfig.getConfig();
     const ACTIVE_GATEWAY = config.activeGateway;
     
@@ -19,14 +305,23 @@ router.get('/virtual-account', authenticate, async (req, res) => {
     let accountData;
 
     if (ACTIVE_GATEWAY === 'paystack') {
-      const paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
+      let paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
       
+      // Auto-create if doesn't exist
       if (!paystackAccount) {
-        return res.status(404).json({
-          success: false,
-          message: 'No Paystack virtual account found',
-          gateway: 'paystack'
-        });
+        console.log('⚠️ No Paystack account found. Auto-creating...');
+        try {
+          paystackAccount = await createPaystackAccount(req.user.id);
+          console.log('✅ Paystack account auto-created successfully');
+        } catch (createError) {
+          console.error('❌ Failed to auto-create Paystack account:', createError.message);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to create Paystack virtual account',
+            gateway: 'paystack',
+            error: process.env.NODE_ENV === 'production' ? undefined : createError.message
+          });
+        }
       }
 
       accountData = {
@@ -42,14 +337,23 @@ router.get('/virtual-account', authenticate, async (req, res) => {
       };
 
     } else if (ACTIVE_GATEWAY === 'monnify') {
-      const monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
+      let monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
       
+      // Auto-create if doesn't exist
       if (!monnifyAccount) {
-        return res.status(404).json({
-          success: false,
-          message: 'No Monnify virtual accounts found',
-          gateway: 'monnify'
-        });
+        console.log('⚠️ No Monnify account found. Auto-creating...');
+        try {
+          monnifyAccount = await createMonnifyAccount(req.user.id);
+          console.log('✅ Monnify account auto-created successfully');
+        } catch (createError) {
+          console.error('❌ Failed to auto-create Monnify account:', createError.message);
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to create Monnify virtual accounts',
+            gateway: 'monnify',
+            error: process.env.NODE_ENV === 'production' ? undefined : createError.message
+          });
+        }
       }
 
       accountData = {
@@ -79,7 +383,6 @@ router.get('/all-accounts', authenticate, async (req, res) => {
   try {
     console.log('📍 Fetching all payment accounts for user:', req.user.id);
     
-    // Get active gateway from database
     const config = await PaymentGatewayConfig.getConfig();
     const ACTIVE_GATEWAY = config.activeGateway;
     
@@ -120,7 +423,6 @@ router.get('/active-gateway', async (req, res) => {
   try {
     console.log('🔍 [Active Gateway] Fetching config from database...');
     
-    // Get active gateway from database
     const config = await PaymentGatewayConfig.getConfig();
     
     console.log('🔍 [Active Gateway] Config retrieved:', {
@@ -153,6 +455,6 @@ router.get('/active-gateway', async (req, res) => {
   }
 });
 
-console.log('✅ Payment Gateway routes initialized');
+console.log('✅ Payment Gateway routes initialized with auto-creation for both gateways');
 
 module.exports = router;

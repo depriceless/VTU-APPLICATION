@@ -1,5 +1,4 @@
 import React, { useContext, useEffect, useState, useCallback, useRef } from 'react';
-import FundWallet from './fund-wallet'; 
 import TransactionDetails from './TransactionDetails';
 import { Share } from 'react-native';
 import { ActivityIndicator } from 'react-native';
@@ -49,7 +48,6 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState([]);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [balanceVisible, setBalanceVisible] = useState(true);
-  const [showFundWallet, setShowFundWallet] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -343,21 +341,15 @@ export default function Dashboard() {
     }
   }, [logout, router]);
 
-  const handleFundWallet = useCallback(() => {
-    setShowFundWallet(true);
-  }, []);
+ const handleFundWallet = useCallback(() => {
+  router.push('/fund-wallet');
+}, [router]);
 
   const toggleBalanceVisibility = useCallback(() => {
     setBalanceVisible(prev => !prev);
   }, []);
 
-  const handleFundWalletSuccess = useCallback(async () => {
-    setShowFundWallet(false);
-    setTimeout(async () => {
-      await fetchTransactions();
-    }, 2000);
-  }, [fetchTransactions]);
-
+ 
   const shareReceipt = useCallback(async () => {
     if (!selectedTransaction) return;
 
@@ -718,39 +710,6 @@ ${selectedTransaction.description ? `📋 DESCRIPTION: ${selectedTransaction.des
         </View>
       </Modal>
 
-      {/* Fund Wallet Modal */}
-      <Modal
-        visible={showFundWallet}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowFundWallet(false)}
-      >
-        <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-          <View style={{ 
-            flexDirection: 'row', 
-            alignItems: 'center', 
-            justifyContent: 'space-between',
-            paddingHorizontal: 16,
-            paddingVertical: 16,
-            backgroundColor: colors.cardBg,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border
-          }}>
-            <TouchableOpacity onPress={() => setShowFundWallet(false)}>
-              <Ionicons name="arrow-back" size={28} color={colors.text} />
-            </TouchableOpacity>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: colors.text }}>Fund Wallet</Text>
-            <View style={{ width: 24 }} />
-          </View>
-          
-          <FundWallet 
-            onClose={() => setShowFundWallet(false)}
-            onSuccess={handleFundWalletSuccess}
-            token={token}
-            currentBalance={accountBalance}
-          />
-        </SafeAreaView>
-      </Modal>
     </SafeAreaView>
   );
 }
