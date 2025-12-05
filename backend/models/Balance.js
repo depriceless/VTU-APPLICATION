@@ -39,6 +39,56 @@ const BalanceSchema = new mongoose.Schema({
   lastTransactionDate: {
     type: Date
   },
+  // 🆕 ADDED: Transactions array to store all wallet transactions
+  transactions: [{
+    type: {
+      type: String,
+      enum: ['credit', 'debit'],
+      required: true
+    },
+    amount: {
+      type: Number,
+      required: true
+    },
+    reference: {
+      type: String,
+      required: true,
+      unique: true
+    },
+    description: {
+      type: String,
+      required: true
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'completed', 'failed', 'reversed'],
+      default: 'completed'
+    },
+    gateway: {
+      type: String,
+      enum: ['paystack', 'monnify', 'manual', 'system'],
+      required: true
+    },
+    channel: {
+      type: String // e.g., 'bank_transfer', 'card', etc.
+    },
+    previousBalance: {
+      type: Number,
+      required: true
+    },
+    newBalance: {
+      type: Number,
+      required: true
+    },
+    metadata: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+    date: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   stats: {
     totalDeposits: { type: Number, default: 0 },
     totalWithdrawals: { type: Number, default: 0 },
@@ -52,5 +102,9 @@ const BalanceSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Index for faster transaction lookups
+BalanceSchema.index({ 'transactions.reference': 1 });
+BalanceSchema.index({ 'transactions.date': -1 });
 
 module.exports = mongoose.model('Balance', BalanceSchema);
