@@ -8,6 +8,20 @@ const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
 const User = require('../models/User');
 
 console.log('💳 Payment Gateway routes initializing...');
+// Add this temporarily to routes/payment.js at the top after PAYSTACK_CONFIG definition
+
+console.log('🔍 ===== PAYSTACK CONFIGURATION DEBUG =====');
+console.log('Secret Key exists:', !!PAYSTACK_CONFIG.secretKey);
+console.log('Secret Key length:', PAYSTACK_CONFIG.secretKey?.length || 0);
+console.log('Secret Key prefix:', PAYSTACK_CONFIG.secretKey?.substring(0, 7) || 'MISSING');
+console.log('Public Key exists:', !!PAYSTACK_CONFIG.publicKey);
+console.log('Public Key prefix:', PAYSTACK_CONFIG.publicKey?.substring(0, 7) || 'MISSING');
+console.log('Base URL:', PAYSTACK_CONFIG.baseUrl);
+console.log('==========================================');
+
+// Expected outputs:
+// Secret Key should start with: sk_test_ (test mode) or sk_live_ (production)
+// Public Key should start with: pk_test_ (test mode) or pk_live_ (production)
 
 // Paystack Configuration
 const PAYSTACK_CONFIG = {
