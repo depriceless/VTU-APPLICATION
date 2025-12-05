@@ -177,7 +177,6 @@ router.get('/user-account', authenticate, async (req, res) => {
   }
 });
 
-// 3. Webhook - Receive Payment Notifications
 router.post('/webhook', async (req, res) => {
   try {
     console.log('📩 Paystack Webhook received at:', new Date().toISOString());
@@ -241,8 +240,13 @@ router.post('/webhook', async (req, res) => {
       return res.status(404).json({ message: 'Balance document not found' });
     }
 
+    // FIXED: Properly initialize transactions array if it doesn't exist
+    if (!balance.transactions) {
+      balance.transactions = [];
+    }
+
     // Check for duplicate transaction
-    const isDuplicate = balance.transactions?.some(
+    const isDuplicate = balance.transactions.some(
       t => t.reference === reference
     );
     
@@ -260,6 +264,27 @@ router.post('/webhook', async (req, res) => {
     balance.balance += creditAmount;
     balance.lastTransactionDate = new Date(paid_at);
     
+    // FIXED: Create and save transaction record
+    const transaction = {
+      type: 'credit',
+      amount: creditAmount,
+      reference: reference,
+      description: `Wallet funding via Paystack (${channel})`,
+      status: 'completed',
+      gateway: 'paystack',
+      channel: channel,
+      previousBalance: previousBalance,
+      newBalance: balance.balance,
+      metadata: {
+        customerEmail: customer.email,
+        customerId: data.customer?.customer_code,
+        paidAt: paid_at
+      },
+      date: new Date(paid_at)
+    };
+
+    balance.transactions.push(transaction);
+    
     if (balance.stats) {
       balance.stats.totalDeposits = (balance.stats.totalDeposits || 0) + creditAmount;
       balance.stats.depositCount = (balance.stats.depositCount || 0) + 1;
@@ -274,6 +299,7 @@ router.post('/webhook', async (req, res) => {
     console.log(`   New Balance: ₦${balance.balance.toLocaleString()}`);
     console.log(`   Transaction Ref: ${reference}`);
     console.log(`   Payment Channel: ${channel}`);
+    console.log(`   Transaction Saved: YES ✅`);
     console.log('==================================================');
 
     res.status(200).json({
@@ -282,7 +308,8 @@ router.post('/webhook', async (req, res) => {
       data: {
         userId: paystackAccount.userId,
         newBalance: balance.balance,
-        creditedAmount: creditAmount
+        creditedAmount: creditAmount,
+        transactionSaved: true
       }
     });
 
