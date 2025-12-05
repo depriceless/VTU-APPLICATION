@@ -232,15 +232,29 @@ router.post('/webhook', async (req, res) => {
 
     console.log('✅ Account found for user:', paystackAccount.userId);
 
-    // Find Balance document
-    const balance = await Balance.findOne({ userId: paystackAccount.userId });
+    // Find or Create Balance document
+    let balance = await Balance.findOne({ userId: paystackAccount.userId });
     
     if (!balance) {
-      console.error('❌ Balance document not found for user:', paystackAccount.userId);
-      return res.status(404).json({ message: 'Balance document not found' });
+      console.log('⚠️ Balance not found. Creating new balance for user:', paystackAccount.userId);
+      balance = new Balance({
+        userId: paystackAccount.userId,
+        balance: 0,
+        currency: 'NGN',
+        isActive: true,
+        transactions: [],
+        stats: {
+          totalDeposits: 0,
+          totalWithdrawals: 0,
+          depositCount: 0,
+          withdrawalCount: 0
+        }
+      });
+      await balance.save();
+      console.log('✅ Balance document created for user:', paystackAccount.userId);
     }
 
-    // FIXED: Properly initialize transactions array if it doesn't exist
+    // Initialize transactions array if it doesn't exist
     if (!balance.transactions) {
       balance.transactions = [];
     }
@@ -264,7 +278,7 @@ router.post('/webhook', async (req, res) => {
     balance.balance += creditAmount;
     balance.lastTransactionDate = new Date(paid_at);
     
-    // FIXED: Create and save transaction record
+    // Create and save transaction record
     const transaction = {
       type: 'credit',
       amount: creditAmount,
@@ -324,7 +338,6 @@ router.post('/webhook', async (req, res) => {
     });
   }
 });
-
 // 4. Verify Transaction
 router.get('/verify/:reference', authenticate, async (req, res) => {
   try {
