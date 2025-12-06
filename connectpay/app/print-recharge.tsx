@@ -55,6 +55,32 @@ interface PinStatus {
   attemptsRemaining: number;
 }
 
+// Helper function to safely extract balance amount
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
+  
+  // If it's already a number, return it directly
+  if (typeof balanceData === 'number') {
+    return parseFloat(balanceData.toString()) || 0;
+  }
+  
+  // If it's a string, parse it
+  if (typeof balanceData === 'string') {
+    return parseFloat(balanceData) || 0;
+  }
+  
+  // If it's an object, try different possible balance properties
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 balanceData.totalBalance || 
+                 balanceData.mainBalance || 
+                 0;
+  
+  return parseFloat(amount) || 0;
+};
+
 export default function PrintRecharge() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
   
@@ -105,11 +131,15 @@ export default function PrintRecharge() {
     return denomination * Math.max(1, Math.min(100, qty));
   }, [denomination, quantity]);
 
+  // Use getBalanceAmount for consistent balance extraction
+  const currentBalance = useMemo(() => 
+    getBalanceAmount(userBalance), 
+    [userBalance]
+  );
+
   const hasEnoughBalance = useMemo(() => {
-    if (!userBalance) return false;
-    const availableBalance = userBalance.total || userBalance.amount || 0;
-    return totalAmount <= availableBalance;
-  }, [userBalance, totalAmount]);
+    return currentBalance > 0 ? totalAmount <= currentBalance : true;
+  }, [currentBalance, totalAmount]);
 
   const canProceed = useMemo(() => {
     const qty = parseInt(quantity) || 0;
@@ -120,6 +150,19 @@ export default function PrintRecharge() {
     pin.length === 4 && /^\d{4}$/.test(pin),
     [pin]
   );
+
+  // Debug logging for balance
+  useEffect(() => {
+    if (userBalance) {
+      console.log('=== PRINT RECHARGE BALANCE DEBUG ===');
+      console.log('userBalance object:', JSON.stringify(userBalance, null, 2));
+      console.log('Extracted amount:', getBalanceAmount(userBalance));
+      console.log('Purchase amount:', totalAmount);
+      console.log('Current balance:', currentBalance);
+      console.log('Has enough?', hasEnoughBalance);
+      console.log('====================================');
+    }
+  }, [userBalance, totalAmount, currentBalance, hasEnoughBalance]);
 
   const getAuthToken = async () => {
     if (!token) {
@@ -196,7 +239,8 @@ export default function PrintRecharge() {
 
   useEffect(() => {
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
+      console.log('Initial balance from context:', balanceAmount, 'Raw balance:', balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
@@ -204,8 +248,8 @@ export default function PrintRecharge() {
         amount: balanceAmount,
         mainBalance: balanceAmount,
         bonusBalance: 0,
-        currency: balance.currency || "NGN",
-        lastUpdated: balance.lastUpdated || new Date().toISOString(),
+        currency: "NGN",
+        lastUpdated: new Date().toISOString(),
       });
     }
     
@@ -253,45 +297,55 @@ export default function PrintRecharge() {
   const fetchUserBalance = useCallback(async () => {
     setIsLoadingBalance(true);
     try {
+      console.log("Refreshing balance from AuthContext");
+      console.log("Raw balance object:", JSON.stringify(balance, null, 2));
+      
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
+      if (balance !== undefined && balance !== null) {
+        const balanceAmount = getBalanceAmount(balance);
+        
+        console.log("Balance from context:", balanceAmount, "Raw balance:", balance);
         
         const realBalance: UserBalance = {
+          amount: balanceAmount,
+          total: balanceAmount,
           main: balanceAmount,
           bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
           mainBalance: balanceAmount,
           bonusBalance: 0,
-          currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          currency: "NGN",
+          lastUpdated: new Date().toISOString(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+        console.log("Balance updated from context:", realBalance);
       } else {
+        console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const balanceAmount = getBalanceAmount(balanceData.balance);
+          
+          console.log("Balance from API:", balanceAmount);
           
           const realBalance: UserBalance = {
+            amount: balanceAmount,
+            total: balanceAmount,
             main: balanceAmount,
             bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
             mainBalance: balanceAmount,
             bonusBalance: 0,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+            currency: "NGN",
+            lastUpdated: new Date().toISOString(),
           };
 
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+          console.log("Balance updated from API:", realBalance);
         }
       }
     } catch (error) {
@@ -300,7 +354,11 @@ export default function PrintRecharge() {
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          setUserBalance(JSON.parse(cachedBalance));
+          const parsedBalance = JSON.parse(cachedBalance);
+          setUserBalance(parsedBalance);
+          console.log("Using cached balance:", parsedBalance);
+        } else {
+          setUserBalance(null);
         }
       } catch (cacheError) {
         setUserBalance(null);
@@ -411,9 +469,7 @@ export default function PrintRecharge() {
         setGeneratedPins(pins);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
+          const balanceAmount = getBalanceAmount(response.newBalance);
           
           const updatedBalance: UserBalance = {
             main: balanceAmount,
@@ -422,8 +478,8 @@ export default function PrintRecharge() {
             amount: balanceAmount,
             mainBalance: balanceAmount,
             bonusBalance: 0,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+            currency: "NGN",
+            lastUpdated: new Date().toISOString(),
           };
 
           setUserBalance(updatedBalance);
@@ -629,6 +685,14 @@ export default function PrintRecharge() {
           <Text style={styles.totalAmount}>
             ₦{totalAmount.toLocaleString()}
           </Text>
+          {!hasEnoughBalance && currentBalance > 0 && (
+            <Text style={styles.validationError}>
+              Insufficient balance. Available: ₦{currentBalance.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
+            </Text>
+          )}
         </View>
       )}
 
@@ -672,7 +736,10 @@ export default function PrintRecharge() {
         {userBalance ? (
           <>
             <Text style={styles.balanceAmount}>
-              ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+              ₦{currentBalance.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+              })}
             </Text>
 
             {totalAmount > 0 && (
@@ -686,15 +753,15 @@ export default function PrintRecharge() {
                   <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                   <Text style={[
                     styles.balanceRowValueBold,
-                    ((userBalance.total || userBalance.amount || 0) - totalAmount) < 0 && styles.negativeAmount
+                    (currentBalance - totalAmount) < 0 && styles.negativeAmount
                   ]}>
-                    ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - totalAmount).toLocaleString()}
+                    ₦{Math.max(0, currentBalance - totalAmount).toLocaleString()}
                   </Text>
                 </View>
               </View>
             )}
 
-            {totalAmount > (userBalance.total || userBalance.amount || 0) && (
+            {totalAmount > currentBalance && (
               <View style={styles.insufficientWarning}>
                 <Text style={styles.insufficientWarningText}>
                   Insufficient balance for this transaction
@@ -912,7 +979,7 @@ export default function PrintRecharge() {
                 ))}
               </View>
               <Text style={styles.pinInputHint}>
-               Tap here to enter PIN
+                Tap here to enter PIN
               </Text>
               
               <TextInput
@@ -1042,6 +1109,7 @@ export default function PrintRecharge() {
   );
 }
 
+// All styles remain exactly the same as in your original code
 const styles = StyleSheet.create({
   container: { 
     flex: 1, 

@@ -42,6 +42,7 @@ interface UserBalance {
   main: number;
   bonus: number;
   total: number;
+  amount: number;
   lastUpdated: number;
 }
 
@@ -69,6 +70,32 @@ interface InternetProvider {
   logo: any;
   plans: InternetPlan[];
 }
+
+// Helper function to safely extract balance amount
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
+  
+  // If it's already a number, return it directly
+  if (typeof balanceData === 'number') {
+    return parseFloat(balanceData.toString()) || 0;
+  }
+  
+  // If it's a string, parse it
+  if (typeof balanceData === 'string') {
+    return parseFloat(balanceData) || 0;
+  }
+  
+  // If it's an object, try different possible balance properties
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 balanceData.totalBalance || 
+                 balanceData.mainBalance || 
+                 0;
+  
+  return parseFloat(amount) || 0;
+};
 
 export default function BuyInternet() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
@@ -118,7 +145,8 @@ export default function BuyInternet() {
   // ---------- Validation ----------
   const isCustomerNumberValid = customerNumber.length >= 6 && /^[A-Za-z0-9]+$/.test(customerNumber);
   const amount = selectedPlan?.amount || 0;
-  const hasEnoughBalance = userBalance ? amount <= userBalance.total : true;
+  const currentBalance = getBalanceAmount(userBalance);
+  const hasEnoughBalance = currentBalance > 0 ? amount <= currentBalance : true;
   const canProceed = isCustomerNumberValid && selectedProvider && selectedPlan && hasEnoughBalance;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
@@ -129,11 +157,13 @@ export default function BuyInternet() {
 
     // Initialize balance from AuthContext
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
+      console.log('Initial balance from context:', balanceAmount, 'Raw balance:', balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
         total: balanceAmount,
+        amount: balanceAmount,
         lastUpdated: Date.now(),
       });
     }
@@ -168,6 +198,19 @@ export default function BuyInternet() {
   useEffect(() => {
     saveFormState();
   }, [customerNumber, selectedProvider, selectedPlan]);
+
+  // Debug logging for balance
+  useEffect(() => {
+    if (userBalance) {
+      console.log('=== BALANCE DEBUG ===');
+      console.log('userBalance object:', JSON.stringify(userBalance, null, 2));
+      console.log('Extracted amount:', getBalanceAmount(userBalance));
+      console.log('Purchase amount:', amount);
+      console.log('Current balance:', currentBalance);
+      console.log('Has enough?', hasEnoughBalance);
+      console.log('===================');
+    }
+  }, [userBalance, amount]);
 
   // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
@@ -268,6 +311,7 @@ export default function BuyInternet() {
     setIsLoadingBalance(true);
     try {
       console.log("Refreshing balance from AuthContext");
+      console.log("Raw balance object:", JSON.stringify(balance, null, 2));
       
       // Use AuthContext's refresh function
       if (refreshBalance) {
@@ -275,16 +319,17 @@ export default function BuyInternet() {
       }
       
       // Update local balance state from AuthContext
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
+      if (balance !== undefined && balance !== null) {
+        const balanceAmount = getBalanceAmount(balance);
         
-        const realBalance = {
+        console.log("Balance from context:", balanceAmount, "Raw balance:", balance);
+        
+        const realBalance: UserBalance = {
+          amount: balanceAmount,
+          total: balanceAmount,
           main: balanceAmount,
           bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          lastUpdated: Date.now(),
         };
 
         setUserBalance(realBalance);
@@ -292,22 +337,25 @@ export default function BuyInternet() {
         console.log("Balance updated from AuthContext:", realBalance);
       } else {
         // Fallback: try direct API call
+        console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const balanceAmount = getBalanceAmount(balanceData.balance);
           
-          const realBalance = {
+          console.log("Balance from API:", balanceAmount);
+          
+          const realBalance: UserBalance = {
+            amount: balanceAmount,
+            total: balanceAmount,
             main: balanceAmount,
             bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+          console.log("Balance updated from API:", realBalance);
         }
       }
     } catch (error) {
@@ -318,6 +366,7 @@ export default function BuyInternet() {
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
           setUserBalance(parsedBalance);
+          console.log("Using cached balance:", parsedBalance);
         } else {
           setUserBalance(null);
         }
@@ -540,17 +589,14 @@ export default function BuyInternet() {
         await saveRecentNumber(customerNumber, customerName);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
+          const balanceAmount = getBalanceAmount(response.newBalance);
           
-          const updatedBalance = {
+          const updatedBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(updatedBalance);
@@ -812,7 +858,10 @@ export default function BuyInternet() {
             {userBalance ? (
               <>
                 <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                  ₦{getBalanceAmount(userBalance).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
                 </Text>
 
                 {amount > 0 && (
@@ -826,15 +875,15 @@ export default function BuyInternet() {
                       <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                       <Text style={[
                         styles.balanceRowValueBold,
-                        (userBalance.total - amount) < 0 && styles.negativeAmount
+                        (getBalanceAmount(userBalance) - amount) < 0 && styles.negativeAmount
                       ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amount).toLocaleString()}
+                        ₦{Math.max(0, getBalanceAmount(userBalance) - amount).toLocaleString()}
                       </Text>
                     </View>
                   </View>
                 )}
 
-                {amount > (userBalance.total || userBalance.amount || 0) && (
+                {amount > getBalanceAmount(userBalance) && (
                   <View style={styles.insufficientWarning}>
                     <Text style={styles.insufficientWarningText}>
                       Insufficient balance for this transaction

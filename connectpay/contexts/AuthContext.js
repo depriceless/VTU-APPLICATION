@@ -1,377 +1,179 @@
+// AuthContext.js - Fix the login function
+
 import React, { createContext, useState, useEffect } from 'react';
-import { Platform } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import apiClient from '../src/config/api';
 
-const AuthContext = createContext();
+export const AuthContext = createContext();
 
-// API Configuration
-const API_CONFIG = {
-  BASE_URL: Platform.OS === 'web' 
-    ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
-    : `${process.env.EXPO_PUBLIC_API_URL}/api`,
-  ENDPOINTS: {
-    PROFILE: '/auth/profile',
-    BALANCE: '/balance',
-    TRANSACTIONS: '/transactions',
-  }
-};
-
-// Storage helper that works on both mobile and web
-const storage = {
-  async getItem(key) {
-    if (Platform.OS === 'web') {
-      return localStorage.getItem(key);
-    } else {
-      return await SecureStore.getItemAsync(key);
-    }
-  },
-  
-  async setItem(key, value) {
-    if (Platform.OS === 'web') {
-      localStorage.setItem(key, value);
-    } else {
-      await SecureStore.setItemAsync(key, value);
-    }
-  },
-  
-  async removeItem(key) {
-    if (Platform.OS === 'web') {
-      localStorage.removeItem(key);
-    } else {
-      await SecureStore.deleteItemAsync(key);
-    }
-  }
-};
-
-const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [balance, setBalance] = useState(null);
+export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  // Load token when app starts
+  // Load token and user data on app start
   useEffect(() => {
-    loadToken();
+    loadStoredData();
   }, []);
 
-  // Fetch user profile and balance when token is available
-  useEffect(() => {
-    if (token && !isLoggingOut) {
-      console.log('🔄 Token detected, fetching user data...');
-      // Add delay to ensure token is ready
-      const timer = setTimeout(() => {
-        fetchUserProfile();
-        fetchBalance();
-      }, 500); // Increased delay to 500ms
+  const loadStoredData = async () => {
+    try {
+      console.log('📂 Loading stored data...');
+      const storedToken = await AsyncStorage.getItem('token');
       
-      return () => clearTimeout(timer);
-    }
-  }, [token, isLoggingOut]);
-
-  const loadToken = async () => {
-    try {
-      const savedToken = await storage.getItem('userToken');
-      if (savedToken) {
-        setToken(savedToken);
-        console.log('✅ Token loaded from storage');
-      } else {
-        console.log('ℹ️ No saved token found (user not logged in)');
-      }
-    } catch (error) {
-      console.error('Error loading token:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchUserProfile = async () => {
-    // STRONG validation - don't fetch if any of these conditions
-    if (isLoggingOut || !token || token === 'undefined' || token === 'null' || token.length < 10) {
-      console.log('🚫 Skipping profile fetch - invalid token state');
-      return;
-    }
-
-    try {
-      console.log('🔄 Fetching user profile...');
-
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PROFILE}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log('Profile fetch response status:', response.status);
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('❌ Token expired, logging out');
-          await logout();
-          return;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const data = await response.json();
-        console.log('Profile API Response:', data);
-
-        if (data.success && data.user) {
-          const userData = {
-            id: data.user.id || data.user._id,
-            name: data.user.name || data.user.username || 'User',
-            email: data.user.email || '',
-            phone: data.user.phone || '',
-            username: data.user.username || '',
-            dateJoined: data.user.createdAt || data.user.dateJoined || new Date().toISOString(),
-            isPinSetup: data.user.isPinSetup || false,
-            isEmailVerified: data.user.isEmailVerified || false,
-            isPhoneVerified: data.user.isPhoneVerified || false,
-            lastLogin: data.user.lastLogin,
-          };
-
-          setUser(userData);
-          console.log('✅ User profile loaded:', userData.name);
-        } else {
-          console.log('❌ Profile fetch unsuccessful:', data.message);
-        }
-      } else {
-        const text = await response.text();
-        console.log('❌ Non-JSON response:', text);
-        throw new Error('Invalid response format');
-      }
-    } catch (error) {
-      console.log('❌ Error fetching profile:', error);
-    }
-  };
-
-  const fetchBalance = async () => {
-    // STRONG validation
-    if (isLoggingOut || !token || token === 'undefined' || token === 'null' || token.length < 10) {
-      console.log('🚫 Skipping balance fetch - invalid token state');
-      return;
-    }
-
-    try {
-      console.log('🔄 Fetching user balance...');
-
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.BALANCE}`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      console.log('Balance fetch response status:', response.status);
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('❌ Token expired, logging out');
-          await logout();
-          return;
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Balance API Response:', data);
-
-      if (data.success && data.balance) {
-        setBalance(data.balance);
-        console.log('✅ Balance loaded:', data.balance.amount);
-      } else {
-        console.log('❌ Balance fetch unsuccessful:', data.message);
-        // Set default balance
-        setBalance({
-          amount: '0.00',
-          currency: 'USD',
-          lastUpdated: new Date().toISOString()
-        });
-      }
-    } catch (error) {
-      console.log('❌ Error fetching balance:', error);
-      // Set default balance on error
-      setBalance({
-        amount: '0.00',
-        currency: 'USD',
-        lastUpdated: new Date().toISOString()
-      });
-    }
-  };
-
-  const updateProfile = async (updatedData) => {
-    try {
-      if (!token) {
-        console.log('ℹ️ Cannot update profile: No authentication token');
-        return false;
-      }
-
-      const response = await fetch(
-        `${API_CONFIG.BASE_URL}${API_CONFIG.ENDPOINTS.PROFILE}`,
-        {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(updatedData)
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        const userData = {
-          ...user,
-          name: data.user.name || updatedData.name,
-          email: data.user.email || updatedData.email,
-          phone: data.user.phone || updatedData.phone,
-          username: data.user.username || updatedData.username,
-        };
+      if (storedToken) {
+        console.log('✅ Token found in storage');
+        setToken(storedToken);
         
-        setUser(userData);
-        console.log('✅ Profile updated successfully');
-        return true;
+        // Set token in API client headers
+        apiClient.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
+        
+        // Fetch user profile and balance
+        await Promise.all([
+          fetchUserProfile(storedToken),
+          fetchBalance(storedToken)
+        ]);
       } else {
-        console.log('❌ Profile update failed:', data.message);
-        return false;
+        console.log('⚠️ No token found in storage');
       }
     } catch (error) {
-      console.log('❌ Error updating profile:', error);
-      return false;
+      console.error('❌ Error loading stored data:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const login = async (newToken) => {
+  const fetchUserProfile = async (authToken) => {
     try {
-      // Validate the token first
-      if (!newToken || typeof newToken !== 'string' || newToken.length < 10) {
-        console.error('❌ Invalid token received');
-        return;
+      console.log('👤 Fetching user profile...');
+      const response = await apiClient.get('/auth/profile', {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      
+      if (response.data?.success && response.data?.user) {
+        console.log('✅ User profile loaded:', response.data.user.name);
+        setUser(response.data.user);
       }
-      
-      console.log('🔐 Starting login process...');
-      setIsLoggingOut(false);
-      
-      // Save to storage first
-      await storage.setItem('userToken', newToken);
-      console.log('✅ Token saved to storage');
-      
-      // Then set token to state
-      setToken(newToken);
-      console.log('✅ Token set in state');
-      
     } catch (error) {
-      console.error('❌ Login error:', error);
+      console.error('❌ Error fetching profile:', error.message);
+    }
+  };
+
+  const fetchBalance = async (authToken) => {
+    try {
+      console.log('💰 Fetching balance...');
+      const response = await apiClient.get('/wallet/balance', {
+        headers: { Authorization: `Bearer ${authToken}` }
+      });
+      
+      if (response.data?.success) {
+        const balanceValue = response.data.balance?.amount || 
+                           response.data.balance || 
+                           0;
+        console.log('✅ Balance loaded:', balanceValue);
+        setBalance(balanceValue);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching balance:', error.message);
+    }
+  };
+
+  // FIXED LOGIN FUNCTION
+  const login = async (authToken) => {
+    try {
+      console.log('🔐 Login function called with token');
+      
+      if (!authToken) {
+        throw new Error('No token provided to login function');
+      }
+
+      // 1. Save token to AsyncStorage FIRST
+      await AsyncStorage.setItem('token', authToken);
+      console.log('💾 Token saved to AsyncStorage in login function');
+      
+      // 2. Verify it was saved
+      const verifyToken = await AsyncStorage.getItem('token');
+      if (!verifyToken) {
+        throw new Error('Token verification failed after save');
+      }
+      console.log('✅ Token save verified in login function');
+      
+      // 3. Update state
+      setToken(authToken);
+      
+      // 4. Set in API client headers
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+      console.log('✅ Token set in API client headers');
+      
+      // 5. Fetch user data
+      await Promise.all([
+        fetchUserProfile(authToken),
+        fetchBalance(authToken)
+      ]);
+      
+      console.log('✅ Login function completed successfully');
+      return true;
+    } catch (error) {
+      console.error('❌ Login function error:', error);
+      // Clean up on error
+      await AsyncStorage.removeItem('token');
+      setToken(null);
+      setUser(null);
+      setBalance(0);
+      throw error;
     }
   };
 
   const logout = async () => {
     try {
+      console.log('🚪 Logout initiated');
       setIsLoggingOut(true);
       
-      // Clear state first to prevent any API calls
+      // Clear storage
+      await AsyncStorage.multiRemove(['token', 'user', 'balance']);
+      console.log('🗑️ Storage cleared');
+      
+      // Clear API headers
+      delete apiClient.defaults.headers.common['Authorization'];
+      
+      // Clear state
       setToken(null);
       setUser(null);
-      setBalance(null);
+      setBalance(0);
       
-      // Then clear storage
-      await storage.removeItem('userToken');
-      await storage.removeItem('user');
-      await storage.removeItem('balance');
-      
-      console.log('✅ Logout successful');
+      console.log('✅ Logout completed');
     } catch (error) {
-      console.error('Logout error:', error);
-      // Ensure state is cleared even if storage clear fails
-      setToken(null);
-      setUser(null);
-      setBalance(null);
+      console.error('❌ Logout error:', error);
     } finally {
       setIsLoggingOut(false);
     }
   };
 
-  const refreshProfile = () => {
-    if (token && !isLoggingOut) {
-      fetchUserProfile();
+  const refreshUserData = async () => {
+    if (token) {
+      await Promise.all([
+        fetchUserProfile(token),
+        fetchBalance(token)
+      ]);
     }
-  };
-
-  const refreshBalance = () => {
-    if (token && !isLoggingOut) {
-      fetchBalance();
-    }
-  };
-
-  const refreshAll = () => {
-    if (token && !isLoggingOut) {
-      fetchUserProfile();
-      fetchBalance();
-    }
-  };
-
-  // Helper functions to get data safely
-  const getUserName = () => {
-    if (!user) return 'User';
-    return user.name || user.username || 'User';
-  };
-
-  const getUserEmail = () => {
-    return user?.email || '';
-  };
-
-  const getBalance = () => {
-    if (!balance) return '0.00';
-    return balance.amount || '0.00';
-  };
-
-  const getBalanceWithCurrency = () => {
-    if (!balance) return '$0.00';
-    const currency = balance.currency === 'USD' ? '$' : balance.currency || '$';
-    return `${currency}${balance.amount || '0.00'}`;
-  };
-
-  const value = {
-    user,
-    balance,
-    token,
-    login,
-    logout,
-    loading,
-    isLoggingOut,
-    updateProfile,
-    refreshProfile,
-    refreshBalance,
-    refreshAll,
-    // Helper properties for easy access
-    userName: getUserName(),
-    userEmail: getUserEmail(),
-    userBalance: getBalance(),
-    userBalanceFormatted: getBalanceWithCurrency(),
-    isLoggedIn: !!token,
-    isEmailVerified: user?.isEmailVerified || false,
   };
 
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        token,
+        user,
+        balance,
+        isLoading,
+        isLoggingOut,
+        login,
+        logout,
+        refreshUserData,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
-
-export { AuthContext, AuthProvider };

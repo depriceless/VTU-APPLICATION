@@ -60,8 +60,17 @@ const walletSchema = new mongoose.Schema({
     averageTransactionAmount: {
       type: Number,
       default: 0
+    },
+    // ✅ FIXED: These should be INSIDE stats object
+    totalDeposits: {
+      type: Number,
+      default: 0
+    },
+    depositCount: {
+      type: Number,
+      default: 0
     }
-  },
+  }, // ← This closes stats object correctly
   
   // Metadata
   metadata: {

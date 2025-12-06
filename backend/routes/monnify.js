@@ -4,7 +4,7 @@ const axios = require('axios');
 const User = require('../models/User');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const { authenticate } = require('../middleware/auth');
-const Balance = require('../models/Balance');
+const Wallet = require('../models/Wallet');
 
 // Monnify Configuration
 const MONNIFY_CONFIG = {

@@ -40,6 +40,7 @@ interface UserBalance {
   main: number;
   bonus: number;
   total: number;
+  amount: number;
   lastUpdated: number;
 }
 
@@ -60,6 +61,20 @@ interface CablePackage {
   operator: string;
   description?: string;
 }
+
+// ✅ UNIFIED BALANCE HELPER - Extract balance consistently
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
+  if (typeof balanceData === 'number') return parseFloat(balanceData.toString()) || 0;
+  if (typeof balanceData === 'string') return parseFloat(balanceData) || 0;
+  
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 0;
+  return parseFloat(amount) || 0;
+};
 
 export default function BuyCableTV() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
@@ -117,10 +132,11 @@ export default function BuyCableTV() {
     },
   ];
 
-  // Validation
+  // ✅ FIXED: Validation with consistent balance extraction
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const isSmartCardValid = smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber);
-  const hasEnoughBalance = userBalance && selectedPackage ? selectedPackage.customerPrice <= userBalance.total : true;
+  const currentBalance = userBalance ? getBalanceAmount(userBalance) : 0;
+  const hasEnoughBalance = selectedPackage ? selectedPackage.customerPrice <= currentBalance : true;
   const canProceed = isPhoneValid && selectedOperator && selectedPackage && isSmartCardValid && customerName.trim() !== '' && !isLoadingPackages;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
@@ -144,17 +160,18 @@ export default function BuyCableTV() {
     }
   }, [selectedOperator]);
 
-  // Initialize on mount
+  // ✅ FIXED: Initialize balance properly using helper
   useEffect(() => {
     loadRecentNumbers();
     loadFormState();
     
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
         total: balanceAmount,
+        amount: balanceAmount,
         lastUpdated: Date.now(),
       });
     }
@@ -371,6 +388,7 @@ export default function BuyCableTV() {
     }
   };
 
+  // ✅ FIXED: Proper balance fetching with consistent extraction
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
@@ -378,16 +396,15 @@ export default function BuyCableTV() {
         await refreshBalance();
       }
       
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
+      if (balance !== undefined && balance !== null) {
+        const balanceAmount = getBalanceAmount(balance);
         
-        const realBalance = {
+        const realBalance: UserBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
-          currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          lastUpdated: Date.now(),
         };
 
         setUserBalance(realBalance);
@@ -396,15 +413,14 @@ export default function BuyCableTV() {
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const balanceAmount = getBalanceAmount(balanceData.balance);
           
-          const realBalance = {
+          const realBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(realBalance);
@@ -582,17 +598,14 @@ export default function BuyCableTV() {
         await saveRecentNumber(phone);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
+          const balanceAmount = getBalanceAmount(response.newBalance);
           
-          const updatedBalance = {
+          const updatedBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(updatedBalance);
@@ -870,7 +883,7 @@ export default function BuyCableTV() {
           style={styles.scrollContent}
           contentContainerStyle={styles.scrollContentContainer}
         >
-          {/* Balance Overview */}
+          {/* ✅ FIXED: Balance Overview with consistent extraction */}
           <View style={styles.balanceOverview}>
             <View style={styles.balanceHeader}>
               <Text style={styles.balanceLabel}>Available Balance</Text>
@@ -890,7 +903,10 @@ export default function BuyCableTV() {
             {userBalance ? (
               <>
                 <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                  ₦{getBalanceAmount(userBalance).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
                 </Text>
 
                 {selectedPackage && (
@@ -904,15 +920,15 @@ export default function BuyCableTV() {
                       <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                       <Text style={[
                         styles.balanceRowValueBold,
-                        (userBalance.total - selectedPackage.customerPrice) < 0 && styles.negativeAmount
+                        (getBalanceAmount(userBalance) - selectedPackage.customerPrice) < 0 && styles.negativeAmount
                       ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPackage.customerPrice).toLocaleString()}
+                        ₦{Math.max(0, getBalanceAmount(userBalance) - selectedPackage.customerPrice).toLocaleString()}
                       </Text>
                     </View>
                   </View>
                 )}
 
-                {selectedPackage && selectedPackage.customerPrice > (userBalance.total || userBalance.amount || 0) && (
+                {selectedPackage && selectedPackage.customerPrice > getBalanceAmount(userBalance) && (
                   <View style={styles.insufficientWarning}>
                     <Text style={styles.insufficientWarningText}>
                       Insufficient balance for this transaction
@@ -1946,8 +1962,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
-
-  packageItemSelected: {
+packageItemSelected: {
     backgroundColor: '#fff5f5',
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',

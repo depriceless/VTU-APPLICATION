@@ -14,23 +14,58 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { API_BASE_URL, storage, TOKEN_KEY } from '../src/config/api';
 
 const AMOUNT_LIMITS = { MIN: 100, MAX: 1000000 } as const;
-const STORAGE_KEYS = { AUTH_TOKEN: 'userToken', CACHED_ACCOUNT: 'cachedVirtualAccount' } as const;
+const STORAGE_KEYS = { 
+  AUTH_TOKEN: TOKEN_KEY, // Use centralized token key
+  CACHED_ACCOUNT: 'cachedVirtualAccount' 
+} as const;
+
+// ✅ Use centralized API configuration
 const API_CONFIG = {
-  BASE_URL: Platform.OS === 'web' ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api` : `${process.env.EXPO_PUBLIC_API_URL}/api`,
-  FALLBACK_URL: 'https://vtu-application.onrender.com/api',
-  ENDPOINTS: { VIRTUAL_ACCOUNT: '/payment/virtual-account', CARD_PAYMENT: '/card/pay', ACTIVE_GATEWAY: '/payment/active-gateway' },
+  BASE_URL: API_BASE_URL,
+  ENDPOINTS: { 
+    VIRTUAL_ACCOUNT: '/payment/virtual-account', 
+    CARD_PAYMENT: '/card/pay', 
+    ACTIVE_GATEWAY: '/payment/active-gateway' 
+  },
   TIMEOUT: 30000,
 } as const;
+
 const GATEWAY_NAMES = { paystack: 'Paystack', monnify: 'Monnify' } as const;
 
-interface FundWalletProps { token: string; currentBalance?: number; onSuccess?: () => void; }
-interface BankAccount { bankName: string; accountNumber: string; accountName: string; }
-interface BankData { accounts: BankAccount[]; reference?: string; gateway: 'paystack' | 'monnify'; }
-interface CardInfo { cardNumber: string; expiry: string; cvv: string; }
+interface FundWalletProps { 
+  token: string; 
+  currentBalance?: number; 
+  onSuccess?: () => void; 
+}
+
+interface BankAccount { 
+  bankName: string; 
+  accountNumber: string; 
+  accountName: string; 
+}
+
+interface BankData { 
+  accounts: BankAccount[]; 
+  reference?: string; 
+  gateway: 'paystack' | 'monnify'; 
+}
+
+interface CardInfo { 
+  cardNumber: string; 
+  expiry: string; 
+  cvv: string; 
+}
+
 type PaymentMethodType = 'bank' | 'card';
-interface PaymentMethod { id: PaymentMethodType; label: string; icon: keyof typeof Ionicons.glyphMap; }
+
+interface PaymentMethod { 
+  id: PaymentMethodType; 
+  label: string; 
+  icon: keyof typeof Ionicons.glyphMap; 
+}
 
 const PAYMENT_METHODS: PaymentMethod[] = [
   { id: 'bank', label: 'BANK TRANSFER', icon: 'business-outline' },
@@ -72,53 +107,73 @@ const formatters = {
 };
 
 const clearAccountCache = async (): Promise<void> => {
-  try { await AsyncStorage.removeItem(STORAGE_KEYS.CACHED_ACCOUNT); } catch (error) { console.error('[Cache] Failed to clear cache:', error); }
+  try { 
+    await AsyncStorage.removeItem(STORAGE_KEYS.CACHED_ACCOUNT); 
+  } catch (error) { 
+    console.error('[Cache] Failed to clear cache:', error); 
+  }
 };
 
 const saveToCache = async (bankData: BankData, gateway: string): Promise<void> => {
   try {
     const cacheData = { bankData, gateway, timestamp: Date.now() };
     await AsyncStorage.setItem(STORAGE_KEYS.CACHED_ACCOUNT, JSON.stringify(cacheData));
-  } catch (error) { console.error('[Cache] Failed to save to cache:', error); }
+  } catch (error) { 
+    console.error('[Cache] Failed to save to cache:', error); 
+  }
 };
 
 const useAPI = (token?: string) => {
   const makeRequest = useCallback(async (endpoint: string, options: RequestInit = {}): Promise<any> => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), API_CONFIG.TIMEOUT);
-    const urls = [`${API_CONFIG.BASE_URL}${endpoint}`, `${API_CONFIG.FALLBACK_URL}${endpoint}`];
-    const errors: string[] = [];
+    
+    // ✅ Use centralized API URL
+    const url = `${API_CONFIG.BASE_URL}${endpoint}`;
+    
+    console.log(`🚀 API Request: ${url}`);
+    console.log(`🔑 Token status: ${token ? 'EXISTS' : 'MISSING'}`);
 
-    for (let i = 0; i < urls.length; i++) {
-      try {
-        const response = await fetch(urls[i], {
-          ...options,
-          headers: {
-            'Content-Type': 'application/json',
-            ...(token && token.trim() && { Authorization: `Bearer ${token.trim()}` }),
-            ...options.headers,
-          },
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-        const responseText = await response.text();
-        const data = responseText ? JSON.parse(responseText) : {};
-        if (!response.ok) {
-          const errorMsg = data.message || data.error || `HTTP ${response.status}`;
-          errors.push(`URL ${i + 1}: ${errorMsg}`);
-          if (response.status === 401 || response.status === 403) throw new Error(`Authentication failed: ${errorMsg}`);
-          continue;
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token && token.trim() && { Authorization: `Bearer ${token.trim()}` }),
+          ...options.headers,
+        },
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const responseText = await response.text();
+      const data = responseText ? JSON.parse(responseText) : {};
+      
+      if (!response.ok) {
+        const errorMsg = data.message || data.error || `HTTP ${response.status}`;
+        console.error(`❌ API Error: ${errorMsg}`);
+        
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`Authentication failed: ${errorMsg}`);
         }
-        return data;
-      } catch (error: any) {
-        clearTimeout(timeoutId);
-        if (error.name === 'AbortError') errors.push(`URL ${i + 1}: Request timeout`);
-        else errors.push(`URL ${i + 1}: ${error.message}`);
-        if (error.message.includes('Authentication') || i === urls.length - 1) throw new Error(errors.join('; ') || error.message);
+        throw new Error(errorMsg);
       }
+      
+      console.log(`✅ API Success: ${url}`);
+      return data;
+    } catch (error: any) {
+      clearTimeout(timeoutId);
+      
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout. Please check your connection.');
+      }
+      
+      console.error(`❌ API Request Failed: ${error.message}`);
+      throw error;
     }
-    throw new Error(errors.join('; ') || 'All API endpoints failed');
   }, [token]);
+  
   return { makeRequest };
 };
 
@@ -132,7 +187,11 @@ const processAccountData = (data: any): BankData => {
 
   if (isPaystack) {
     if (data.accountNumber && data.accountName && data.bankName) {
-      accounts.push({ bankName: data.bankName, accountNumber: data.accountNumber, accountName: data.accountName });
+      accounts.push({ 
+        bankName: data.bankName, 
+        accountNumber: data.accountNumber, 
+        accountName: data.accountName 
+      });
     } else if (data.accounts && Array.isArray(data.accounts) && data.accounts.length > 0) {
       data.accounts.forEach((account: any) => {
         accounts.push({
@@ -159,7 +218,11 @@ const processAccountData = (data: any): BankData => {
   }
 
   if (accounts.length === 0) throw new Error('No account details found in response');
-  return { accounts, reference: data.reference || data.accountReference, gateway: gateway as 'paystack' | 'monnify' };
+  return { 
+    accounts, 
+    reference: data.reference || data.accountReference, 
+    gateway: gateway as 'paystack' | 'monnify' 
+  };
 };
 
 const useVirtualAccount = (token: string) => {
@@ -184,7 +247,9 @@ const useVirtualAccount = (token: string) => {
       else if (response.success && response.data?.activeGateway) gateway = response.data.activeGateway;
       else if (response.activeGateway) gateway = response.activeGateway;
       return gateway ? gateway.toLowerCase() : null;
-    } catch (error: any) { return null; }
+    } catch (error: any) { 
+      return null; 
+    }
   }, [makeRequest]);
 
   const fetchAccountDetails = useCallback(async (forceRefresh = false) => {
@@ -276,9 +341,18 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
       setError(`Amount must be between ${formatters.currency(AMOUNT_LIMITS.MIN)} and ${formatters.currency(AMOUNT_LIMITS.MAX)}`);
       return;
     }
-    if (!validators.cardNumber(cardInfo.cardNumber)) { setError('Please enter a valid card number'); return; }
-    if (!validators.expiry(cardInfo.expiry)) { setError('Please enter a valid expiry date (MM/YY)'); return; }
-    if (!validators.cvv(cardInfo.cvv)) { setError('Please enter a valid CVV (3-4 digits)'); return; }
+    if (!validators.cardNumber(cardInfo.cardNumber)) { 
+      setError('Please enter a valid card number'); 
+      return; 
+    }
+    if (!validators.expiry(cardInfo.expiry)) { 
+      setError('Please enter a valid expiry date (MM/YY)'); 
+      return; 
+    }
+    if (!validators.cvv(cardInfo.cvv)) { 
+      setError('Please enter a valid CVV (3-4 digits)'); 
+      return; 
+    }
     setIsProcessing(true);
     try {
       const [expiry_month, expiry_year] = cardInfo.expiry.split('/');
@@ -383,7 +457,11 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
           placeholderTextColor="#aaa"
           keyboardType="numeric"
           value={amount}
-          onChangeText={(text) => { setAmount(text.replace(/[^0-9]/g, '')); setError(''); setSuccess(''); }}
+          onChangeText={(text) => { 
+            setAmount(text.replace(/[^0-9]/g, '')); 
+            setError(''); 
+            setSuccess(''); 
+          }}
         />
         {amount !== '' && !validators.amount(amount) && (
           <Text style={styles.validationError}>Amount must be between {formatters.currency(AMOUNT_LIMITS.MIN)} and {formatters.currency(AMOUNT_LIMITS.MAX)}</Text>
@@ -399,7 +477,10 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
           value={cardInfo.cardNumber}
           keyboardType="numeric"
           maxLength={19}
-          onChangeText={(text) => { setCardInfo({...cardInfo, cardNumber: formatters.cardNumber(text)}); setError(''); }}
+          onChangeText={(text) => { 
+            setCardInfo({...cardInfo, cardNumber: formatters.cardNumber(text)}); 
+            setError(''); 
+          }}
         />
         <View style={styles.cardRow}>
           <TextInput
@@ -409,7 +490,10 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
             value={cardInfo.expiry}
             keyboardType="numeric"
             maxLength={5}
-            onChangeText={(text) => { setCardInfo({...cardInfo, expiry: formatters.expiry(text)}); setError(''); }}
+            onChangeText={(text) => { 
+              setCardInfo({...cardInfo, expiry: formatters.expiry(text)}); 
+              setError(''); 
+            }}
           />
           <TextInput
             style={[styles.inputHalf, error && error.includes('CVV') && styles.inputError]}
@@ -419,11 +503,19 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
             keyboardType="numeric"
             maxLength={4}
             secureTextEntry
-            onChangeText={(text) => { setCardInfo({...cardInfo, cvv: text.replace(/[^0-9]/g, '')}); setError(''); }}
+            onChangeText={(text) => { 
+              setCardInfo({...cardInfo, cvv: text.replace(/[^0-9]/g, '')}); 
+              setError(''); 
+            }}
           />
         </View>
       </View>
-      <TouchableOpacity style={[styles.proceedBtn, (isProcessing || !amount || !validators.amount(amount)) && styles.proceedDisabled]} onPress={handleCardPayment} disabled={isProcessing || !amount || !validators.amount(amount)} activeOpacity={0.8}>
+      <TouchableOpacity 
+        style={[styles.proceedBtn, (isProcessing || !amount || !validators.amount(amount)) && styles.proceedDisabled]} 
+        onPress={handleCardPayment} 
+        disabled={isProcessing || !amount || !validators.amount(amount)} 
+        activeOpacity={0.8}
+      >
         {isProcessing ? (
           <View style={styles.loadingRow}>
             <ActivityIndicator color="#fff" size="small" />
@@ -441,12 +533,33 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
 
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollContent} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refetch} colors={['#ff3b30']} tintColor="#ff3b30" />}>
+      <ScrollView 
+        style={styles.scrollContent} 
+        contentContainerStyle={{ paddingBottom: 40 }} 
+        showsVerticalScrollIndicator={false} 
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={refetch} 
+            colors={['#ff3b30']} 
+            tintColor="#ff3b30" 
+          />
+        }
+      >
         <View style={styles.methodSection}>
           <Text style={styles.sectionTitle}>Select Payment Method</Text>
           <View style={styles.methodGrid}>
             {PAYMENT_METHODS.map((method) => (
-              <TouchableOpacity key={method.id} style={[styles.methodButton, paymentMethod === method.id && styles.methodButtonActive]} onPress={() => { setPaymentMethod(method.id); setError(''); setSuccess(''); }} activeOpacity={0.7}>
+              <TouchableOpacity 
+                key={method.id} 
+                style={[styles.methodButton, paymentMethod === method.id && styles.methodButtonActive]} 
+                onPress={() => { 
+                  setPaymentMethod(method.id); 
+                  setError(''); 
+                  setSuccess(''); 
+                }} 
+                activeOpacity={0.7}
+              >
                 <Ionicons name={method.icon} size={20} color={paymentMethod === method.id ? '#ff3b30' : '#666'} />
                 <Text style={[styles.methodText, paymentMethod === method.id && styles.methodTextActive]}>{method.label}</Text>
               </TouchableOpacity>
@@ -458,7 +571,9 @@ export default function FundWallet({ token, currentBalance = 0, onSuccess }: Fun
         {paymentMethod === 'bank' ? renderBankTransferSection() : renderCardPaymentSection()}
         <View style={styles.helpContainer}>
           <Text style={styles.helpText}>
-            {paymentMethod === 'bank' ? 'This account is permanent and can be used anytime to fund your wallet. Wallet updates automatically within 2-5 minutes.' : 'Your wallet will be credited immediately after successful payment. Card payments are secured with SSL encryption.'}
+            {paymentMethod === 'bank' 
+              ? 'This account is permanent and can be used anytime to fund your wallet. Wallet updates automatically within 2-5 minutes.' 
+              : 'Your wallet will be credited immediately after successful payment. Card payments are secured with SSL encryption.'}
           </Text>
         </View>
       </ScrollView>

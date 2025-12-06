@@ -1,13 +1,12 @@
-// routes/balance.js
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const Wallet = require('../models/Wallet');
+const Wallet = require('../models/Wallet'); // ✅ Use Wallet, not Balance
 
 // GET user wallet balance
 router.get('/', authenticate, async (req, res) => {
   try {
-    const wallet = await Wallet.findOne({ userId: req.user.userId });
+    const wallet = await Wallet.findOne({ userId: req.user.userId }); // ✅ Changed from Balance
 
     if (!wallet) {
       return res.status(404).json({ success: false, message: 'Wallet not found' });
@@ -38,7 +37,7 @@ router.put('/', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Amount must be a number' });
     }
 
-    const wallet = await Wallet.findOne({ userId: req.user.userId });
+    const wallet = await Wallet.findOne({ userId: req.user.userId }); // ✅ Changed from Balance
 
     if (!wallet) {
       return res.status(404).json({ success: false, message: 'Wallet not found' });

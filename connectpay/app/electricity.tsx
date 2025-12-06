@@ -69,11 +69,34 @@ interface MeterType {
   description: string;
 }
 
-export default function BuyElectricity() {
-  const { token, user, balance, refreshBalance } = useContext(AuthContext);
+// Helper function to safely extract balance amount (same as BuyAirtime)
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
   
+  if (typeof balanceData === 'number') {
+    return parseFloat(balanceData.toString()) || 0;
+  }
+  
+  if (typeof balanceData === 'string') {
+    return parseFloat(balanceData) || 0;
+  }
+  
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 balanceData.totalBalance || 
+                 balanceData.mainBalance || 
+                 0;
+  
+  return parseFloat(amount) || 0;
+};
+
+export default function BuyElectricity() {
+  const { token, balance, refreshBalance } = useContext(AuthContext);
+  
+  // Form state
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
-  const [showPinEntry, setShowPinEntry] = useState(false);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedMeterType, setSelectedMeterType] = useState<string | null>(null);
   const [meterNumber, setMeterNumber] = useState('');
@@ -83,26 +106,36 @@ export default function BuyElectricity() {
   const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('');
   const [pin, setPin] = useState('');
+  
+  // UI state
+  const [showPinEntry, setShowPinEntry] = useState(false);
+  const [showContactsModal, setShowContactsModal] = useState(false);
+  const [showRecentsModal, setShowRecentsModal] = useState(false);
+  const [showProvidersModal, setShowProvidersModal] = useState(false);
+  const [showMeterTypeModal, setShowMeterTypeModal] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  
+  // Data state
   const [contactsList, setContactsList] = useState<Contact[]>([]);
   const [recentNumbers, setRecentNumbers] = useState<RecentNumber[]>([]);
   const [userBalance, setUserBalance] = useState<UserBalance | null>(null);
   const [pinStatus, setPinStatus] = useState<PinStatus | null>(null);
   const [electricityProviders, setElectricityProviders] = useState<ElectricityProvider[]>([]);
-  const [showContactsModal, setShowContactsModal] = useState(false);
-  const [showRecentsModal, setShowRecentsModal] = useState(false);
-  const [showProvidersModal, setShowProvidersModal] = useState(false);
-  const [showMeterTypeModal, setShowMeterTypeModal] = useState(false);
+  const [successData, setSuccessData] = useState<any>(null);
+  
+  // Loading states
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [isValidatingMeter, setIsValidatingMeter] = useState(false);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+  
+  // Error states
   const [pinError, setPinError] = useState('');
   const [meterError, setMeterError] = useState('');
+  
   const pinInputRef = useRef<TextInput>(null);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successData, setSuccessData] = useState(null);
 
   const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000];
 
@@ -139,12 +172,17 @@ export default function BuyElectricity() {
   const isMeterNumberValid = meterNumber.length >= 10 && /^\d+$/.test(meterNumber);
   const amountNum = parseInt(amount) || 0;
   const isAmountValid = amountNum >= 100 && amountNum <= 100000;
-  const hasEnoughBalance = userBalance ? amountNum <= (userBalance.total || userBalance.amount || 0) : true;
+  const currentBalance = getBalanceAmount(userBalance);
+  const hasEnoughBalance = currentBalance > 0 ? amountNum <= currentBalance : true;
   const canProceed = isPhoneValid && selectedProvider && selectedMeterType && 
-                    isMeterNumberValid && isAmountValid && customerName.trim() !== '';
+                    isMeterNumberValid && isAmountValid && customerName.trim() !== '' && hasEnoughBalance;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // Auto-validate meter
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
+
+  // Auto-validate meter when number is entered
   useEffect(() => {
     if (isMeterNumberValid && selectedProvider && selectedMeterType && meterNumber.length >= 10) {
       const timer = setTimeout(() => {
@@ -166,7 +204,8 @@ export default function BuyElectricity() {
     fetchElectricityProviders();
     
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
+      console.log('Initial balance from context:', balanceAmount);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
@@ -195,28 +234,21 @@ export default function BuyElectricity() {
       setPin('');
       setPinError('');
       checkPinStatus();
-      
-      setTimeout(() => {
-        pinInputRef.current?.focus();
-      }, 300);
+      setTimeout(() => pinInputRef.current?.focus(), 300);
     }
   }, [showPinEntry]);
-
-  const handlePinAreaPress = () => {
-    setTimeout(() => {
-      pinInputRef.current?.focus();
-    }, 50);
-  };
 
   // Save form state
   useEffect(() => {
     saveFormState();
   }, [phone, amount, selectedProvider, selectedMeterType, meterNumber]);
 
+  // ============================================================================
+  // API FUNCTIONS
+  // ============================================================================
+
   const getAuthToken = async () => {
-    if (!token) {
-      throw new Error('Authentication required');
-    }
+    if (!token) throw new Error('Authentication required');
     return token;
   };
 
@@ -245,7 +277,7 @@ export default function BuyElectricity() {
         throw new Error('Unable to read server response');
       }
 
-      let data = {};
+      let data: any = {};
       if (responseText.trim()) {
         try {
           data = JSON.parse(responseText);
@@ -262,9 +294,9 @@ export default function BuyElectricity() {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
         
         if (endpoint === '/purchase' && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
+          const error: any = new Error(errorMessage);
+          error.responseData = data;
+          error.httpStatus = response.status;
           throw error;
         }
         
@@ -272,8 +304,7 @@ export default function BuyElectricity() {
       }
 
       return data;
-
-    } catch (error) {
+    } catch (error: any) {
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
@@ -326,7 +357,7 @@ export default function BuyElectricity() {
       } else {
         setMeterError(response?.message || 'Meter validation failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       setMeterError(error.message || 'Unable to validate meter');
       setCustomerName('');
       setCustomerAddress('');
@@ -354,27 +385,27 @@ export default function BuyElectricity() {
         await refreshBalance();
       }
       
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
-        const realBalance = {
+      if (balance !== undefined && balance !== null) {
+        const balanceAmount = getBalanceAmount(balance);
+        const realBalance: UserBalance = {
+          amount: balanceAmount,
+          total: balanceAmount,
           main: balanceAmount,
           bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          lastUpdated: balance.lastUpdated || Date.now(),
+          lastUpdated: Date.now(),
         };
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
       } else {
         const balanceData = await makeApiRequest("/balance");
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
-          const realBalance = {
+          const balanceAmount = getBalanceAmount(balanceData.balance);
+          const realBalance: UserBalance = {
+            amount: balanceAmount,
+            total: balanceAmount,
             main: balanceAmount,
             bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            lastUpdated: balanceData.balance.lastUpdated || Date.now(),
+            lastUpdated: Date.now(),
           };
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
@@ -395,6 +426,10 @@ export default function BuyElectricity() {
       setIsLoadingBalance(false);
     }
   };
+
+  // ============================================================================
+  // STORAGE FUNCTIONS
+  // ============================================================================
 
   const saveFormState = async () => {
     try {
@@ -445,6 +480,10 @@ export default function BuyElectricity() {
       console.log('Error loading recent numbers:', error);
     }
   };
+
+  // ============================================================================
+  // CONTACT FUNCTIONS
+  // ============================================================================
 
   const selectContact = async () => {
     setIsLoadingContacts(true);
@@ -503,6 +542,10 @@ export default function BuyElectricity() {
     setShowRecentsModal(false);
   };
 
+  // ============================================================================
+  // PAYMENT FUNCTIONS
+  // ============================================================================
+
   const handleQuickAmount = (quickAmount: number) => {
     setAmount(quickAmount.toString());
   };
@@ -548,18 +591,14 @@ export default function BuyElectricity() {
         await saveRecentNumber(phone, customerName);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
-          
-          const updatedBalance = {
+          const balanceAmount = getBalanceAmount(response.newBalance);
+          const updatedBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            lastUpdated: response.newBalance.lastUpdated || Date.now(),
+            lastUpdated: Date.now(),
           };
-
           setUserBalance(updatedBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
         }
@@ -582,30 +621,27 @@ export default function BuyElectricity() {
         });
 
         setShowPinEntry(false);
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 300);
-
+        setTimeout(() => setShowSuccessModal(true), 300);
       } else {
         if (response.message && response.message.toLowerCase().includes('pin')) {
           setPinError(response.message);
         }
         Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
-
-    } catch (error) {
-      if (error.message.includes('locked') || error.message.includes('attempts')) {
-        setPinError(error.message);
-      } else if (error.message.includes('PIN')) {
+    } catch (error: any) {
+      if (error.message.includes('locked') || error.message.includes('attempts') || error.message.includes('PIN')) {
         setPinError(error.message);
       } else {
         Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
       }
-
     } finally {
       setIsValidatingPin(false);
       setIsProcessingPayment(false);
     }
+  };
+
+  const handlePinAreaPress = () => {
+    setTimeout(() => pinInputRef.current?.focus(), 50);
   };
 
   const handleCloseSuccessModal = () => {
@@ -628,6 +664,10 @@ export default function BuyElectricity() {
     setMeterError('');
     setShowPinEntry(false);
   };
+
+  // ============================================================================
+  // RENDER
+  // ============================================================================
 
   return (
     <View style={styles.container}>

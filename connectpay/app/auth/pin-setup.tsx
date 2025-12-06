@@ -13,7 +13,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { storage, TOKEN_KEY } from '../../src/config/api'; // ✅ FIXED: Import from api config
 import { Ionicons } from '@expo/vector-icons';
 
 const API_BASE_URL = Platform.OS === 'web' 
@@ -103,6 +103,8 @@ export default function PinSetupScreen() {
     setError('');
 
     try {
+      console.log('🔄 Setting up PIN...');
+      
       const response = await makeApiRequest('/auth/setup-pin', {
         method: 'POST',
         body: JSON.stringify({
@@ -112,8 +114,21 @@ export default function PinSetupScreen() {
       });
 
       if (response.success) {
-        await AsyncStorage.setItem('isPinSetup', 'true');
-        await AsyncStorage.setItem('userToken', userToken);
+        console.log('✅ PIN setup successful');
+        
+        // ✅ FIXED: Use SecureStore with consistent key
+        await storage.setItem('isPinSetup', 'true');
+        await storage.setItem(TOKEN_KEY, userToken);
+        
+        console.log('💾 Token and PIN status saved to SecureStore');
+        
+        // Verify token was saved
+        const verifyToken = await storage.getItem(TOKEN_KEY);
+        console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED ✅' : 'FAILED ❌');
+        
+        if (!verifyToken) {
+          throw new Error('Token save verification failed');
+        }
 
         router.replace('/dashboard');
 
@@ -126,12 +141,14 @@ export default function PinSetupScreen() {
         }, 500);
       }
     } catch (error) {
-      console.error('PIN setup error:', error);
+      console.error('❌ PIN setup error:', error);
 
       if (error.message.includes('already set')) {
         setError('PIN has already been set up for this account.');
       } else if (error.message.includes('Invalid')) {
         setError('Invalid PIN format. Please try again.');
+      } else if (error.message.includes('Token save verification failed')) {
+        setError('Failed to save authentication. Please try logging in again.');
       } else {
         setError('Failed to set up PIN. Please check your connection and try again.');
       }

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticate } = require('../middleware/auth');
-const Balance = require('../models/Balance');
+const Wallet = require('../models/Wallet');
 const User = require('../models/User');
 
 // Gateway Configuration

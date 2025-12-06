@@ -12,12 +12,9 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import axios from 'axios';
+import apiClient from '../../src/config/api';
+import { storage, TOKEN_KEY } from '../../src/config/api'; // ✅ ADDED: Import storage helper
 import { Ionicons } from '@expo/vector-icons';
-
-const API_BASE_URL = Platform.OS === 'web' 
-  ? process.env.EXPO_PUBLIC_API_URL_WEB 
-  : process.env.EXPO_PUBLIC_API_URL;
 
 export default function SignupScreen() {
   const router = useRouter();
@@ -109,16 +106,37 @@ export default function SignupScreen() {
     };
 
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/register`, data, {
-        timeout: 10000,
-        headers: { 'Content-Type': 'application/json' },
-      });
+      console.log('🔄 Attempting signup...');
+      
+      const response = await apiClient.post('/auth/register', data);
+      
+      console.log('✅ Signup response received:', response.status);
 
       const { token, user } = response.data;
+      
+      if (!token) {
+        throw new Error('No token received from server');
+      }
+
+      console.log('✅ Signup successful, token received');
+      console.log('🔑 Token length:', token.length);
+      
+      // ✅ ADDED: Save token immediately to SecureStore
+      await storage.setItem(TOKEN_KEY, token);
+      console.log('💾 Token saved to SecureStore');
+      
+      // Verify token was saved
+      const verifyToken = await storage.getItem(TOKEN_KEY);
+      console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED ✅' : 'FAILED ❌');
+      
+      if (!verifyToken) {
+        throw new Error('Token save verification failed');
+      }
       
       setMessage({ text: 'Account created successfully! Setting up your profile...', type: 'success' });
 
       setTimeout(() => {
+        console.log('🚀 Navigating to pin-setup');
         router.push({
           pathname: './pin-setup',
           params: { 
@@ -129,14 +147,33 @@ export default function SignupScreen() {
       }, 1500);
 
     } catch (error) {
-      console.error('Signup error:', error);
+      console.error('❌ Signup error:', error);
       
-      if (error.response?.status === 409) {
-        setMessage({ text: 'Email or username already exists. Please try different credentials.', type: 'error' });
-      } else if (error.response?.data?.message) {
-        setMessage({ text: error.response.data.message, type: 'error' });
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        setMessage({ text: 'Request timed out. Please check your internet connection.', type: 'error' });
+      } else if (error.message?.includes('Token save verification failed')) {
+        setMessage({ text: 'Account created but failed to save session. Please try logging in.', type: 'error' });
+      } else if (error.response) {
+        const status = error.response.status;
+        const message = error.response.data?.message;
+        
+        if (status === 409) {
+          setMessage({ text: message || 'Email, username, or phone already exists.', type: 'error' });
+        } else if (status === 400) {
+          setMessage({ text: message || 'Invalid signup data. Please check your information.', type: 'error' });
+        } else if (status === 422) {
+          setMessage({ text: message || 'Validation failed. Please check all fields.', type: 'error' });
+        } else if (status >= 500) {
+          setMessage({ text: 'Server error. Please try again later.', type: 'error' });
+        } else {
+          setMessage({ text: message || 'Unable to create account. Please try again.', type: 'error' });
+        }
+      } else if (error.request) {
+        console.error('❌ No response received from server');
+        setMessage({ text: 'Cannot reach the server. Please check your internet connection.', type: 'error' });
       } else {
-        setMessage({ text: 'Unable to create account. Please check your connection and try again.', type: 'error' });
+        console.error('❌ Request setup error:', error.message);
+        setMessage({ text: error.message || 'An unexpected error occurred. Please try again.', type: 'error' });
       }
     } finally {
       setLoading(false);

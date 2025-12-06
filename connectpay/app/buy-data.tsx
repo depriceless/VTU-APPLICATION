@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useContext } from 'react';
 import DataSuccessModal from './DataSuccessModal';
 import {
@@ -40,6 +41,7 @@ interface UserBalance {
   main: number;
   bonus: number;
   total: number;
+  amount: number;
   lastUpdated: number;
 }
 
@@ -64,6 +66,32 @@ interface DataPlan {
 
 type PlanCategory = 'regular' | 'sme' | 'gift';
 
+// Helper function to safely extract balance amount
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
+  
+  // If it's already a number, return it directly
+  if (typeof balanceData === 'number') {
+    return parseFloat(balanceData.toString()) || 0;
+  }
+  
+  // If it's a string, parse it
+  if (typeof balanceData === 'string') {
+    return parseFloat(balanceData) || 0;
+  }
+  
+  // If it's an object, try different possible balance properties
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 balanceData.totalBalance || 
+                 balanceData.mainBalance || 
+                 0;
+  
+  return parseFloat(amount) || 0;
+};
+
 export default function BuyData() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
   
@@ -87,7 +115,7 @@ export default function BuyData() {
   const [pinError, setPinError] = useState('');
   const pinInputRef = React.useRef<TextInput>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successData, setSuccessData] = useState(null);
+  const [successData, setSuccessData] = useState<any>(null);
   const [dataPlans, setDataPlans] = useState<DataPlan[]>([]);
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [showPlans, setShowPlans] = useState(false);
@@ -141,7 +169,8 @@ export default function BuyData() {
   };
 
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
-  const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.customerPrice <= userBalance.total : true;
+  const currentBalance = getBalanceAmount(userBalance);
+  const hasEnoughBalance = userBalance && selectedPlan ? selectedPlan.customerPrice <= currentBalance : true;
   const canProceed = isPhoneValid && selectedNetwork && selectedPlan && !isLoadingPlans;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
@@ -170,11 +199,13 @@ export default function BuyData() {
     loadFormState();
     
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
+      console.log('Initial balance from context:', balanceAmount, 'Raw balance:', balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
         total: balanceAmount,
+        amount: balanceAmount,
         lastUpdated: Date.now(),
       });
     }
@@ -203,6 +234,21 @@ export default function BuyData() {
     }
   }, [showPinEntry]);
 
+  // Debug logging for balance
+  useEffect(() => {
+    if (userBalance) {
+      console.log('=== DATA BALANCE DEBUG ===');
+      console.log('userBalance object:', JSON.stringify(userBalance, null, 2));
+      console.log('Extracted amount:', getBalanceAmount(userBalance));
+      console.log('Current balance:', currentBalance);
+      if (selectedPlan) {
+        console.log('Plan price:', selectedPlan.customerPrice);
+        console.log('Has enough?', hasEnoughBalance);
+      }
+      console.log('===================');
+    }
+  }, [userBalance, selectedPlan]);
+
   const handlePinAreaPress = () => {
     console.log('PIN area pressed - attempting to focus input');
     setTimeout(() => {
@@ -222,7 +268,7 @@ export default function BuyData() {
     return token;
   };
 
-  const makeApiRequest = async (endpoint, options = {}) => {
+  const makeApiRequest = async (endpoint: string, options: any = {}) => {
     console.log(`API Request: ${endpoint}`);
     
     try {
@@ -249,7 +295,7 @@ export default function BuyData() {
         throw new Error('Unable to read server response');
       }
 
-      let data = {};
+      let data: any = {};
       if (responseText.trim()) {
         try {
           data = JSON.parse(responseText);
@@ -266,9 +312,9 @@ export default function BuyData() {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
         
         if (endpoint === '/purchase' && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
+          const error: any = new Error(errorMessage);
+          error.responseData = data;
+          error.httpStatus = response.status;
           throw error;
         }
         
@@ -277,7 +323,7 @@ export default function BuyData() {
 
       return data;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(`API Error for ${endpoint}:`, error.message);
 
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
@@ -303,7 +349,7 @@ export default function BuyData() {
       console.log('Fetched plans:', response.plans?.slice(0, 2));
       
       if (response.success) {
-        const plansWithPrice = (response.plans || []).map(plan => ({
+        const plansWithPrice = (response.plans || []).map((plan: any) => ({
           ...plan,
           customerPrice: plan.customerPrice || plan.providerCost || plan.amount || 0,
           amount: plan.providerCost || plan.amount || 0
@@ -312,7 +358,7 @@ export default function BuyData() {
       } else {
         throw new Error(response.message || 'Failed to fetch data plans');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching data plans:', error);
       Alert.alert('Error', 'Could not load data plans. Please try again.');
       setDataPlans([]);
@@ -338,43 +384,49 @@ export default function BuyData() {
     setIsLoadingBalance(true);
     try {
       console.log("Refreshing balance from AuthContext");
+      console.log("Raw balance object:", JSON.stringify(balance, null, 2));
       
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
+      if (balance !== undefined && balance !== null) {
+        // Extract the actual balance amount more reliably
+        const balanceAmount = getBalanceAmount(balance);
         
-        const realBalance = {
+        console.log("Balance from context:", balanceAmount, "Raw balance:", balance);
+        
+        const realBalance: UserBalance = {
           main: balanceAmount,
           bonus: 0,
           total: balanceAmount,
           amount: balanceAmount,
-          currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          lastUpdated: Date.now(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
         console.log("Balance updated from AuthContext:", realBalance);
       } else {
+        console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const balanceAmount = getBalanceAmount(balanceData.balance);
           
-          const realBalance = {
+          console.log("Balance from API:", balanceAmount);
+          
+          const realBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+          console.log("Balance updated from API:", realBalance);
         }
       }
     } catch (error) {
@@ -385,6 +437,7 @@ export default function BuyData() {
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
           setUserBalance(parsedBalance);
+          console.log("Using cached balance:", parsedBalance);
         } else {
           setUserBalance(null);
         }
@@ -564,17 +617,14 @@ export default function BuyData() {
         await saveRecentNumber(phone);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
+          const balanceAmount = getBalanceAmount(response.newBalance);
           
-          const updatedBalance = {
+          const updatedBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(updatedBalance);
@@ -606,7 +656,7 @@ export default function BuyData() {
         Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Data payment error:', error);
       
       if (error.message.includes('locked') || error.message.includes('attempts')) {
@@ -883,7 +933,10 @@ export default function BuyData() {
             {userBalance ? (
               <>
                 <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                  ₦{getBalanceAmount(userBalance).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
                 </Text>
 
                 {selectedPlan && (
@@ -897,15 +950,15 @@ export default function BuyData() {
                       <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                       <Text style={[
                         styles.balanceRowValueBold,
-                        (userBalance.total - selectedPlan.customerPrice) < 0 && styles.negativeAmount
+                        (getBalanceAmount(userBalance) - selectedPlan.customerPrice) < 0 && styles.negativeAmount
                       ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - selectedPlan.customerPrice).toLocaleString()}
+                        ₦{Math.max(0, getBalanceAmount(userBalance) - selectedPlan.customerPrice).toLocaleString()}
                       </Text>
                     </View>
                   </View>
                 )}
 
-                {selectedPlan && selectedPlan.customerPrice > (userBalance.total || userBalance.amount || 0) && (
+                {selectedPlan && selectedPlan.customerPrice > getBalanceAmount(userBalance) && (
                   <View style={styles.insufficientWarning}>
                     <Text style={styles.insufficientWarningText}>
                       Insufficient balance for this transaction
@@ -1055,7 +1108,7 @@ export default function BuyData() {
                 ))}
               </View>
               <Text style={styles.pinInputHint}>
-              Tap here to enter PIN
+                Tap here to enter PIN
               </Text>
               
               {/* Actual Input - Transparent overlay */}

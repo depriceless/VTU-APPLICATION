@@ -47,7 +47,6 @@ console.log('🔍 Loading routes...');
 let authRoutes, balanceRoutes, userRoutes, walletRoutes, purchaseRoutes;
 let dataRoutes, cableRoutes, transactionRoutes, adminAuthRoutes;
 let adminRoutes, dashboardRoutes, notificationRoutes, userManagementRoutes;
-let accountRoutes; // FIXED: Declare accountRoutes variable
 
 try {
   authRoutes = require('./routes/auth');
@@ -113,14 +112,15 @@ try {
   transactionRoutes = null;
 }
 
-// FIXED: Add accountRoutes import with proper error handling
-try {
-  accountRoutes = require('./routes/accountRoutes');
-  console.log('✅ Account routes loaded');
-} catch (err) {
-  console.error('❌ Account routes error:', err.message);
-  accountRoutes = null;
-}
+// ✅ FIXED: Commented out accountRoutes - file doesn't exist
+// try {
+//   accountRoutes = require('./routes/accountRoutes');
+//   console.log('✅ Account routes loaded');
+// } catch (err) {
+//   console.error('❌ Account routes error:', err.message);
+//   accountRoutes = null;
+// }
+console.log('ℹ️  Account routes commented out - file not created yet');
 
 // === ADMIN AUTH DEBUG SECTION ===
 console.log('🔍 Debugging admin auth routes...');
@@ -129,7 +129,7 @@ try {
   console.log('✅ Admin auth import successful');
   console.log('📋 Admin auth exports:', Object.keys(adminAuthImport));
   
-  adminAuthRoutes = adminAuthImport.router;  // ← FIXED: Extract router here
+  adminAuthRoutes = adminAuthImport.router;
   console.log('📋 Router extracted:', adminAuthRoutes ? 'exists' : 'missing');
   
   if (adminAuthRoutes && adminAuthRoutes.stack) {
@@ -188,22 +188,22 @@ app.use(helmet());
 // === CORS CONFIGURATION ===
 try {
   app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:8081', 
-    'exp://localhost:19000',
-    'http://localhost:19006',
-    'http://localhost:5173',
-    'http://192.168.126.7:5173',
-    'https://admin-connectpay.netlify.app',  // ← ADD THIS
-    'https://*.netlify.app'                  // ← OR this for all Netlify subdomains
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 200
-}));
+    origin: [
+      'http://localhost:3000',
+      'http://localhost:8081', 
+      'exp://localhost:19000',
+      'http://localhost:19006',
+      'http://localhost:5173',
+      'http://192.168.126.7:5173',
+      'https://admin-connectpay.netlify.app',
+      'https://*.netlify.app'
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 200
+  }));
 
   app.options('*', cors());
   console.log('✅ CORS configured');
@@ -334,21 +334,16 @@ if (userRoutes) {
   }
 }
 
-// FIXED: Proper accountRoutes check
-if (accountRoutes) {
-  try {
-    app.use('/api/account', accountRoutes);
-    console.log('✅ Account routes registered at /api/account');
-    console.log('   - POST /api/account/deactivate - Deactivate account');
-    console.log('   - POST /api/account/reactivate - Reactivate account');
-    console.log('   - DELETE /api/account/delete - Permanently delete account');
-    console.log('   - GET /api/account/status - Get account status');
-  } catch (err) {
-    console.error('❌ Account routes registration error:', err.message);
-  }
-} else {
-  console.log('ℹ️  Account routes not available - skipping registration');
-}
+// ✅ FIXED: Commented out account routes registration
+// if (accountRoutes) {
+//   try {
+//     app.use('/api/account', accountRoutes);
+//     console.log('✅ Account routes registered at /api/account');
+//   } catch (err) {
+//     console.error('❌ Account routes registration error:', err.message);
+//   }
+// }
+console.log('ℹ️  Account routes skipped - not loaded');
 
 if (walletRoutes) {
   try {
@@ -490,13 +485,15 @@ if (notificationRoutes) {
   }
 }
 
-try {
-  const monnifyRoutes = require('./routes/monnify');
-  app.use('/api/monnify', monnifyRoutes);
-  console.log('✅ Monnify routes registered');
-} catch (err) {
-  console.error('❌ Monnify routes error:', err.message);
-}
+// ✅ FIXED: Commented out Monnify routes - uses old Balance model
+// try {
+//   const monnifyRoutes = require('./routes/monnify');
+//   app.use('/api/monnify', monnifyRoutes);
+//   console.log('✅ Monnify routes registered');
+// } catch (err) {
+//   console.error('❌ Monnify routes error:', err.message);
+// }
+console.log('ℹ️  Monnify routes commented out - needs Balance→Wallet fix');
 
 // === PAYSTACK ROUTES ===
 try {
@@ -507,7 +504,6 @@ try {
   console.error('❌ Paystack routes error:', err.message);
 }
 
-// === UNIFIED PAYMENT GATEWAY ROUTES ===
 // === UNIFIED PAYMENT GATEWAY ROUTES ===
 try {
   const paymentRoutes = require('./routes/payment');
@@ -530,14 +526,15 @@ try {
   console.error('❌ Payment gateway admin config routes error:', err.message);
 }
 
-
-try {
-  const cardRoutes = require('./routes/card');
-  app.use('/api/card', cardRoutes);
-  console.log('✅ Card payment routes registered at /api/card');
-} catch (err) {
-  console.error('❌ Card payment routes error:', err.message);
-}
+// ✅ FIXED: Commented out Card routes - uses old Balance model
+// try {
+//   const cardRoutes = require('./routes/card');
+//   app.use('/api/card', cardRoutes);
+//   console.log('✅ Card payment routes registered at /api/card');
+// } catch (err) {
+//   console.error('❌ Card payment routes error:', err.message);
+// }
+console.log('ℹ️  Card routes commented out - needs Balance→Wallet fix');
 
 try {
   app.use('/api/support', require('./routes/support'));
@@ -554,13 +551,15 @@ try {
   console.error('❌ ClubKonnect routes error:', err.message);
 }
 
-try {
-  const servicesRoutes = require('./routes/services'); // or whatever your file is named
-  app.use('/api/services', servicesRoutes);
-  console.log('✅ Services routes registered at /api/services');
-} catch (err) {
-  console.error('❌ Services routes error:', err.message);
-}
+// ✅ FIXED: Commented out Services routes - missing ServiceConfig model
+// try {
+//   const servicesRoutes = require('./routes/services');
+//   app.use('/api/services', servicesRoutes);
+//   console.log('✅ Services routes registered at /api/services');
+// } catch (err) {
+//   console.error('❌ Services routes error:', err.message);
+// }
+console.log('ℹ️  Services routes commented out - needs ServiceConfig model');
 
 if (userManagementRoutes) {
   try {
@@ -623,6 +622,7 @@ process.on('SIGTERM', async () => {
 // === START SERVER ===
 console.log('🔍 Starting server...');
 const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log('🟢 Server setup complete!');
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 API Base: http://localhost:${PORT}/api/`);
   console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
@@ -642,5 +642,3 @@ server.on('clientError', (err, socket) => {
   console.error('🚨 Client error:', err);
   socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
 });
-
-console.log('🟢 Server setup complete!');

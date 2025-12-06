@@ -1,8 +1,6 @@
 import React, { useContext, useEffect, useState, useCallback, useRef } from 'react';
 import TransactionDetails from './TransactionDetails';
-import { Share } from 'react-native';
-import { ActivityIndicator } from 'react-native';
-import Constants from 'expo-constants';
+import { Share, ActivityIndicator, Alert, AppState, Platform, StatusBar } from 'react-native';
 import {
   View,
   Text,
@@ -10,32 +8,18 @@ import {
   SafeAreaView,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Dimensions,
   Modal,
   RefreshControl,
-  AppState,
-  Platform,
-  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { AuthContext } from '../contexts/AuthContext';
 import { ThemeContext } from '../contexts/ThemeContext';
 import { useRouter } from 'expo-router';
+import apiClient from '../src/config/api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-
-const API_CONFIG = {
-  BASE_URL: Platform.OS === 'web' 
-    ? `${Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL_WEB}/api`
-    : `${Constants.expoConfig?.extra?.EXPO_PUBLIC_API_URL}/api`,
-  ENDPOINTS: {
-    PROFILE: '/auth/profile',
-    BALANCE: '/balance',
-    TRANSACTIONS: '/transactions',
-  },
-  TIMEOUT: 10000,
-};
+const REFRESH_COOLDOWN = 30000;
 
 export default function Dashboard() {
   const { logout, token, user: contextUser, balance: contextBalance, isLoggingOut } = useContext(AuthContext);
@@ -55,112 +39,106 @@ export default function Dashboard() {
   const [apiError, setApiError] = useState(null);
 
   const lastRefreshRef = useRef(0);
-  const REFRESH_COOLDOWN = 30000;
   const abortControllersRef = useRef(new Set());
+  const isMountedRef = useRef(true);
 
-  // Debug useEffect
+  // Cleanup on unmount
   useEffect(() => {
-    console.log('🔍 Dashboard Debug:', {
-      token: token ? 'Present' : 'Missing',
-      isLoggingOut,
-      transactionsCount: transactions.length
-    });
-  }, [token, isLoggingOut, transactions.length]);
+    return () => {
+      isMountedRef.current = false;
+      abortControllersRef.current.forEach(controller => controller.abort());
+      abortControllersRef.current.clear();
+    };
+  }, []);
 
   // Cancel all API calls when logout starts
   useEffect(() => {
     if (isLoggingOut) {
-      console.log('🚫 Logout started - Cancelling all ongoing API calls');
-      abortControllersRef.current.forEach(controller => {
-        controller.abort();
-      });
+      console.log('🚫 Logout started - Cancelling all API calls');
+      abortControllersRef.current.forEach(controller => controller.abort());
       abortControllersRef.current.clear();
     }
   }, [isLoggingOut]);
 
-  // API call with timeout - FIXED VERSION
-  const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
-    // IMMEDIATE CHECK - return early if logging out
-    if (isLoggingOut) {
-      console.log(`🚫 API call BLOCKED - Logging out: ${endpoint}`);
-      return fallbackValue;
-    }
+// Replace the makeApiCall function in your Dashboard with this:
 
+const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
+  if (isLoggingOut || !isMountedRef.current) {
+    console.log(`🚫 API call blocked: ${endpoint}`);
+    return fallbackValue;
+  }
+
+  // CRITICAL: Check AsyncStorage for token if not in state
+  let authToken = token;
+  
+  if (!authToken) {
+    console.log('⚠️ No token in state, checking AsyncStorage...');
     try {
-      // Check if token exists
-      if (!token) {
-        console.log(`Skipping API call to ${endpoint}: No token`);
+      authToken = await AsyncStorage.getItem('token');
+      if (authToken) {
+        console.log('✅ Token recovered from AsyncStorage');
+      } else {
+        console.log('❌ No token in AsyncStorage either');
         return fallbackValue;
       }
-
-      const controller = new AbortController();
-      abortControllersRef.current.add(controller);
-      
-      const timeoutId = setTimeout(() => {
-        controller.abort();
-      }, API_CONFIG.TIMEOUT);
-
-      // Check again right before making the request
-      if (isLoggingOut) {
-        console.log(`🚫 API call CANCELLED - Logging out started: ${endpoint}`);
-        clearTimeout(timeoutId);
-        controller.abort();
-        abortControllersRef.current.delete(controller);
-        return fallbackValue;
-      }
-
-      const response = await fetch(`${API_CONFIG.BASE_URL}${endpoint}`, {
-        method: 'GET',
-        headers: { 
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      abortControllersRef.current.delete(controller);
-
-      // Check again after response
-      if (isLoggingOut) {
-        console.log(`🚫 API response IGNORED - Logging out: ${endpoint}`);
-        return fallbackValue;
-      }
-
-      if (response.status === 401) {
-        console.log('Session expired, logging out...');
-        Alert.alert(
-          'Session Expired',
-          'Your session has expired. Please log in again.',
-          [{ text: 'OK', onPress: () => logout() }]
-        );
-        return fallbackValue;
-      }
-
-      if (!response.ok) {
-        console.error(`API call failed for ${endpoint}:`, response.status);
-        return fallbackValue;
-      }
-
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        return await response.json();
-      }
-      
-      return fallbackValue;
     } catch (error) {
-      // Don't show errors if we're logging out or request was aborted
-      if (isLoggingOut || error.name === 'AbortError') {
-        console.log(`🚫 API call ABORTED - Logging out: ${endpoint}`);
-        return fallbackValue;
-      }
-      
-      console.error(`${endpoint} API error:`, error.message);
-      setApiError('Unable to connect. Please check your internet connection.');
+      console.error('❌ Error reading token from AsyncStorage:', error);
       return fallbackValue;
     }
-  }, [token, logout, isLoggingOut]);
+  }
 
+  const controller = new AbortController();
+  abortControllersRef.current.add(controller);
+
+  try {
+    console.log(`🔑 Making API call to ${endpoint}`);
+    
+    const response = await apiClient.get(endpoint, {
+      signal: controller.signal,
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    abortControllersRef.current.delete(controller);
+
+    if (isLoggingOut || !isMountedRef.current) {
+      console.log(`🚫 Response ignored (logging out): ${endpoint}`);
+      return fallbackValue;
+    }
+
+    console.log(`✅ API call successful: ${endpoint} - Status: ${response.status}`);
+    return response.data;
+  } catch (error) {
+    abortControllersRef.current.delete(controller);
+
+    if (isLoggingOut || !isMountedRef.current || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+      return fallbackValue;
+    }
+
+    if (error.response?.status === 401) {
+      console.error('❌ 401 Unauthorized - Token invalid or expired');
+      Alert.alert(
+        'Session Expired',
+        'Your session has expired. Please log in again.',
+        [{ text: 'OK', onPress: logout }]
+      );
+      return fallbackValue;
+    }
+
+    console.error(`❌ API Error (${endpoint}):`, {
+      message: error.message,
+      status: error.response?.status,
+      data: error.response?.data
+    });
+    
+    setApiError('Unable to connect. Please check your internet connection.');
+    return fallbackValue;
+  }
+}, [token, logout, isLoggingOut]);
+
+  // Extract balance helper
   const extractBalance = useCallback((balanceData) => {
     if (balanceData === null || balanceData === undefined) return 0;
     if (typeof balanceData === 'number') return balanceData;
@@ -171,6 +149,7 @@ export default function Dashboard() {
     return parseFloat(balanceData) || 0;
   }, []);
 
+  // Update balance from context
   useEffect(() => {
     if (contextBalance !== undefined && contextBalance !== null) {
       const finalBalance = extractBalance(contextBalance);
@@ -178,6 +157,7 @@ export default function Dashboard() {
     }
   }, [contextBalance, extractBalance]);
 
+  // Update user from context
   useEffect(() => {
     if (contextUser) {
       setUser({
@@ -189,6 +169,7 @@ export default function Dashboard() {
     }
   }, [contextUser]);
 
+  // Format date helper
   const formatTransactionDate = useCallback((dateString) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { 
@@ -198,6 +179,7 @@ export default function Dashboard() {
     });
   }, []);
 
+  // Transaction icon helper
   const getTransactionIcon = useCallback((transaction) => {
     if (transaction.status === 'failed') {
       return { name: 'close', bg: '#fee2e2', color: '#dc3545' };
@@ -210,6 +192,7 @@ export default function Dashboard() {
     return { name: 'arrow-up', bg: '#fee2e2', color: '#dc3545' };
   }, []);
 
+  // Transaction color helper
   const getTransactionColor = useCallback((transaction) => {
     if (transaction.status === 'failed') return '#dc3545';
     
@@ -220,19 +203,20 @@ export default function Dashboard() {
     return '#ff2b2b';
   }, []);
 
+  // Fetch transactions
   const fetchTransactions = useCallback(async () => {
-    if (isLoggingOut) {
-      console.log('🚫 fetchTransactions blocked - logging out');
+    if (isLoggingOut || !isMountedRef.current) {
+      console.log('🚫 fetchTransactions blocked');
       return;
     }
 
     try {
-      const response = await makeApiCall(API_CONFIG.ENDPOINTS.TRANSACTIONS, { 
+      const response = await makeApiCall('/transactions', { 
         success: false, 
         transactions: [] 
       });
       
-      if (response?.success) {
+      if (response?.success && isMountedRef.current) {
         const txData = response.transactions || [];
         const formattedTransactions = txData.map((tx, index) => ({
           _id: tx._id || tx.id || `tx_${Date.now()}_${index}`,
@@ -252,27 +236,32 @@ export default function Dashboard() {
         
         setTransactions(formattedTransactions);
         setApiError(null);
-      } else {
+      } else if (isMountedRef.current) {
         setTransactions([]);
       }
     } catch (error) {
-      console.error('Error fetching transactions:', error);
-      setTransactions([]);
+      if (isMountedRef.current) {
+        console.error('Error fetching transactions:', error);
+        setTransactions([]);
+      }
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [makeApiCall, isLoggingOut]);
 
+  // Initial fetch
   useEffect(() => {
     if (token && !isLoggingOut) {
       fetchTransactions();
     }
   }, [token, fetchTransactions, isLoggingOut]);
 
+  // App state change handler
   useEffect(() => {
     const handleAppStateChange = (nextAppState) => {
-      // Don't refresh if logging out or no token
-      if (nextAppState === 'active' && token && !isLoggingOut) {
+      if (nextAppState === 'active' && token && !isLoggingOut && isMountedRef.current) {
         const now = Date.now();
         if (now - lastRefreshRef.current > REFRESH_COOLDOWN) {
           lastRefreshRef.current = now;
@@ -285,10 +274,10 @@ export default function Dashboard() {
     return () => subscription?.remove();
   }, [fetchTransactions, token, isLoggingOut]);
 
+  // Handle refresh
   const handleRefresh = useCallback(async () => {
-    // Don't refresh if logging out
-    if (isLoggingOut) {
-      console.log('🚫 Refresh blocked - logging out');
+    if (isLoggingOut || !isMountedRef.current) {
+      console.log('🚫 Refresh blocked');
       return;
     }
     
@@ -299,15 +288,19 @@ export default function Dashboard() {
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
-      setIsRefreshing(false);
+      if (isMountedRef.current) {
+        setIsRefreshing(false);
+      }
     }
   }, [fetchTransactions, isLoggingOut]);
 
+  // Transaction press handler
   const handleTransactionPress = useCallback((transaction) => {
     setSelectedTransaction(transaction);
     setShowTransactionDetails(true);
   }, []);
 
+  // Navigation handlers
   const navigateToProfile = useCallback(() => {
     try {
       router.push('/profile');
@@ -341,15 +334,15 @@ export default function Dashboard() {
     }
   }, [logout, router]);
 
- const handleFundWallet = useCallback(() => {
-  router.push('/fund-wallet');
-}, [router]);
+  const handleFundWallet = useCallback(() => {
+    router.push('/fund-wallet');
+  }, [router]);
 
   const toggleBalanceVisibility = useCallback(() => {
     setBalanceVisible(prev => !prev);
   }, []);
 
- 
+  // Share receipt handler
   const shareReceipt = useCallback(async () => {
     if (!selectedTransaction) return;
 
@@ -527,7 +520,7 @@ ${selectedTransaction.description ? `📋 DESCRIPTION: ${selectedTransaction.des
               { name: 'Data', icon: 'wifi', color: '#FFF3E0', iconColor: '#FF9800', route: '/buy-data' },
               { name: 'TV', icon: 'tv', color: '#E8F5E9', iconColor: '#4CAF50', route: '/cable-tv' },
               { name: 'Electricity', icon: 'flash', color: '#E1F5FE', iconColor: '#03A9F4', route: '/electricity' },
-              { name: 'Print', icon: 'print', color: '#F3E5F5', iconColor: '#9C27B0', route: '/print-recharge' },
+              { name: 'Print recharge', icon: 'print', color: '#F3E5F5', iconColor: '#9C27B0', route: '/print-recharge' },
               { name: 'Betting', icon: 'football', color: '#FFF9C4', iconColor: '#FBC02D', route: '/fund-betting' },
               { name: 'Internet', icon: 'globe', color: '#E0F2F1', iconColor: '#009688', route: '/internet' },
               { name: 'Education', icon: 'school', color: '#FCE4EC', iconColor: '#E91E63', route: '/education' },
@@ -903,6 +896,41 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
+  // Promotions Section
+  promotionsSection: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  promotionBanner: {
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  promotionContent: {
+    flex: 1,
+  },
+  promotionTitle: {
+    color: '#ff2b2b',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  promotionSubtitle: {
+    color: '#666666',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
   // Recent Transactions Section
   recentTransactionsSection: {
     marginTop: 30,
@@ -1089,7 +1117,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Promotions Section
+   // Promotions Section
   promotionsSection: {
     marginTop: 20,
     paddingHorizontal: 20,
@@ -1124,3 +1152,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+

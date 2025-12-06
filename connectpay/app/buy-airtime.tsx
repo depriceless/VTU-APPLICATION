@@ -40,6 +40,7 @@ interface UserBalance {
   main: number;
   bonus: number;
   total: number;
+  amount: number;
   lastUpdated: number;
 }
 
@@ -50,6 +51,32 @@ interface PinStatus {
   lockTimeRemaining: number;
   attemptsRemaining: number;
 }
+
+// Helper function to safely extract balance amount
+const getBalanceAmount = (balanceData: any): number => {
+  if (!balanceData) return 0;
+  
+  // If it's already a number, return it directly
+  if (typeof balanceData === 'number') {
+    return parseFloat(balanceData.toString()) || 0;
+  }
+  
+  // If it's a string, parse it
+  if (typeof balanceData === 'string') {
+    return parseFloat(balanceData) || 0;
+  }
+  
+  // If it's an object, try different possible balance properties
+  const amount = balanceData.total || 
+                 balanceData.amount || 
+                 balanceData.balance || 
+                 balanceData.main || 
+                 balanceData.totalBalance || 
+                 balanceData.mainBalance || 
+                 0;
+  
+  return parseFloat(amount) || 0;
+};
 
 export default function BuyAirtime() {
   const { token, user, balance, refreshBalance } = useContext(AuthContext);
@@ -73,7 +100,7 @@ export default function BuyAirtime() {
   const pinInputRef = React.useRef<TextInput>(null);
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [successData, setSuccessData] = useState(null);
+  const [successData, setSuccessData] = useState<any>(null);
 
   const quickAmounts = [100, 200, 500, 1000, 2000, 5000];
 
@@ -94,7 +121,8 @@ export default function BuyAirtime() {
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const amountNum = parseInt(amount) || 0;
   const isAmountValid = amountNum >= 50 && amountNum <= 100000;
-  const hasEnoughBalance = userBalance ? amountNum <= userBalance.total : true;
+  const currentBalance = getBalanceAmount(userBalance);
+  const hasEnoughBalance = currentBalance > 0 ? amountNum <= currentBalance : true;
   const canProceed = isPhoneValid && isAmountValid && selectedNetwork && hasEnoughBalance;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
@@ -112,11 +140,13 @@ export default function BuyAirtime() {
     loadFormState();
     
     if (balance) {
-      const balanceAmount = parseFloat(balance.amount) || 0;
+      const balanceAmount = getBalanceAmount(balance);
+      console.log('Initial balance from context:', balanceAmount, 'Raw balance:', balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
         total: balanceAmount,
+        amount: balanceAmount,
         lastUpdated: Date.now(),
       });
     }
@@ -145,6 +175,19 @@ export default function BuyAirtime() {
     }
   }, [showPinEntry]);
 
+  // Debug logging for balance
+  useEffect(() => {
+    if (userBalance) {
+      console.log('=== BALANCE DEBUG ===');
+      console.log('userBalance object:', JSON.stringify(userBalance, null, 2));
+      console.log('Extracted amount:', getBalanceAmount(userBalance));
+      console.log('Purchase amount:', amountNum);
+      console.log('Current balance:', currentBalance);
+      console.log('Has enough?', hasEnoughBalance);
+      console.log('===================');
+    }
+  }, [userBalance, amountNum]);
+
   const handlePinAreaPress = () => {
     console.log('PIN area pressed - attempting to focus input');
     setTimeout(() => {
@@ -164,7 +207,7 @@ export default function BuyAirtime() {
     return token;
   };
 
-  const makeApiRequest = async (endpoint, options = {}) => {
+  const makeApiRequest = async (endpoint: string, options: any = {}) => {
     console.log(`API Request: ${endpoint}`);
     
     try {
@@ -191,7 +234,7 @@ export default function BuyAirtime() {
         throw new Error('Unable to read server response');
       }
 
-      let data = {};
+      let data: any = {};
       if (responseText.trim()) {
         try {
           data = JSON.parse(responseText);
@@ -208,9 +251,9 @@ export default function BuyAirtime() {
         const errorMessage = data?.message || data?.error || `HTTP ${response.status}: ${response.statusText}`;
         
         if (endpoint === '/purchase' && data && typeof data === 'object') {
-          const error = new Error(errorMessage);
-          (error as any).responseData = data;
-          (error as any).httpStatus = response.status;
+          const error: any = new Error(errorMessage);
+          error.responseData = data;
+          error.httpStatus = response.status;
           throw error;
         }
         
@@ -219,7 +262,7 @@ export default function BuyAirtime() {
 
       return data;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(`API Error for ${endpoint}:`, error.message);
 
       if (error.name === 'TypeError' && error.message.includes('Network request failed')) {
@@ -253,43 +296,50 @@ export default function BuyAirtime() {
     setIsLoadingBalance(true);
     try {
       console.log("Refreshing balance from AuthContext");
+      console.log("Raw balance object:", JSON.stringify(balance, null, 2));
       
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      if (balance) {
-        const balanceAmount = parseFloat(balance.amount) || 0;
+      if (balance !== undefined && balance !== null) {
+        // Extract the actual balance amount more reliably
+        const balanceAmount = getBalanceAmount(balance);
         
-        const realBalance = {
+        console.log("Balance from context:", balanceAmount, "Raw balance:", balance);
+        
+        const realBalance: UserBalance = {
+          amount: balanceAmount,
+          total: balanceAmount,
           main: balanceAmount,
           bonus: 0,
-          total: balanceAmount,
-          amount: balanceAmount,
-          currency: balance.currency || "NGN",
-          lastUpdated: balance.lastUpdated || new Date().toISOString(),
+          lastUpdated: Date.now(),
         };
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
         console.log("Balance updated from AuthContext:", realBalance);
       } else {
+        // Fallback to API call
+        console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
-          const balanceAmount = parseFloat(balanceData.balance.amount) || 0;
+          const balanceAmount = getBalanceAmount(balanceData.balance);
           
-          const realBalance = {
+          console.log("Balance from API:", balanceAmount);
+          
+          const realBalance: UserBalance = {
+            amount: balanceAmount,
+            total: balanceAmount,
             main: balanceAmount,
             bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            currency: balanceData.balance.currency || "NGN",
-            lastUpdated: balanceData.balance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
+          console.log("Balance updated from API:", realBalance);
         }
       }
     } catch (error) {
@@ -300,6 +350,7 @@ export default function BuyAirtime() {
         if (cachedBalance) {
           const parsedBalance = JSON.parse(cachedBalance);
           setUserBalance(parsedBalance);
+          console.log("Using cached balance:", parsedBalance);
         } else {
           setUserBalance(null);
         }
@@ -477,17 +528,14 @@ export default function BuyAirtime() {
         await saveRecentNumber(phone);
         
         if (response.newBalance) {
-          const balanceAmount = response.newBalance.amount || 
-                               response.newBalance.totalBalance || 
-                               response.newBalance.mainBalance || 0;
+          const balanceAmount = getBalanceAmount(response.newBalance);
           
-          const updatedBalance = {
+          const updatedBalance: UserBalance = {
             main: balanceAmount,
             bonus: 0,
             total: balanceAmount,
             amount: balanceAmount,
-            currency: response.newBalance.currency || "NGN",
-            lastUpdated: response.newBalance.lastUpdated || new Date().toISOString(),
+            lastUpdated: Date.now(),
           };
 
           setUserBalance(updatedBalance);
@@ -518,7 +566,7 @@ export default function BuyAirtime() {
         Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Payment error:', error);
       
       if (error.message.includes('locked') || error.message.includes('attempts')) {
@@ -699,9 +747,12 @@ export default function BuyAirtime() {
             {amount !== '' && !isAmountValid && (
               <Text style={styles.validationError}>Amount must be between ₦50 and ₦100,000</Text>
             )}
-            {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
+            {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && currentBalance > 0 && (
               <Text style={styles.validationError}>
-                Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
+                Insufficient balance. Available: ₦{currentBalance.toLocaleString('en-US', {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2
+                })}
               </Text>
             )}
           </View>
@@ -746,7 +797,10 @@ export default function BuyAirtime() {
             {userBalance ? (
               <>
                 <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                  ₦{getBalanceAmount(userBalance).toLocaleString('en-US', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                  })}
                 </Text>
 
                 {amountNum > 0 && (
@@ -760,15 +814,15 @@ export default function BuyAirtime() {
                       <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
                       <Text style={[
                         styles.balanceRowValueBold,
-                        (userBalance.total - amountNum) < 0 && styles.negativeAmount
+                        (getBalanceAmount(userBalance) - amountNum) < 0 && styles.negativeAmount
                       ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum).toLocaleString()}
+                        ₦{Math.max(0, getBalanceAmount(userBalance) - amountNum).toLocaleString()}
                       </Text>
                     </View>
                   </View>
                 )}
 
-                {amountNum > (userBalance.total || userBalance.amount || 0) && (
+                {amountNum > getBalanceAmount(userBalance) && (
                   <View style={styles.insufficientWarning}>
                     <Text style={styles.insufficientWarningText}>
                       Insufficient balance for this transaction
@@ -1585,13 +1639,6 @@ const styles = StyleSheet.create({
   pinDotError: {
     backgroundColor: '#ff6b6b',
     borderColor: '#ff3b30',
-  },
-
-  hiddenPinInput: {
-    position: 'absolute',
-    left: -9999,
-    width: 1,
-    height: 1,
   },
 
   overlayPinInput: {
