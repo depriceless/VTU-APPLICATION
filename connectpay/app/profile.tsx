@@ -115,15 +115,15 @@ export default function Profile() {
   };
 
   const confirmLogout = async () => {
-  setShowLogoutConfirm(false);
-  try {
-    await logout();
-    router.replace('/auth/login');
-  } catch (error) {
-    console.error('Logout error:', error);
-    router.replace('/auth/login');
-  }
-};
+    setShowLogoutConfirm(false);
+    try {
+      await logout();
+      router.replace('/auth/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      router.replace('/auth/login');
+    }
+  };
 
   if (loading) {
     return (
@@ -139,15 +139,6 @@ export default function Profile() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
-      
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Profile</Text>
-        <View style={{ width: 40 }} />
-      </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {/* Profile Information */}
@@ -188,19 +179,6 @@ export default function Profile() {
         {/* Account Options */}
         <View style={[styles.optionsSection, { backgroundColor: colors.cardBg }]}>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>Account Options</Text>
-
-          <TouchableOpacity 
-            style={[styles.optionItem, { borderBottomColor: colors.border }]} 
-            onPress={() => router.push('/change-password')}
-          >
-            <View style={styles.optionLeft}>
-              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
-                <Ionicons name="lock-closed-outline" size={20} color="#ff2b2b" />
-              </View>
-              <Text style={[styles.optionText, { color: colors.text }]}>Change Password</Text>
-            </View>
-            <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
-          </TouchableOpacity>
 
           <TouchableOpacity 
             style={[styles.optionItem, { borderBottomColor: colors.border }]} 
@@ -302,22 +280,6 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 10 : StatusBar.currentHeight + 10,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 5,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
   loadingContainer: { 
     flex: 1, 
     justifyContent: 'center', 
@@ -330,48 +292,11 @@ const styles = StyleSheet.create({
     flex: 1 
   },
   scrollContent: { 
+    paddingTop: 20,
     paddingBottom: 30 
   },
-  avatarSection: { 
-    alignItems: 'center', 
-    paddingVertical: 30, 
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  avatarContainer: { 
-    width: 100, 
-    height: 100, 
-    borderRadius: 50, 
-    backgroundColor: '#fff5f5', 
-    justifyContent: 'center', 
-    alignItems: 'center', 
-    borderWidth: 3, 
-    borderColor: '#ff2b2b', 
-    marginBottom: 15,
-    shadowColor: '#ff2b2b',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  avatarText: { 
-    fontSize: 36, 
-    fontWeight: 'bold', 
-    color: '#ff2b2b' 
-  },
-  userName: { 
-    fontSize: 24, 
-    fontWeight: 'bold', 
-    marginBottom: 5 
-  },
-  userEmail: { 
-    fontSize: 16,
-  },
   infoSection: { 
+    marginTop: 40,
     marginBottom: 20, 
     marginHorizontal: 20,
     paddingHorizontal: 20, 

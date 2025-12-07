@@ -148,35 +148,6 @@ export default function Settings() {
           showChevron: true,
           isDanger: true,
         },
-        {
-          icon: 'log-out-outline',
-          label: 'Logout',
-          subtitle: 'Sign out of your account',
-          onPress: () => {
-            Alert.alert(
-              'Logout',
-              'Are you sure you want to logout?',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { 
-                  text: 'Logout', 
-                  style: 'destructive', 
-                  onPress: async () => {
-                    try {
-                      await logout();
-                      router.replace('/auth/login');
-                    } catch (error) {
-                      console.error('Logout error:', error);
-                      router.replace('/auth/login');
-                    }
-                  }
-                },
-              ]
-            );
-          },
-          showChevron: true,
-          isDanger: true,
-        },
       ],
     },
   ];
@@ -314,14 +285,6 @@ export default function Settings() {
         barStyle={isDark ? 'light-content' : 'dark-content'} 
         backgroundColor={colors.background} 
       />
-      
-      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Settings</Text>
-        <View style={{ width: 40 }} />
-      </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {settingsSections.map((section, sectionIndex) => (
@@ -578,21 +541,6 @@ export default function Settings() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    borderBottomWidth: 1,
-  },
-  backButton: {
-    padding: 5,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
   },
   scrollView: {
     flex: 1,

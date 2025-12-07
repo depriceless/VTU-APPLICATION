@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { AuthContext } from '../contexts/AuthContext';
 import { ThemeContext } from '../contexts/ThemeContext';
 import FundWalletComponent from './fund-wallet-component';
@@ -36,29 +37,32 @@ export default function FundWalletScreen() {
   const currentBalance = extractBalance(balance);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle="dark-content" backgroundColor={colors.background} />
-      
-      <View style={[styles.header, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Fund Wallet</Text>
-        
-        <View style={styles.headerRight} />
-      </View>
-
-      <FundWalletComponent
-        token={token}
-        currentBalance={currentBalance}
-        onSuccess={handleSuccess}
+    <>
+      {/* Configure the red navigation header */}
+      <Stack.Screen 
+        options={{
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: '#ff2b2b',
+          },
+          headerTintColor: '#fff',
+          headerTitle: 'Fund Wallet',
+          headerTitleStyle: {
+            fontWeight: '700',
+            fontSize: 18,
+          },
+          headerShadowVisible: false,
+        }} 
       />
-    </SafeAreaView>
+      
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <FundWalletComponent
+          token={token}
+          currentBalance={currentBalance}
+          onSuccess={handleSuccess}
+        />
+      </View>
+    </>
   );
 }
 
@@ -66,35 +70,5 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f9fa',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingTop: Platform.OS === 'ios' ? 16 : StatusBar.currentHeight ? StatusBar.currentHeight + 16 : 16,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e8e8e8',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  headerRight: {
-    width: 40,
   },
 });

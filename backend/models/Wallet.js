@@ -61,7 +61,6 @@ const walletSchema = new mongoose.Schema({
       type: Number,
       default: 0
     },
-    // ✅ FIXED: These should be INSIDE stats object
     totalDeposits: {
       type: Number,
       default: 0
@@ -70,7 +69,7 @@ const walletSchema = new mongoose.Schema({
       type: Number,
       default: 0
     }
-  }, // ← This closes stats object correctly
+  },
   
   // Metadata
   metadata: {
@@ -126,7 +125,8 @@ walletSchema.methods.credit = async function(amount, description, reference) {
     newBalance: this.balance,
     description: description || `Wallet credited with ₦${amount.toLocaleString()}`,
     reference: reference || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    status: 'completed'
+    status: 'completed',
+    category: 'funding' // ✅ ADDED: Explicitly set category
   });
   
   // Save both wallet and transaction
@@ -163,7 +163,8 @@ walletSchema.methods.debit = async function(amount, description, reference) {
     newBalance: this.balance,
     description: description || `Wallet debited with ₦${amount.toLocaleString()}`,
     reference: reference || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    status: 'completed'
+    status: 'completed',
+    category: 'withdrawal' // ✅ ADDED: Explicitly set category for debits
   });
   
   // Save both wallet and transaction
@@ -176,15 +177,65 @@ walletSchema.methods.debit = async function(amount, description, reference) {
 walletSchema.methods.transfer = async function(recipientWallet, amount, description) {
   if (this.balance < amount) throw new Error('Insufficient balance for transfer');
   
+  const Transaction = mongoose.model('Transaction');
   const transferReference = `TRF_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const previousBalanceSender = this.balance;
+  const previousBalanceRecipient = recipientWallet.balance;
   
-  // Debit sender
-  await this.debit(amount, `Transfer to wallet ${recipientWallet._id}`, transferReference);
+  // Update sender balance
+  this.balance -= amount;
+  this.lastTransactionDate = new Date();
+  this.stats.totalDebits += amount;
+  this.stats.transactionCount += 1;
   
-  // Credit recipient
-  await recipientWallet.credit(amount, `Transfer from wallet ${this._id}`, transferReference);
+  // Update recipient balance
+  recipientWallet.balance += amount;
+  recipientWallet.lastTransactionDate = new Date();
+  recipientWallet.stats.totalCredits += amount;
+  recipientWallet.stats.transactionCount += 1;
   
-  return { reference: transferReference, amount };
+  // Create sender transaction (transfer_out)
+  const senderTransaction = new Transaction({
+    walletId: this._id,
+    userId: this.userId,
+    type: 'transfer_out',
+    amount,
+    previousBalance: previousBalanceSender,
+    newBalance: this.balance,
+    description: description || `Transfer to wallet ${recipientWallet._id}`,
+    reference: transferReference,
+    status: 'completed',
+    category: 'transfer', // ✅ ADDED: Set transfer category
+    relatedWalletId: recipientWallet._id
+  });
+  
+  // Create recipient transaction (transfer_in)
+  const recipientTransaction = new Transaction({
+    walletId: recipientWallet._id,
+    userId: recipientWallet.userId,
+    type: 'transfer_in',
+    amount,
+    previousBalance: previousBalanceRecipient,
+    newBalance: recipientWallet.balance,
+    description: description || `Transfer from wallet ${this._id}`,
+    reference: transferReference,
+    status: 'completed',
+    category: 'transfer', // ✅ ADDED: Set transfer category
+    relatedWalletId: this._id
+  });
+  
+  // Save everything
+  await this.save();
+  await recipientWallet.save();
+  await senderTransaction.save();
+  await recipientTransaction.save();
+  
+  return { 
+    reference: transferReference, 
+    amount,
+    senderTransaction,
+    recipientTransaction
+  };
 };
 
 walletSchema.methods.freeze = function() {

@@ -17,9 +17,11 @@ import { AuthContext } from '../contexts/AuthContext';
 import { ThemeContext } from '../contexts/ThemeContext';
 import { useRouter } from 'expo-router';
 import apiClient from '../src/config/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const REFRESH_COOLDOWN = 30000;
+const BALANCE_AUTO_REFRESH_INTERVAL = 30000; // Changed from 60000 to 30000 (30 seconds)
 
 export default function Dashboard() {
   const { logout, token, user: contextUser, balance: contextBalance, isLoggingOut } = useContext(AuthContext);
@@ -60,83 +62,84 @@ export default function Dashboard() {
     }
   }, [isLoggingOut]);
 
-// Replace the makeApiCall function in your Dashboard with this:
+  const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
+    if (isLoggingOut || !isMountedRef.current) {
+      console.log(`🚫 API call blocked: ${endpoint}`);
+      return fallbackValue;
+    }
 
-const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
-  if (isLoggingOut || !isMountedRef.current) {
-    console.log(`🚫 API call blocked: ${endpoint}`);
-    return fallbackValue;
-  }
-
-  // CRITICAL: Check AsyncStorage for token if not in state
-  let authToken = token;
-  
-  if (!authToken) {
-    console.log('⚠️ No token in state, checking AsyncStorage...');
-    try {
-      authToken = await AsyncStorage.getItem('token');
-      if (authToken) {
-        console.log('✅ Token recovered from AsyncStorage');
-      } else {
-        console.log('❌ No token in AsyncStorage either');
+    // CRITICAL: Check AsyncStorage for token if not in state
+    let authToken = token;
+    
+    if (!authToken) {
+      console.log('⚠️ No token in state, checking AsyncStorage...');
+      try {
+        authToken = await AsyncStorage.getItem('userToken');
+        if (authToken) {
+          console.log('✅ Token recovered from AsyncStorage');
+        } else {
+          console.log('❌ No token in AsyncStorage either');
+          return fallbackValue;
+        }
+      } catch (error) {
+        console.error('❌ Error reading token from AsyncStorage:', error);
         return fallbackValue;
       }
+    }
+
+    const controller = new AbortController();
+    abortControllersRef.current.add(controller);
+
+    try {
+      console.log(`🔑 Making API call to ${endpoint}`);
+      console.log(`🔑 Token exists: ${!!authToken}`);
+      console.log(`🔑 Token length: ${authToken?.length}`);
+      
+      const response = await apiClient.get(endpoint, {
+        signal: controller.signal,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      abortControllersRef.current.delete(controller);
+
+      if (isLoggingOut || !isMountedRef.current) {
+        console.log(`🚫 Response ignored (logging out): ${endpoint}`);
+        return fallbackValue;
+      }
+
+      console.log(`✅ API call successful: ${endpoint} - Status: ${response.status}`);
+      return response.data;
     } catch (error) {
-      console.error('❌ Error reading token from AsyncStorage:', error);
+      abortControllersRef.current.delete(controller);
+
+      if (isLoggingOut || !isMountedRef.current || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+        return fallbackValue;
+      }
+
+      if (error.response?.status === 401) {
+        console.error('❌ 401 Unauthorized - Token invalid or expired');
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [{ text: 'OK', onPress: logout }]
+        );
+        return fallbackValue;
+      }
+
+      console.error(`❌ API Error (${endpoint}):`, {
+        message: error.message,
+        status: error.response?.status,
+        data: error.response?.data,
+        url: error.config?.url
+      });
+      
+      setApiError('Unable to connect. Please check your internet connection.');
       return fallbackValue;
     }
-  }
-
-  const controller = new AbortController();
-  abortControllersRef.current.add(controller);
-
-  try {
-    console.log(`🔑 Making API call to ${endpoint}`);
-    
-    const response = await apiClient.get(endpoint, {
-      signal: controller.signal,
-      headers: {
-        'Authorization': `Bearer ${authToken}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    abortControllersRef.current.delete(controller);
-
-    if (isLoggingOut || !isMountedRef.current) {
-      console.log(`🚫 Response ignored (logging out): ${endpoint}`);
-      return fallbackValue;
-    }
-
-    console.log(`✅ API call successful: ${endpoint} - Status: ${response.status}`);
-    return response.data;
-  } catch (error) {
-    abortControllersRef.current.delete(controller);
-
-    if (isLoggingOut || !isMountedRef.current || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
-      return fallbackValue;
-    }
-
-    if (error.response?.status === 401) {
-      console.error('❌ 401 Unauthorized - Token invalid or expired');
-      Alert.alert(
-        'Session Expired',
-        'Your session has expired. Please log in again.',
-        [{ text: 'OK', onPress: logout }]
-      );
-      return fallbackValue;
-    }
-
-    console.error(`❌ API Error (${endpoint}):`, {
-      message: error.message,
-      status: error.response?.status,
-      data: error.response?.data
-    });
-    
-    setApiError('Unable to connect. Please check your internet connection.');
-    return fallbackValue;
-  }
-}, [token, logout, isLoggingOut]);
+  }, [token, logout, isLoggingOut]);
 
   // Extract balance helper
   const extractBalance = useCallback((balanceData) => {
@@ -149,7 +152,42 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
     return parseFloat(balanceData) || 0;
   }, []);
 
-  // Update balance from context
+  // Fetch balance from API
+  const fetchBalance = useCallback(async () => {
+    if (isLoggingOut || !isMountedRef.current || !token) {
+      console.log('🚫 fetchBalance blocked - isLoggingOut:', isLoggingOut, 'isMounted:', isMountedRef.current, 'hasToken:', !!token);
+      return;
+    }
+
+    try {
+      console.log('🔍 Fetching balance from /balance endpoint...');
+      // Use /balance (apiClient already has /api base URL)
+      const response = await makeApiCall('/balance', null);
+      
+      console.log('📦 Balance API Response:', JSON.stringify(response, null, 2));
+      
+      if (response?.success && response?.balance && isMountedRef.current) {
+        const balance = extractBalance(response.balance);
+        setAccountBalance(balance);
+        console.log('✅ Balance refreshed successfully:', balance);
+      } else if (response) {
+        console.log('⚠️ Unexpected balance response structure:', response);
+        console.log('⚠️ Keeping current balance');
+      }
+    } catch (error) {
+      if (isMountedRef.current) {
+        console.error('❌ Error fetching balance:', error);
+        console.error('❌ Error details:', {
+          message: error?.message,
+          status: error?.status,
+          response: error?.response?.data
+        });
+        // Keep current balance on error
+      }
+    }
+  }, [makeApiCall, extractBalance, isLoggingOut, token]);
+
+  // Update balance from context (initial load)
   useEffect(() => {
     if (contextBalance !== undefined && contextBalance !== null) {
       const finalBalance = extractBalance(contextBalance);
@@ -168,6 +206,37 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
       });
     }
   }, [contextUser]);
+
+  // Auto-refresh balance AND transactions every 1 minute
+  useEffect(() => {
+    if (!token || isLoggingOut) {
+      return;
+    }
+
+    // Initial fetch after 2 seconds (let context load first)
+    const initialTimeout = setTimeout(() => {
+      if (!isLoggingOut && isMountedRef.current) {
+        fetchBalance();
+        fetchTransactions();
+      }
+    }, 2000);
+
+    // Set up interval for periodic refresh of BOTH balance and transactions
+    const refreshInterval = setInterval(() => {
+      if (!isLoggingOut && isMountedRef.current) {
+        console.log('⏰ Auto-refreshing balance and transactions...');
+        fetchBalance();
+        fetchTransactions();
+      }
+    }, BALANCE_AUTO_REFRESH_INTERVAL);
+
+    // Cleanup
+    return () => {
+      clearTimeout(initialTimeout);
+      clearInterval(refreshInterval);
+      console.log('🧹 Cleaning up auto-refresh');
+    };
+  }, [token, fetchBalance, fetchTransactions, isLoggingOut]);
 
   // Format date helper
   const formatTransactionDate = useCallback((dateString) => {
@@ -265,6 +334,7 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
         const now = Date.now();
         if (now - lastRefreshRef.current > REFRESH_COOLDOWN) {
           lastRefreshRef.current = now;
+          fetchBalance();
           fetchTransactions();
         }
       }
@@ -272,7 +342,7 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
-  }, [fetchTransactions, token, isLoggingOut]);
+  }, [fetchTransactions, fetchBalance, token, isLoggingOut]);
 
   // Handle refresh
   const handleRefresh = useCallback(async () => {
@@ -284,7 +354,11 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
     setIsRefreshing(true);
     setApiError(null);
     try {
-      await fetchTransactions();
+      // Refresh both balance and transactions
+      await Promise.all([
+        fetchBalance(),
+        fetchTransactions()
+      ]);
     } catch (error) {
       console.error('Refresh failed:', error);
     } finally {
@@ -292,7 +366,7 @@ const makeApiCall = useCallback(async (endpoint, fallbackValue = null) => {
         setIsRefreshing(false);
       }
     }
-  }, [fetchTransactions, isLoggingOut]);
+  }, [fetchTransactions, fetchBalance, isLoggingOut]);
 
   // Transaction press handler
   const handleTransactionPress = useCallback((transaction) => {
@@ -1116,40 +1190,4 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
-
-   // Promotions Section
-  promotionsSection: {
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  promotionBanner: {
-    backgroundColor: '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  promotionContent: {
-    flex: 1,
-  },
-  promotionTitle: {
-    color: '#ff2b2b',
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  promotionSubtitle: {
-    color: '#666666',
-    fontSize: 14,
-    fontWeight: '500',
-  },
 });
-

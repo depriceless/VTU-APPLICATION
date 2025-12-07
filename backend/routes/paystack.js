@@ -42,25 +42,30 @@ router.post('/webhook', async (req, res) => {
       console.error('   Received:', req.headers['x-paystack-signature']?.substring(0, 20) + '...');
       console.error('   Computed:', hash.substring(0, 20) + '...');
       
-     try {
-  await Transaction.create({
-    type: 'credit',
-    status: 'failed',
-    description: 'Paystack webhook - Invalid signature',
-    reference: req.body.data?.reference || 'unknown',
-    amount: req.body.data?.amount ? req.body.data.amount / 100 : 0,
-    category: 'deposit',
-    gateway: {
-      provider: 'paystack',
-      gatewayReference: req.body.data?.reference || 'unknown',
-      gatewayResponse: { error: 'Invalid webhook signature' }
-    },
-    metadata: {
-      error: 'Invalid webhook signature',
-      customerEmail: req.body.data?.customer?.email
-    }
-  });
-} catch (logError) {
+      try {
+        // Create a minimal transaction record for failed signature
+        await Transaction.create({
+          type: 'credit',
+          status: 'failed',
+          description: 'Paystack webhook - Invalid signature',
+          reference: req.body.data?.reference || `INVALID-SIG-${Date.now()}`,
+          amount: req.body.data?.amount ? req.body.data.amount / 100 : 0,
+          category: 'funding', // ✅ FIXED: Changed from 'deposit' to 'funding'
+          userId: new mongoose.Types.ObjectId(), // Dummy ObjectId
+          walletId: new mongoose.Types.ObjectId(), // Dummy ObjectId
+          previousBalance: 0,
+          newBalance: 0,
+          gateway: {
+            provider: 'paystack',
+            gatewayReference: req.body.data?.reference || 'unknown',
+            gatewayResponse: { error: 'Invalid webhook signature' }
+          },
+          metadata: {
+            error: 'Invalid webhook signature',
+            customerEmail: req.body.data?.customer?.email
+          }
+        });
+      } catch (logError) {
         console.error('Failed to log signature error:', logError);
       }
       
@@ -100,10 +105,10 @@ router.post('/webhook', async (req, res) => {
     }
 
     // ✅ STEP 3: CHECK FOR DUPLICATE (IDEMPOTENCY)
-   const existingTransaction = await Transaction.findOne({ 
-  reference: reference,
-  'gateway.provider': 'paystack'
-});
+    const existingTransaction = await Transaction.findOne({ 
+      reference: reference,
+      'gateway.provider': 'paystack'
+    });
 
     if (existingTransaction) {
       console.log('⚠️  DUPLICATE DETECTED - Transaction already processed');
@@ -123,9 +128,9 @@ router.post('/webhook', async (req, res) => {
     
     // Method 1: Try by customer email (case-insensitive)
     if (customerEmail) {
-   paystackAccount = await PaystackAccount.findOne({
-  customerEmail: { $regex: new RegExp(`^${customerEmail.trim()}$`, 'i') }
-});
+      paystackAccount = await PaystackAccount.findOne({
+        customerEmail: { $regex: new RegExp(`^${customerEmail.trim()}$`, 'i') }
+      });
     }
     
     // Method 2: Try by account number from metadata (virtual accounts)
@@ -162,33 +167,37 @@ router.post('/webhook', async (req, res) => {
         });
       }
       
-   const reconTx = await Transaction.create({
-  type: 'credit',
-  amount: amountInNaira,
-  description: `Paystack deposit - ACCOUNT NOT FOUND (RECONCILE)`,
-  reference: reference,
-  status: 'pending_reconciliation',
-  category: 'deposit',
-  gateway: {
-    provider: 'paystack',
-    gatewayReference: reference,
-    gatewayResponse: { channel: channel }
-  },
-  metadata: {
-    customerEmail: customerEmail,
-    customerName: customer?.name || metadata?.customer_name,
-    paystackCustomerCode: customer?.customer_code,
-    accountNumber: metadata?.account_number,
-    authorizationCode: authorization?.authorization_code,
-    bank: authorization?.bank,
-    last4: authorization?.last4,
-    reconciliationNeeded: true,
-    userFound: !!user,
-    userId: user?._id,
-    error: 'PaystackAccount not found',
-    fullData: data
-  }
-});
+      const reconTx = await Transaction.create({
+        type: 'credit',
+        amount: amountInNaira,
+        description: `Paystack deposit - ACCOUNT NOT FOUND (RECONCILE)`,
+        reference: reference,
+        status: 'pending_reconciliation',
+        category: 'funding', // ✅ FIXED: Changed from 'deposit' to 'funding'
+        userId: user?._id || new mongoose.Types.ObjectId(), // Use found user or dummy
+        walletId: new mongoose.Types.ObjectId(), // Dummy for now
+        previousBalance: 0,
+        newBalance: 0,
+        gateway: {
+          provider: 'paystack',
+          gatewayReference: reference,
+          gatewayResponse: { channel: channel }
+        },
+        metadata: {
+          customerEmail: customerEmail,
+          customerName: customer?.name || metadata?.customer_name,
+          paystackCustomerCode: customer?.customer_code,
+          accountNumber: metadata?.account_number,
+          authorizationCode: authorization?.authorization_code,
+          bank: authorization?.bank,
+          last4: authorization?.last4,
+          reconciliationNeeded: true,
+          userFound: !!user,
+          realUserId: user?._id,
+          error: 'PaystackAccount not found',
+          fullData: data
+        }
+      });
       
       console.log('📋 RECONCILIATION RECORD CREATED:', reconTx._id);
       console.log('📋 User by email found:', user?._id || 'NO');
@@ -217,12 +226,19 @@ router.post('/webhook', async (req, res) => {
       
       await Transaction.create({
         userId: userId,
+        walletId: new mongoose.Types.ObjectId(), // Dummy
+        previousBalance: 0,
+        newBalance: 0,
         type: 'credit',
         amount: amountInNaira,
         description: `Paystack deposit - USER NOT FOUND`,
         reference: reference,
         status: 'failed',
-        gateway: 'paystack',
+        category: 'funding', // ✅ FIXED
+        gateway: {
+          provider: 'paystack',
+          gatewayReference: reference
+        },
         metadata: {
           error: 'User not found for PaystackAccount',
           paystackAccountId: paystackAccount._id,
@@ -247,21 +263,21 @@ router.post('/webhook', async (req, res) => {
       // Find or create wallet
       let wallet = await Wallet.findOne({ userId }).session(session);
       
-     if (!wallet) {
-  console.log('🆕 Creating new wallet for user:', userId);
-  wallet = new Wallet({
-    userId: userId,
-    balance: 0,
-    currency: 'NGN',
-    isActive: true,
-    stats: {
-      totalCredits: 0,
-      totalDebits: 0,
-      transactionCount: 0,
-      totalDeposits: 0,
-      depositCount: 0
-    }
-  });
+      if (!wallet) {
+        console.log('🆕 Creating new wallet for user:', userId);
+        wallet = new Wallet({
+          userId: userId,
+          balance: 0,
+          currency: 'NGN',
+          isActive: true,
+          stats: {
+            totalCredits: 0,
+            totalDebits: 0,
+            transactionCount: 0,
+            totalDeposits: 0,
+            depositCount: 0
+          }
+        });
         await wallet.save({ session });
         console.log('✅ New wallet created:', wallet._id);
       }
@@ -279,12 +295,11 @@ router.post('/webhook', async (req, res) => {
       wallet.lastTransactionDate = new Date();
       
       // Update stats
-     // Update stats
-wallet.stats = wallet.stats || {};
-wallet.stats.totalCredits = (wallet.stats.totalCredits || 0) + amountInNaira;
-wallet.stats.totalDeposits = (wallet.stats.totalDeposits || 0) + amountInNaira;
-wallet.stats.transactionCount = (wallet.stats.transactionCount || 0) + 1;
-wallet.stats.depositCount = (wallet.stats.depositCount || 0) + 1;
+      wallet.stats = wallet.stats || {};
+      wallet.stats.totalCredits = (wallet.stats.totalCredits || 0) + amountInNaira;
+      wallet.stats.totalDeposits = (wallet.stats.totalDeposits || 0) + amountInNaira;
+      wallet.stats.transactionCount = (wallet.stats.transactionCount || 0) + 1;
+      wallet.stats.depositCount = (wallet.stats.depositCount || 0) + 1;
       
       // Update wallet history if exists
       if (wallet.history) {
@@ -302,45 +317,44 @@ wallet.stats.depositCount = (wallet.stats.depositCount || 0) + 1;
       console.log('✅ Wallet balance updated');
 
       // ✅ STEP 9: CREATE TRANSACTION RECORD
-     const transaction = new Transaction({
-  walletId: wallet._id,
-  userId: userId,
-  type: 'credit',
-  amount: amountInNaira,
-  previousBalance: previousBalance,
-  newBalance: newBalance,
-  description: `Wallet funding via Paystack${channel ? ` (${channel})` : ''}`,
-  reference: reference,
-  status: 'completed',
-  category: 'deposit',
-  gateway: { // ✅ CORRECT - matches schema
-    provider: 'paystack',
-    gatewayReference: reference,
-    gatewayResponse: {
-      channel: channel,
-      customerEmail: customerEmail,
-      status: status,
-      amount: amount
-    }
-  },
-  gatewayDetails: { // Keep this too for backward compatibility
-    reference: reference,
-    channel: channel,
-    customerEmail: customerEmail,
-    customerCode: customer?.customer_code,
-    authorizationCode: authorization?.authorization_code,
-    bank: authorization?.bank,
-    cardType: authorization?.card_type,
-    last4: authorization?.last4
-  },
-  metadata: {
-    source: 'paystack_webhook',
-    paystackAccountId: paystackAccount._id,
-    accountNumber: paystackAccount.accountNumber,
-    bankName: paystackAccount.bankName
-  }
-});
-
+      const transaction = new Transaction({
+        walletId: wallet._id,
+        userId: userId,
+        type: 'credit',
+        amount: amountInNaira,
+        previousBalance: previousBalance,
+        newBalance: newBalance,
+        description: `Wallet funding via Paystack${channel ? ` (${channel})` : ''}`,
+        reference: reference,
+        status: 'completed',
+        category: 'funding', // ✅ FIXED: Changed from 'deposit' to 'funding'
+        gateway: {
+          provider: 'paystack',
+          gatewayReference: reference,
+          gatewayResponse: {
+            channel: channel,
+            customerEmail: customerEmail,
+            status: status,
+            amount: amount
+          }
+        },
+        gatewayDetails: {
+          reference: reference,
+          channel: channel,
+          customerEmail: customerEmail,
+          customerCode: customer?.customer_code,
+          authorizationCode: authorization?.authorization_code,
+          bank: authorization?.bank,
+          cardType: authorization?.card_type,
+          last4: authorization?.last4
+        },
+        metadata: {
+          source: 'paystack_webhook',
+          paystackAccountId: paystackAccount._id,
+          accountNumber: paystackAccount.accountNumber,
+          bankName: paystackAccount.bankName
+        }
+      });
 
       await transaction.save({ session });
       console.log('✅ Transaction record created:', transaction._id);
@@ -418,19 +432,23 @@ wallet.stats.depositCount = (wallet.stats.depositCount || 0) + 1;
     
     // Create error transaction for debugging
     try {
-  await Transaction.create({
-    type: 'credit',
-    amount: req.body.data?.amount ? req.body.data.amount / 100 : 0,
-    description: `Paystack webhook error - ${error.message.substring(0, 50)}`,
-    reference: req.body.data?.reference || 'unknown',
-    status: 'failed',
-    category: 'deposit',
-    gateway: {
-      provider: 'paystack',
-      gatewayReference: req.body.data?.reference || 'unknown',
-      gatewayResponse: { error: error.message }
-    },
-    metadata: {
+      await Transaction.create({
+        type: 'credit',
+        amount: req.body.data?.amount ? req.body.data.amount / 100 : 0,
+        description: `Paystack webhook error - ${error.message.substring(0, 50)}`,
+        reference: req.body.data?.reference || `ERROR-${Date.now()}`,
+        status: 'failed',
+        category: 'funding', // ✅ FIXED: Changed from 'deposit' to 'funding'
+        userId: new mongoose.Types.ObjectId(), // Dummy
+        walletId: new mongoose.Types.ObjectId(), // Dummy
+        previousBalance: 0,
+        newBalance: 0,
+        gateway: {
+          provider: 'paystack',
+          gatewayReference: req.body.data?.reference || 'unknown',
+          gatewayResponse: { error: error.message }
+        },
+        metadata: {
           error: error.message,
           stack: error.stack,
           customerEmail: req.body.data?.customer?.email,
@@ -566,20 +584,35 @@ router.post('/create-virtual-account', authenticate, async (req, res) => {
     await paystackAccount.save();
     console.log('✅ Paystack account saved to database');
 
+    // Get or create wallet for transaction record
+    let wallet = await Wallet.findOne({ userId });
+    if (!wallet) {
+      wallet = new Wallet({
+        userId: userId,
+        balance: 0,
+        currency: 'NGN',
+        isActive: true
+      });
+      await wallet.save();
+    }
+
     // Create transaction record for account creation
     await Transaction.create({
-  userId: userId,
-  type: 'system',
-  amount: 0,
-  description: 'Paystack virtual account created',
-  reference: `ACCT-${Date.now()}`,
-  status: 'completed',
-  category: 'deposit',
-  gateway: {
-    provider: 'paystack',
-    gatewayReference: `ACCT-${Date.now()}`
-  },
-  metadata: {
+      userId: userId,
+      walletId: wallet._id,
+      previousBalance: wallet.balance,
+      newBalance: wallet.balance,
+      type: 'credit',
+      amount: 0,
+      description: 'Paystack virtual account created',
+      reference: `ACCT-${Date.now()}`,
+      status: 'completed',
+      category: 'funding', // ✅ FIXED
+      gateway: {
+        provider: 'paystack',
+        gatewayReference: `ACCT-${Date.now()}`
+      },
+      metadata: {
         action: 'account_creation',
         accountNumber: accountData.account_number,
         bank: accountData.bank.name
@@ -625,11 +658,11 @@ router.get('/user-account', authenticate, async (req, res) => {
     }
 
     // Get recent transactions for this account
-   const recentTransactions = await Transaction.find({
-  userId: req.user.id,
-  'gateway.provider': 'paystack',
-  status: 'completed'
-})
+    const recentTransactions = await Transaction.find({
+      userId: req.user.id,
+      'gateway.provider': 'paystack',
+      status: 'completed'
+    })
     .sort({ createdAt: -1 })
     .limit(5)
     .select('amount description reference createdAt');
@@ -748,20 +781,35 @@ router.post('/initialize-payment', authenticate, async (req, res) => {
       }
     );
 
+    // Get or create wallet
+    let wallet = await Wallet.findOne({ userId: user._id });
+    if (!wallet) {
+      wallet = new Wallet({
+        userId: user._id,
+        balance: 0,
+        currency: 'NGN',
+        isActive: true
+      });
+      await wallet.save();
+    }
+
     // Create pending transaction
     await Transaction.create({
-  userId: user._id,
-  type: 'credit',
-  amount: amount,
-  description: 'Manual wallet funding initiated',
-  reference: response.data.data.reference,
-  status: 'pending',
-  category: 'deposit',
-  gateway: {
-    provider: 'paystack',
-    gatewayReference: response.data.data.reference
-  },
-  metadata: {
+      userId: user._id,
+      walletId: wallet._id,
+      previousBalance: wallet.balance,
+      newBalance: wallet.balance,
+      type: 'credit',
+      amount: amount,
+      description: 'Manual wallet funding initiated',
+      reference: response.data.data.reference,
+      status: 'pending',
+      category: 'funding', // ✅ FIXED
+      gateway: {
+        provider: 'paystack',
+        gatewayReference: response.data.data.reference
+      },
+      metadata: {
         authorizationUrl: response.data.data.authorization_url,
         accessCode: response.data.data.access_code,
         initiatedAt: new Date()
@@ -840,182 +888,6 @@ router.get('/callback', async (req, res) => {
   }
 });
 
-// 6. Webhook Test Endpoint
-router.post('/test-webhook', authenticate, async (req, res) => {
-  try {
-    const { amount, email } = req.body;
-    
-    if (!amount || !email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Amount and email are required'
-      });
-    }
-
-    // Simulate a webhook payload
-    const testPayload = {
-      event: 'charge.success',
-      data: {
-        reference: `TEST-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        amount: amount * 100,
-        customer: {
-          email: email,
-          customer_code: `CUST_TEST_${Date.now()}`
-        },
-        channel: 'test',
-        status: 'success',
-        paid_at: new Date().toISOString(),
-        metadata: {
-          test: true,
-          userId: req.user.id
-        }
-      }
-    };
-
-    console.log('🧪 Test webhook payload generated:', testPayload.data.reference);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Test webhook payload created',
-      payload: testPayload,
-      note: 'Use this payload to test your webhook handler locally'
-    });
-
-  } catch (error) {
-    console.error('❌ Test webhook error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to create test webhook'
-    });
-  }
-});
-
-// 7. Manual Reconciliation Endpoint (Admin only)
-router.post('/manual-reconcile', authenticate, async (req, res) => {
-  try {
-    // Check if user is admin (you should implement proper admin check)
-    const user = await User.findById(req.user.id);
-    if (!user.isAdmin) {
-      return res.status(403).json({
-        success: false,
-        message: 'Admin access required'
-      });
-    }
-
-    const { transactionId, userId, amount, reference } = req.body;
-    
-    if (!transactionId || !userId || !amount) {
-      return res.status(400).json({
-        success: false,
-        message: 'Transaction ID, User ID and Amount are required'
-      });
-    }
-
-    const session = await mongoose.startSession();
-    session.startTransaction();
-
-    try {
-      // Find the reconciliation transaction
-      const reconTx = await Transaction.findById(transactionId).session(session);
-      if (!reconTx || reconTx.status !== 'pending_reconciliation') {
-        throw new Error('Invalid or already processed reconciliation transaction');
-      }
-
-      // Get user wallet
-      let wallet = await Wallet.findOne({ userId }).session(session);
-      if (!wallet) {
-        wallet = new Wallet({
-          userId,
-          balance: 0,
-          currency: 'NGN',
-          isActive: true
-        });
-        await wallet.save({ session });
-      }
-
-      const previousBalance = wallet.balance;
-      const newBalance = previousBalance + amount;
-
-      // Update wallet
-      wallet.balance = newBalance;
-      wallet.lastTransactionDate = new Date();
-      await wallet.save({ session });
-
-      // Update transaction
-      reconTx.status = 'completed';
-      reconTx.userId = userId;
-      reconTx.walletId = wallet._id;
-      reconTx.previousBalance = previousBalance;
-      reconTx.newBalance = newBalance;
-      reconTx.metadata = {
-        ...reconTx.metadata,
-        manuallyReconciled: true,
-        reconciledBy: req.user.id,
-        reconciledAt: new Date()
-      };
-      await reconTx.save({ session });
-
-      // Create success transaction
-const successTx = new Transaction({
-  walletId: wallet._id,
-  userId,
-  type: 'credit',
-  amount,
-  previousBalance,
-  newBalance,
-  description: `Manual reconciliation - ${reconTx.description}`,
-  reference: reference || reconTx.reference,
-  status: 'completed',
-  category: 'deposit',
-  gateway: {
-    provider: 'paystack',
-    gatewayReference: reference || reconTx.reference
-  },
-  metadata: {
-          source: 'manual_reconciliation',
-          originalTransactionId: transactionId
-        }
-      });
-      await successTx.save({ session });
-
-      await session.commitTransaction();
-      session.endSession();
-
-      console.log('✅ Manual reconciliation completed:', {
-        transactionId,
-        userId,
-        amount,
-        newBalance
-      });
-
-      res.status(200).json({
-        success: true,
-        message: 'Payment manually reconciled',
-        data: {
-          transactionId: successTx._id,
-          userId,
-          amount,
-          newBalance,
-          walletId: wallet._id
-        }
-      });
-
-    } catch (error) {
-      await session.abortTransaction();
-      session.endSession();
-      throw error;
-    }
-
-  } catch (error) {
-    console.error('❌ Manual reconcile error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to reconcile payment',
-      error: error.message
-    });
-  }
-});
-
 // Test endpoint
 router.get('/test', (req, res) => {
   console.log('📍 Paystack test endpoint hit');
@@ -1035,8 +907,6 @@ router.get('/test', (req, res) => {
       'GET /api/paystack/verify/:reference',
       'POST /api/paystack/initialize-payment',
       'GET /api/paystack/callback',
-      'POST /api/paystack/test-webhook',
-      'POST /api/paystack/manual-reconcile',
       'GET /api/paystack/test'
     ]
   });

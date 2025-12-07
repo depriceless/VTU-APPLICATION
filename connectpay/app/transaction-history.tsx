@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   ScrollView,
   RefreshControl,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { Stack } from 'expo-router';
 import { AuthContext } from '../contexts/AuthContext';
 import { ThemeContext } from '../contexts/ThemeContext';
 import TransactionDetails from './TransactionDetails';
@@ -184,15 +184,15 @@ export default function TransactionHistory() {
     return { name: 'arrow-up', bg: '#fee2e2', color: '#dc3545' };
   };
 
- const getTransactionColor = (transaction: Transaction) => {
-  if (transaction.status === 'failed') return '#dc3545';
-  
-  if (transaction.type === 'credit' || transaction.type === 'transfer_in') {
-    return '#28a745';
-  }
-  
-  return '#ff2b2b';
-};
+  const getTransactionColor = (transaction: Transaction) => {
+    if (transaction.status === 'failed') return '#dc3545';
+    
+    if (transaction.type === 'credit' || transaction.type === 'transfer_in') {
+      return '#28a745';
+    }
+    
+    return '#ff2b2b';
+  };
 
   const handleTransactionPress = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
@@ -200,164 +200,151 @@ export default function TransactionHistory() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor={colors.background} />
+    <>
+      {/* Configure the red navigation header */}
+      <Stack.Screen 
+        options={{
+          headerShown: true,
+          headerStyle: {
+            backgroundColor: '#ff2b2b',
+          },
+          headerTintColor: '#fff',
+          headerTitle: 'My Transactions',
+          headerTitleStyle: {
+            fontWeight: '700',
+            fontSize: 18,
+          },
+          headerShadowVisible: false,
+        }} 
+      />
       
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.background }]}>
-        <TouchableOpacity onPress={() => router.back()} style={[styles.backButton, { backgroundColor: isDark ? colors.border : '#f5f5f5' }]}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>My Transactions</Text>
-        <View style={{ width: 40 }} />
-      </View>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Filter Tabs */}
+        <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterScrollContent}
+          >
+            {FILTER_TABS.map((tab) => (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.filterTab,
+                  activeFilter === tab.key && styles.filterTabActive,
+                  { 
+                    backgroundColor: activeFilter === tab.key ? '#1a4d2e' : colors.cardBg,
+                    borderColor: activeFilter === tab.key ? '#1a4d2e' : colors.border
+                  }
+                ]}
+                onPress={() => setActiveFilter(tab.key)}
+              >
+                <Text style={[
+                  styles.filterTabText,
+                  activeFilter === tab.key && styles.filterTabTextActive,
+                  { color: activeFilter === tab.key ? '#fff' : colors.text }
+                ]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
 
-      {/* Filter Tabs */}
-      <View style={[styles.filterContainer, { backgroundColor: colors.background, borderBottomColor: colors.border }]}>
+        {/* Transactions List */}
         <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScrollContent}
+          style={styles.scrollContainer}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              colors={['#ff2b2b']}
+              tintColor={isDark ? '#ffffff' : '#ff2b2b'}
+            />
+          }
         >
-          {FILTER_TABS.map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[
-                styles.filterTab,
-                activeFilter === tab.key && styles.filterTabActive,
-                { 
-                  backgroundColor: activeFilter === tab.key ? '#1a4d2e' : colors.cardBg,
-                  borderColor: activeFilter === tab.key ? '#1a4d2e' : colors.border
-                }
-              ]}
-              onPress={() => setActiveFilter(tab.key)}
-            >
-              <Text style={[
-                styles.filterTabText,
-                activeFilter === tab.key && styles.filterTabTextActive,
-                { color: activeFilter === tab.key ? '#fff' : colors.text }
-              ]}>
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {/* Transactions List */}
-      <ScrollView 
-        style={styles.scrollContainer}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={['#ff2b2b']}
-            tintColor={isDark ? '#ffffff' : '#ff2b2b'}
-          />
-        }
-      >
-        {isLoading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#ff2b2b" />
-            <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading transactions...</Text>
-          </View>
-        ) : filteredTransactions.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <View style={[styles.emptyIconContainer, { backgroundColor: isDark ? colors.border : '#f3f4f6' }]}>
-              <Ionicons name="receipt-outline" size={64} color={colors.textSecondary} />
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ff2b2b" />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading transactions...</Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>No Transactions Found</Text>
-            <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
-              {activeFilter === 'all' ? 
-                'Your transaction history will appear here' :
-                `No ${activeFilter === 'credit' ? 'deposit' : 'withdrawal'} transactions found`
-              }
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.transactionsList}>
-            {filteredTransactions.map((tx) => {
-              const icon = getTransactionIcon(tx);
-              
-              return (
-                <TouchableOpacity
-                  key={tx._id}
-                  style={[styles.transactionItem, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}
-                  onPress={() => handleTransactionPress(tx)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.transactionLeft}>
-                    <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
-                      <Ionicons name={icon.name as any} size={20} color={icon.color} />
+          ) : filteredTransactions.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <View style={[styles.emptyIconContainer, { backgroundColor: isDark ? colors.border : '#f3f4f6' }]}>
+                <Ionicons name="receipt-outline" size={64} color={colors.textSecondary} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>No Transactions Found</Text>
+              <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+                {activeFilter === 'all' ? 
+                  'Your transaction history will appear here' :
+                  `No ${activeFilter === 'credit' ? 'deposit' : 'withdrawal'} transactions found`
+                }
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.transactionsList}>
+              {filteredTransactions.map((tx) => {
+                const icon = getTransactionIcon(tx);
+                
+                return (
+                  <TouchableOpacity
+                    key={tx._id}
+                    style={[styles.transactionItem, { backgroundColor: colors.cardBg, borderBottomColor: colors.border }]}
+                    onPress={() => handleTransactionPress(tx)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.transactionLeft}>
+                      <View style={[styles.iconContainer, { backgroundColor: icon.bg }]}>
+                        <Ionicons name={icon.name as any} size={20} color={icon.color} />
+                      </View>
+                      <View style={styles.transactionInfo}>
+                        <Text style={[styles.transactionName, { color: colors.text }]} numberOfLines={1}>
+                          {tx.description || `${tx.type} transaction`}
+                        </Text>
+                        <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>
+                          {formatTransactionDate(tx.createdAt)}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.transactionInfo}>
-                      <Text style={[styles.transactionName, { color: colors.text }]} numberOfLines={1}>
-                        {tx.description || `${tx.type} transaction`}
-                      </Text>
-                      <Text style={[styles.transactionDate, { color: colors.textSecondary }]}>
-                        {formatTransactionDate(tx.createdAt)}
+                    <View style={styles.transactionRight}>
+                      <Text style={[
+                        styles.transactionAmount,
+                        { color: getTransactionColor(tx) }
+                      ]}>
+                        {tx.type === 'credit' || tx.type === 'transfer_in' ? '+' : '−'} {tx.amount.toFixed(2)} ₦
                       </Text>
                     </View>
-                  </View>
-                  <View style={styles.transactionRight}>
-                    <Text style={[
-                      styles.transactionAmount,
-                      { color: getTransactionColor(tx) }
-                    ]}>
-                      {tx.type === 'credit' || tx.type === 'transfer_in' ? '+' : '−'} {tx.amount.toFixed(2)} ₦
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
 
-      {/* Transaction Details Modal */}
-      <Modal
-        visible={showTransactionDetails}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowTransactionDetails(false)}
-      >
-        {selectedTransaction && (
-          <TransactionDetails
-            transaction={selectedTransaction}
-            onClose={() => setShowTransactionDetails(false)}
-            userInfo={user}
-          />
-        )}
-      </Modal>
-    </SafeAreaView>
+        {/* Transaction Details Modal */}
+        <Modal
+          visible={showTransactionDetails}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowTransactionDetails(false)}
+        >
+          {selectedTransaction && (
+            <TransactionDetails
+              transaction={selectedTransaction}
+              onClose={() => setShowTransactionDetails(false)}
+              userInfo={user}
+            />
+          )}
+        </Modal>
+      </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'ios' ? 10 : (StatusBar.currentHeight || 0) + 10,
-    paddingBottom: 15,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    flex: 1,
-    textAlign: 'center',
   },
   filterContainer: {
     paddingVertical: 12,
