@@ -83,39 +83,46 @@ async function syncPlansFromClubConnect() {
       }
 
       const products = networkData.PRODUCT;
+for (const product of products) {
+  try {
+    const planId = product.PRODUCT_ID;
+    const planName = product.PRODUCT_NAME;
+    const planAmount = Math.round(parseFloat(product.PRODUCT_AMOUNT));
 
-      for (const product of products) {
-        try {
-          const planId = product.PRODUCT_ID;
-          const planName = product.PRODUCT_NAME;
-        const planAmount = Math.round(parseFloat(product.PRODUCT_AMOUNT));
+    if (!planId || !planName || isNaN(planAmount)) {
+      continue;
+    }
 
-          if (!planId || !planName || isNaN(planAmount)) {
-            console.log(`⚠️  Skipping invalid product: ${JSON.stringify(product)}`);
-            continue;
-          }
+    // Find existing plan
+    const existingPlan = await DataPlan.findOne({
+      network: normalizedNetwork,
+      planId: planId
+    });
 
-          // Find existing plan
-          const existingPlan = await DataPlan.findOne({
-            network: normalizedNetwork,
-            planId: planId
-          });
+    // Determine category and validity from plan name
+    const { category, validity, dataSize } = parsePlanDetails(planName);
 
-          // Determine category and validity from plan name
-          const { category, validity, dataSize } = parsePlanDetails(planName);
+    // ✅ CLEAN UP PLAN NAME
+    const cleanedName = planName
+      .replace(/\(Awoof Data\)/gi, '')
+      .replace(/\(Direct Data\)/gi, '')
+      .replace(/\(SME\)/gi, '')
+      .replace(/\(SME2\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
 
-          const planData = {
-            planId: planId,
-            network: normalizedNetwork,
-            name: planName,
-            dataSize: dataSize,
-            validity: validity,
-            providerCost: planAmount,
-            category: category,
-            active: true,
-            popular: false,
-            lastUpdated: new Date()
-          };
+    const planData = {
+      planId: planId,
+      network: normalizedNetwork,
+      name: cleanedName,  // ✅ Use cleaned name instead of planName
+      dataSize: dataSize,
+      validity: validity,
+      providerCost: planAmount,
+      category: category,
+      active: true,
+      popular: false,
+      lastUpdated: new Date()
+    };
 
           if (existingPlan) {
             // Check if price changed
