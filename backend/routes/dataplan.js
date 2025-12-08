@@ -1,16 +1,17 @@
-// routes/dataplan.js - REPLACE ENTIRE FILE WITH THIS
+// routes/dataplan.js - MongoDB Version
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
+const DataPlan = require('../models/DataPlan');
+const { calculateCustomerPrice } = require('../config/pricing');
 
-// Import from shared configuration - USE THE NEW FUNCTIONS
-const {
-  DATA_PLANS,
-  NETWORK_INFO,
-  getActivePlansForNetwork,  // These now calculate prices dynamically
-  getPopularPlansForNetwork,
-  getPlansByCategory
-} = require('../config/dataPlans');
+// Network info (keep this - it's just display info)
+const NETWORK_INFO = {
+  mtn: { name: 'MTN', logo: '🟡', color: '#FFCC00', description: 'MTN Nigeria - Everywhere you go' },
+  glo: { name: 'Glo', logo: '🟢', color: '#00A859', description: 'Glo Mobile - Unlimited possibilities' },
+  '9mobile': { name: '9mobile', logo: '🟢', color: '#006838', description: '9mobile - More than you expect' },
+  airtel: { name: 'Airtel', logo: '🔴', color: '#ED1C24', description: 'Airtel Nigeria - The smartphone network' }
+};
 
 // Helper functions
 const getLastModified = () => {
@@ -24,27 +25,51 @@ const setCacheHeaders = (res, maxAge = 3600) => {
   });
 };
 
+// Helper to add pricing to plans
+const addPricingToPlans = (plans) => {
+  return plans.map(plan => {
+    const pricing = calculateCustomerPrice(plan.providerCost, 'data');
+    return {
+      id: plan.planId,
+      planId: plan.planId,
+      network: plan.network,
+      name: plan.name,
+      dataSize: plan.dataSize,
+      validity: plan.validity,
+      category: plan.category,
+      providerCost: plan.providerCost,
+      customerPrice: pricing.customerPrice,
+      profit: pricing.profit,
+      popular: plan.popular || false,
+      active: plan.active !== false
+    };
+  });
+};
+
 // GET /api/data/networks - Get all available networks
 router.get('/networks', authenticate, async (req, res) => {
   try {
     setCacheHeaders(res, 7200);
     
     const networks = ['mtn', 'glo', 'airtel', '9mobile'];
-    const networksWithStats = networks.map(network => {
-      const plans = getActivePlansForNetwork(network);
-      const popularPlans = plans.filter(p => p.popular);
-      
-      return {
-        code: network,
-        ...NETWORK_INFO[network],
-        totalPlans: plans.length,
-        popularPlans: popularPlans.length,
-        priceRange: {
-          min: Math.min(...plans.map(p => p.customerPrice)),
-          max: Math.max(...plans.map(p => p.customerPrice))
-        }
-      };
-    });
+    const networksWithStats = await Promise.all(
+      networks.map(async (network) => {
+        const plans = await DataPlan.find({ network, active: true });
+        const plansWithPricing = addPricingToPlans(plans);
+        const popularPlans = plansWithPricing.filter(p => p.popular);
+        
+        return {
+          code: network,
+          ...NETWORK_INFO[network],
+          totalPlans: plansWithPricing.length,
+          popularPlans: popularPlans.length,
+          priceRange: {
+            min: Math.min(...plansWithPricing.map(p => p.customerPrice)),
+            max: Math.max(...plansWithPricing.map(p => p.customerPrice))
+          }
+        };
+      })
+    );
 
     res.json({
       success: true,
@@ -79,9 +104,11 @@ router.get('/plans/:network', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    // This now returns plans WITH customerPrice and profit calculated
-    const plans = getActivePlansForNetwork(normalizedNetwork);
-    const networkInfo = NETWORK_INFO[normalizedNetwork];
+    // Fetch plans from MongoDB
+    const plans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true 
+    }).sort({ providerCost: 1 });
 
     if (!plans || plans.length === 0) {
       return res.status(404).json({
@@ -90,21 +117,9 @@ router.get('/plans/:network', authenticate, async (req, res) => {
       });
     }
 
-    // Format plans for response
-    const formattedPlans = plans.map(plan => ({
-      id: plan.id,
-      planId: plan.id,
-      network: normalizedNetwork,
-      name: plan.name,
-      dataSize: plan.dataSize,
-      validity: plan.validity,
-      category: plan.category,
-      providerCost: plan.providerCost,
-      customerPrice: plan.customerPrice,  // Now calculated dynamically
-      profit: plan.profit,                 // Now calculated dynamically
-      popular: plan.popular || false,
-      active: plan.active !== false
-    }));
+    // Add pricing to plans
+    const formattedPlans = addPricingToPlans(plans);
+    const networkInfo = NETWORK_INFO[normalizedNetwork];
 
     res.json({
       success: true,
@@ -120,7 +135,6 @@ router.get('/plans/:network', authenticate, async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching plans:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
       message: 'Server error retrieving data plans'
@@ -144,14 +158,15 @@ router.get('/plans/:network/popular', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    const popularPlans = getPopularPlansForNetwork(normalizedNetwork);
-    const networkInfo = NETWORK_INFO[normalizedNetwork];
+    // Fetch popular plans from MongoDB
+    const plans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true,
+      popular: true 
+    }).sort({ providerCost: 1 });
 
-    const formattedPlans = popularPlans.map(plan => ({
-      ...plan,
-      planId: plan.id,
-      network: normalizedNetwork
-    }));
+    const formattedPlans = addPricingToPlans(plans);
+    const networkInfo = NETWORK_INFO[normalizedNetwork];
 
     res.json({
       success: true,
@@ -190,20 +205,30 @@ router.get('/plans/:network/categories', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    const plansByCategory = {
-      daily: getPlansByCategory(normalizedNetwork, 'daily'),
-      weekly: getPlansByCategory(normalizedNetwork, 'weekly'),
-      monthly: getPlansByCategory(normalizedNetwork, 'monthly')
-    };
+    // Fetch plans by category from MongoDB
+    const dailyPlans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true, 
+      category: 'daily' 
+    }).sort({ providerCost: 1 });
 
-    const formattedCategories = {};
-    for (const [category, plans] of Object.entries(plansByCategory)) {
-      formattedCategories[category] = plans.map(plan => ({
-        ...plan,
-        planId: plan.id,
-        network: normalizedNetwork
-      }));
-    }
+    const weeklyPlans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true, 
+      category: 'weekly' 
+    }).sort({ providerCost: 1 });
+
+    const monthlyPlans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true, 
+      category: 'monthly' 
+    }).sort({ providerCost: 1 });
+
+    const formattedCategories = {
+      daily: addPricingToPlans(dailyPlans),
+      weekly: addPricingToPlans(weeklyPlans),
+      monthly: addPricingToPlans(monthlyPlans)
+    };
 
     const networkInfo = NETWORK_INFO[normalizedNetwork];
 
@@ -233,60 +258,47 @@ router.get('/plans/:network/categories', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/data/plan/:planId
+// GET /api/data/plan/:planId - Get single plan by ID
 router.get('/plan/:planId', authenticate, async (req, res) => {
   try {
     const { planId } = req.params;
 
     setCacheHeaders(res);
 
-    let foundPlan = null;
-    let networkName = null;
+    // Find plan in MongoDB (search all networks)
+    const plan = await DataPlan.findOne({ planId, active: true });
 
-    const networks = ['mtn', 'glo', 'airtel', '9mobile'];
-    for (const network of networks) {
-      const plans = getActivePlansForNetwork(network);
-      const plan = plans.find(p => p.id === planId);
-      if (plan) {
-        foundPlan = { 
-          ...plan, 
-          planId: plan.id, 
-          network
-        };
-        networkName = network;
-        break;
-      }
-    }
-
-    if (!foundPlan) {
+    if (!plan) {
       return res.status(404).json({
         success: false,
         message: 'Data plan not found'
       });
     }
 
-    const networkPlans = getActivePlansForNetwork(networkName);
-    const similarPlans = networkPlans
-      .filter(plan => 
-        plan.id !== planId && 
-        plan.category === foundPlan.category &&
-        Math.abs(plan.customerPrice - foundPlan.customerPrice) <= 500
-      )
-      .slice(0, 3)
-      .map(plan => ({ 
-        ...plan, 
-        planId: plan.id, 
-        network: networkName
-      }));
+    // Add pricing to plan
+    const [formattedPlan] = addPricingToPlans([plan]);
 
-    const networkInfo = NETWORK_INFO[networkName];
+    // Find similar plans (same network, same category, similar price)
+    const similarPlansData = await DataPlan.find({
+      network: plan.network,
+      category: plan.category,
+      active: true,
+      planId: { $ne: planId },
+      providerCost: { 
+        $gte: plan.providerCost - 500, 
+        $lte: plan.providerCost + 500 
+      }
+    }).limit(3);
+
+    const similarPlans = addPricingToPlans(similarPlansData);
+    const networkInfo = NETWORK_INFO[plan.network];
 
     res.json({
       success: true,
       message: 'Data plan retrieved',
-      plan: foundPlan,
+      plan: formattedPlan,
       network: {
-        code: networkName,
+        code: plan.network,
         ...networkInfo
       },
       similarPlans,

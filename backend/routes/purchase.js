@@ -6,9 +6,7 @@ const { authenticate } = require('../middleware/auth');
 const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
-const { DATA_PLANS } = require('../config/dataPlans');
 const ServiceConfig = require('../models/ServiceConfig');
-const { getPlanWithPricing } = require('../config/dataPlans');
 const { calculateCustomerPrice, validateCustomerPrice } = require('../config/pricing');
 const { getCablePackageById, getEducationService } = require('../config/cableTVPackages');
 
@@ -926,16 +924,88 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
 
     const normalizedNetwork = network.toLowerCase();
     
-    // Get plan with DYNAMIC pricing
-    const selectedPlan = getPlanWithPricing(normalizedNetwork, planId);
+    // Fetch plan from MongoDB
+    const DataPlan = require('../models/DataPlan');
+    const selectedPlan = await DataPlan.findOne({ 
+      network: normalizedNetwork, 
+      planId: planId,
+      active: true 
+    });
     
     if (!selectedPlan) {
-      throw new Error('Invalid plan selected');
+      throw new Error('Invalid plan selected or plan not available');
     }
 
-    // Validate amount matches calculated price
-    if (selectedPlan.customerPrice !== amount) {
-      throw new Error(`Amount mismatch: expected ₦${selectedPlan.customerPrice.toLocaleString()}, got ₦${amount.toLocaleString()}`);
+    // ✅ NEW: Check if plan data is stale (older than 1 hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const isStale = selectedPlan.lastUpdated < oneHourAgo;
+
+    if (isStale) {
+      console.log('⚠️  Plan data is stale, fetching fresh prices...');
+      
+      try {
+        // Fetch fresh plans from ClubConnect
+        const axios = require('axios');
+        const freshPlansUrl = `https://www.nellobytesystems.com/APIDatabundlePlansV2.asp?UserID=${process.env.CLUBKONNECT_USER_ID}`;
+        const response = await axios.get(freshPlansUrl, { timeout: 10000 });
+        
+        let plansData = response.data;
+        if (typeof plansData === 'string') {
+          plansData = JSON.parse(plansData);
+        }
+
+        // Find the specific plan in fresh data
+        const networkCodeMap = { 'mtn': '01', 'glo': '02', '9mobile': '03', 'airtel': '04' };
+        const networkCode = networkCodeMap[normalizedNetwork];
+        const freshNetworkPlans = plansData[networkCode];
+
+        if (freshNetworkPlans && Array.isArray(freshNetworkPlans)) {
+          const freshPlan = freshNetworkPlans.find(p => 
+            (p.dataplan_id || p.plan_id || p.id) === planId
+          );
+
+          if (freshPlan) {
+            const freshProviderCost = parseFloat(freshPlan.plan_amount || freshPlan.amount || 0);
+            
+            // Update MongoDB with fresh price
+            if (freshProviderCost !== selectedPlan.providerCost) {
+              console.log(`💰 Price changed: ₦${selectedPlan.providerCost} → ₦${freshProviderCost}`);
+              
+              await DataPlan.updateOne(
+                { _id: selectedPlan._id },
+                { 
+                  $set: { 
+                    providerCost: freshProviderCost,
+                    lastUpdated: new Date()
+                  }
+                }
+              );
+              
+              selectedPlan.providerCost = freshProviderCost;
+            } else {
+              // Just update timestamp
+              await DataPlan.updateOne(
+                { _id: selectedPlan._id },
+                { $set: { lastUpdated: new Date() } }
+              );
+            }
+          }
+        }
+      } catch (fetchError) {
+        console.error('⚠️  Could not fetch fresh prices, using cached:', fetchError.message);
+        // Continue with cached price (risk accepted)
+      }
+    }
+
+    // Calculate pricing dynamically with current provider cost
+    const pricing = calculateCustomerPrice(selectedPlan.providerCost, 'data');
+
+    // ✅ CRITICAL: Validate amount matches current calculated price
+    if (pricing.customerPrice !== amount) {
+      // Price changed! Return error with new price
+      throw new Error(
+        `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
+      );
     }
 
     const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
@@ -959,16 +1029,16 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     return {
       success: true,
       reference: response.orderid || requestId,
-      description: `Data purchase - ${network.toUpperCase()} ${plan} - ${phone}`,
+      description: `Data purchase - ${network.toUpperCase()} ${selectedPlan.name} - ${phone}`,
       successMessage: response.remark || 'Data purchase successful',
       transactionData: {
         network: network.toUpperCase(),
         phone,
-        plan: plan,
+        plan: selectedPlan.name,
         planId: planId,
         providerCost: selectedPlan.providerCost,
-        customerPrice: selectedPlan.customerPrice,
-        profit: selectedPlan.profit,
+        customerPrice: pricing.customerPrice,
+        profit: pricing.profit,
         serviceType: 'data',
         orderid: response.orderid,
         apiResponse: response
@@ -984,7 +1054,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     };
   }
 }
-
 
 async function processFundBettingPurchase({ provider, customerId, customerName, amount, userId }) {
   try {
@@ -1411,5 +1480,36 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
     console.error('Service initialization error:', error);
   }
 })();
+router.get('/test-clubkonnect', async (req, res) => {
+  const params = {
+    UserID: process.env.CLUBKONNECT_USER_ID || 'CK101263696',
+    APIKey: process.env.CLUBKONNECT_API_KEY || 'E94SKRM091S21A66T8Q6790WE17LYA24ADOJ4FRL691JC00KJ34D241M19RRX1HU',
+    MobileNetwork: '01',
+    Amount: 50,
+    MobileNumber: '08000000000',
+    RequestID: `TEST_${Date.now()}`
+  };
+
+  const url = `https://www.nellobytesystems.com/APIAirtimeV1.asp?${new URLSearchParams(params)}`;
+  
+  console.log('Testing ClubKonnect...');
+  
+  try {
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    console.log('Response:', data);
+    
+    return res.json({
+      success: data.status !== 'AUTHENTICATION_FAILED_1',
+      clubKonnectResponse: data,
+      message: data.status === 'AUTHENTICATION_FAILED_1' 
+        ? '❌ Authentication failed - check your credentials'
+        : '✅ Authentication successful!'
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
 
 module.exports = router;
