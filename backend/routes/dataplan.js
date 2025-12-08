@@ -1,11 +1,14 @@
-// routes/dataplan.js - MongoDB Version
+// ============================================
+// routes/dataplan.js - COMPLETE FIXED VERSION
+// ============================================
+// This makes backend work with frontend's name-parsing logic
+
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const DataPlan = require('../models/DataPlan');
 const { calculateCustomerPrice } = require('../config/pricing');
 
-// Network info (keep this - it's just display info)
 const NETWORK_INFO = {
   mtn: { name: 'MTN', logo: '🟡', color: '#FFCC00', description: 'MTN Nigeria - Everywhere you go' },
   glo: { name: 'Glo', logo: '🟢', color: '#00A859', description: 'Glo Mobile - Unlimited possibilities' },
@@ -13,7 +16,6 @@ const NETWORK_INFO = {
   airtel: { name: 'Airtel', logo: '🔴', color: '#ED1C24', description: 'Airtel Nigeria - The smartphone network' }
 };
 
-// Helper functions
 const getLastModified = () => {
   return new Date();
 };
@@ -25,10 +27,25 @@ const setCacheHeaders = (res, maxAge = 3600) => {
   });
 };
 
-// Helper to add pricing to plans
+// ✅ UPDATED: Add 'type' field based on name (matching frontend logic)
 const addPricingToPlans = (plans) => {
   return plans.map(plan => {
     const pricing = calculateCustomerPrice(plan.providerCost, 'data');
+    
+    // ✅ Categorize based on plan NAME (exactly like frontend does)
+    const nameLower = plan.name.toLowerCase();
+    let type = 'regular'; // Default
+    
+    // Check SME first (frontend checks SME before gift)
+    if (nameLower.includes('sme') || nameLower.includes('corporate')) {
+      type = 'sme';
+    } 
+    // Then check Gift
+    else if (nameLower.includes('gift') || nameLower.includes('gifting')) {
+      type = 'gift';
+    }
+    // Everything else is 'regular' (Direct Data)
+    
     return {
       id: plan.planId,
       planId: plan.planId,
@@ -37,8 +54,11 @@ const addPricingToPlans = (plans) => {
       dataSize: plan.dataSize,
       validity: plan.validity,
       category: plan.category,
+      planType: plan.planType || 'direct',
+      type: type, // ✅ Frontend will use this
       providerCost: plan.providerCost,
       customerPrice: pricing.customerPrice,
+      amount: pricing.customerPrice, // ✅ Also add 'amount' for frontend
       profit: pricing.profit,
       popular: plan.popular || false,
       active: plan.active !== false
@@ -46,7 +66,7 @@ const addPricingToPlans = (plans) => {
   });
 };
 
-// GET /api/data/networks - Get all available networks
+// GET /api/data/networks
 router.get('/networks', authenticate, async (req, res) => {
   try {
     setCacheHeaders(res, 7200);
@@ -88,7 +108,7 @@ router.get('/networks', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/data/plans/:network - Get data plans for specific network
+// GET /api/data/plans/:network
 router.get('/plans/:network', authenticate, async (req, res) => {
   try {
     const { network } = req.params;
@@ -104,7 +124,6 @@ router.get('/plans/:network', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    // Fetch plans from MongoDB
     const plans = await DataPlan.find({ 
       network: normalizedNetwork, 
       active: true 
@@ -117,7 +136,6 @@ router.get('/plans/:network', authenticate, async (req, res) => {
       });
     }
 
-    // Add pricing to plans
     const formattedPlans = addPricingToPlans(plans);
     const networkInfo = NETWORK_INFO[normalizedNetwork];
 
@@ -142,6 +160,136 @@ router.get('/plans/:network', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/data/plans/:network/types
+router.get('/plans/:network/types', authenticate, async (req, res) => {
+  try {
+    const { network } = req.params;
+    const normalizedNetwork = network.toLowerCase();
+
+    const validNetworks = ['mtn', 'airtel', 'glo', '9mobile'];
+    if (!validNetworks.includes(normalizedNetwork)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid network'
+      });
+    }
+
+    setCacheHeaders(res);
+
+    const plans = await DataPlan.find({ 
+      network: normalizedNetwork, 
+      active: true 
+    });
+
+    const formattedPlans = addPricingToPlans(plans);
+
+    // ✅ Count by 'type' field (regular, sme, gift)
+    const regularPlans = formattedPlans.filter(p => p.type === 'regular');
+    const smePlans = formattedPlans.filter(p => p.type === 'sme');
+    const giftPlans = formattedPlans.filter(p => p.type === 'gift');
+
+    const typeCounts = [
+      { 
+        type: 'regular',
+        count: regularPlans.length,
+        label: 'Regular Data',
+        description: 'Direct data plans, instant delivery',
+        startingPrice: regularPlans.length > 0 ? Math.min(...regularPlans.map(p => p.customerPrice)) : null
+      },
+      { 
+        type: 'sme',
+        count: smePlans.length,
+        label: 'SME Data',
+        description: 'Cheapest, may have delays',
+        startingPrice: smePlans.length > 0 ? Math.min(...smePlans.map(p => p.customerPrice)) : null
+      },
+      { 
+        type: 'gift',
+        count: giftPlans.length,
+        label: 'Gift Data',
+        description: 'Giftable data plans',
+        startingPrice: giftPlans.length > 0 ? Math.min(...giftPlans.map(p => p.customerPrice)) : null
+      }
+    ];
+
+    const networkInfo = NETWORK_INFO[normalizedNetwork];
+
+    res.json({
+      success: true,
+      network: {
+        code: normalizedNetwork,
+        ...networkInfo
+      },
+      planTypes: typeCounts,
+      message: `Available plan types for ${normalizedNetwork.toUpperCase()}`
+    });
+
+  } catch (error) {
+    console.error('Plan types error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error retrieving plan types'
+    });
+  }
+});
+
+// GET /api/data/plans/:network/type/:planType
+router.get('/plans/:network/type/:planType', authenticate, async (req, res) => {
+  try {
+    const { network, planType } = req.params;
+    const normalizedNetwork = network.toLowerCase();
+    const normalizedPlanType = planType.toLowerCase();
+
+    const validNetworks = ['mtn', 'airtel', 'glo', '9mobile'];
+    const validTypes = ['regular', 'sme', 'gift']; // ✅ Frontend uses these
+
+    if (!validNetworks.includes(normalizedNetwork)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid network'
+      });
+    }
+
+    if (!validTypes.includes(normalizedPlanType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid plan type. Valid: regular, sme, gift'
+      });
+    }
+
+    setCacheHeaders(res);
+
+    const plans = await DataPlan.find({ 
+      network: normalizedNetwork,
+      active: true 
+    }).sort({ providerCost: 1 });
+
+    const formattedPlans = addPricingToPlans(plans);
+    
+    // ✅ Filter by 'type' field (regular, sme, gift)
+    const filteredPlans = formattedPlans.filter(p => p.type === normalizedPlanType);
+
+    const networkInfo = NETWORK_INFO[normalizedNetwork];
+
+    res.json({
+      success: true,
+      message: `${planType.toUpperCase()} plans for ${normalizedNetwork.toUpperCase()}`,
+      network: {
+        code: normalizedNetwork,
+        ...networkInfo
+      },
+      planType: normalizedPlanType,
+      plans: filteredPlans,
+      count: filteredPlans.length,
+      lastModified: getLastModified()
+    });
+
+  } catch (error) {
+    console.error('Plan type error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // GET /api/data/plans/:network/popular
 router.get('/plans/:network/popular', authenticate, async (req, res) => {
   try {
@@ -158,7 +306,6 @@ router.get('/plans/:network/popular', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    // Fetch popular plans from MongoDB
     const plans = await DataPlan.find({ 
       network: normalizedNetwork, 
       active: true,
@@ -205,7 +352,6 @@ router.get('/plans/:network/categories', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
-    // Fetch plans by category from MongoDB
     const dailyPlans = await DataPlan.find({ 
       network: normalizedNetwork, 
       active: true, 
@@ -258,14 +404,13 @@ router.get('/plans/:network/categories', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/data/plan/:planId - Get single plan by ID
+// GET /api/data/plan/:planId
 router.get('/plan/:planId', authenticate, async (req, res) => {
   try {
     const { planId } = req.params;
 
     setCacheHeaders(res);
 
-    // Find plan in MongoDB (search all networks)
     const plan = await DataPlan.findOne({ planId, active: true });
 
     if (!plan) {
@@ -275,10 +420,8 @@ router.get('/plan/:planId', authenticate, async (req, res) => {
       });
     }
 
-    // Add pricing to plan
     const [formattedPlan] = addPricingToPlans([plan]);
 
-    // Find similar plans (same network, same category, similar price)
     const similarPlansData = await DataPlan.find({
       network: plan.network,
       category: plan.category,

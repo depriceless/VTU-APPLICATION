@@ -5,7 +5,7 @@ const DataPlanSchema = new mongoose.Schema({
   planId: {
     type: String,
     required: true,
-    index: true  // ← Changed: Not unique globally anymore
+    index: true
   },
 
   // Network (mtn, glo, airtel, 9mobile)
@@ -48,6 +48,15 @@ const DataPlanSchema = new mongoose.Schema({
     index: true
   },
 
+  // ✅ Plan type (Direct, SME, Gift) - ONLY 3 TYPES
+  planType: {
+    type: String,
+    required: true,
+    enum: ['direct', 'sme', 'gift'],  // ✅ REMOVED 'sme2'
+    default: 'direct',
+    index: true
+  },
+
   // Status flags
   active: {
     type: Boolean,
@@ -75,12 +84,13 @@ const DataPlanSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ✅ FIXED: Compound unique index (network + planId together must be unique)
+// ✅ Compound unique index (network + planId together must be unique)
 DataPlanSchema.index({ network: 1, planId: 1 }, { unique: true });
 
 // Other indexes for fast queries
 DataPlanSchema.index({ network: 1, active: 1 });
 DataPlanSchema.index({ network: 1, category: 1, active: 1 });
+DataPlanSchema.index({ network: 1, planType: 1, active: 1 });
 DataPlanSchema.index({ network: 1, popular: 1, active: 1 });
 
 // Virtual for customer price (calculated dynamically)

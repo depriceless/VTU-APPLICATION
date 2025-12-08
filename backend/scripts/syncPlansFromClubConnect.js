@@ -9,130 +9,185 @@ const CLUBKONNECT_CONFIG = {
   baseUrl: 'https://www.nellobytesystems.com'
 };
 
-// Network name mapping
-const NETWORK_MAP = {
-  'MTN': 'mtn',
-  'GLO': 'glo',
-  'Glo': 'glo',
-  '9MOBILE': '9mobile',
-  '9mobile': '9mobile',
-  'm_9mobile': '9mobile',  // ← ADD THIS LINE
-  'AIRTEL': 'airtel',
-  'Airtel': 'airtel'
-};
+function determinePlanType(planName) {
+  const nameLower = planName.toLowerCase();
+  
+  if (nameLower.includes('awoof')) return 'awoof';
+  
+  // SME plans (includes both SME and SME2)
+  if (nameLower.includes('sme') || nameLower.includes('corporate')) {
+    return 'sme';
+  }
+  
+  // Gift plans
+  if (nameLower.includes('gift') || nameLower.includes('gifting')) {
+    return 'gift';
+  }
+  
+  // Direct plans (default)
+  return 'direct';
+}
 
-async function syncPlansFromClubConnect() {
+// Helper function to parse plan details
+function parsePlanDetails(planName) {
+  let category = 'monthly';
+  let validity = '';
+  let dataSize = '';
+
+  // Extract data size
+  const dataSizeMatch = planName.match(/(\d+(?:\.\d+)?)\s*(MB|GB)/i);
+  if (dataSizeMatch) {
+    dataSize = dataSizeMatch[0];
+  }
+
+  // Determine category and validity based on plan name
+  if (planName.match(/daily|1\s*day/i)) {
+    category = 'daily';
+    validity = '1 day';
+  } else if (planName.match(/weekly|7\s*days?|week/i)) {
+    category = 'weekly';
+    validity = '7 days';
+  } else if (planName.match(/(\d+)\s*days?/i)) {
+    const daysMatch = planName.match(/(\d+)\s*days?/i);
+    const days = parseInt(daysMatch[1]);
+    
+    if (days <= 1) {
+      category = 'daily';
+      validity = `${days} day`;
+    } else if (days <= 7) {
+      category = 'weekly';
+      validity = `${days} days`;
+    } else {
+      category = 'monthly';
+      validity = `${days} days`;
+    }
+  } else if (planName.match(/month|30\s*days?/i)) {
+    category = 'monthly';
+    validity = '30 days';
+  }
+
+  return { category, validity, dataSize };
+}
+
+// Main sync function
+async function syncPlans() {
+  let connection;
+  
   try {
-    console.log('🔄 Starting ClubConnect sync...\n');
+    console.log('🔄 Starting ClubConnect sync...');
 
     // Connect to MongoDB
-    await mongoose.connect(process.env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    });
-    console.log('✅ Connected to MongoDB\n');
+    connection = await mongoose.connect(process.env.MONGO_URI);
+    console.log('✅ Connected to MongoDB');
 
     // Fetch plans from ClubConnect
-    const url = `${CLUBKONNECT_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CLUBKONNECT_CONFIG.userId}&APIKey=${CLUBKONNECT_CONFIG.apiKey}`;
     console.log('📡 Fetching plans from ClubConnect...');
+    const url = `${CLUBKONNECT_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CLUBKONNECT_CONFIG.userId}&APIKey=${CLUBKONNECT_CONFIG.apiKey}`;
     
-    const response = await axios.get(url, { timeout: 30000 });
-    
-    let plansData = response.data;
-    
-    // Parse if string
-    if (typeof plansData === 'string') {
-      plansData = JSON.parse(plansData);
+    const response = await axios.get(url, { 
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'VTU-App/1.0'
+      }
+    });
+
+    if (!response.data || !response.data.MOBILE_NETWORK) {
+      throw new Error('Invalid response from ClubConnect API');
     }
 
-    console.log('✅ Plans fetched from ClubConnect\n');
+    console.log('✅ Plans fetched from ClubConnect');
 
-    if (!plansData || !plansData.MOBILE_NETWORK) {
-      throw new Error('Invalid response format from ClubConnect');
-    }
-
-    let totalUpdated = 0;
-    let totalNew = 0;
-    let totalFailed = 0;
-    let priceChanges = [];
-
-    const mobileNetworks = plansData.MOBILE_NETWORK;
+    const data = response.data;
+    let updatedCount = 0;
+    let newCount = 0;
+    let failedCount = 0;
+    let skippedAwoofCount = 0;
+    const priceChanges = [];
+    const planTypeCounts = { direct: 0, sme: 0, gift: 0 }; // ✅ Fixed: Only 3 types
 
     // Process each network
-    for (const [networkName, networkArray] of Object.entries(mobileNetworks)) {
-      const normalizedNetwork = NETWORK_MAP[networkName];
-      
-      if (!normalizedNetwork) {
-        console.log(`⚠️  Skipping unknown network: ${networkName}`);
-        continue;
+    for (const [networkCode, networkArray] of Object.entries(data.MOBILE_NETWORK)) {
+      // ✅ Better network name normalization
+      let normalizedNetwork;
+      if (networkCode.toLowerCase().includes('9mobile')) {
+        normalizedNetwork = '9mobile';
+      } else {
+        normalizedNetwork = networkCode.toLowerCase();
       }
 
       console.log(`📡 Processing ${normalizedNetwork.toUpperCase()} plans...`);
 
-      if (!Array.isArray(networkArray) || networkArray.length === 0) {
+      if (!networkArray || !Array.isArray(networkArray) || networkArray.length === 0) {
         console.log(`⚠️  No data for ${normalizedNetwork}`);
         continue;
       }
 
-      // Get the network object (should be first item in array)
-      const networkData = networkArray[0];
-      
-      if (!networkData.PRODUCT || !Array.isArray(networkData.PRODUCT)) {
+      const products = networkArray[0].PRODUCT;
+      if (!products || !Array.isArray(products)) {
         console.log(`⚠️  No products for ${normalizedNetwork}`);
         continue;
       }
 
-      const products = networkData.PRODUCT;
-for (const product of products) {
-  try {
-    const planId = product.PRODUCT_ID;
-    const planName = product.PRODUCT_NAME;
-    const planAmount = Math.round(parseFloat(product.PRODUCT_AMOUNT));
+      // Process each plan
+      for (const product of products) {
+        try {
+          const planId = product.PRODUCT_ID;
+          const planName = product.PRODUCT_NAME;
+          const planAmount = Math.round(parseFloat(product.PRODUCT_AMOUNT));
 
-    if (!planId || !planName || isNaN(planAmount)) {
-      continue;
-    }
+          if (!planId || !planName || isNaN(planAmount)) {
+            process.stdout.write('-');
+            failedCount++;
+            continue;
+          }
 
-    // Find existing plan
-    const existingPlan = await DataPlan.findOne({
-      network: normalizedNetwork,
-      planId: planId
-    });
+          // ✅ Determine plan type
+          const planType = determinePlanType(planName);
 
-    // Determine category and validity from plan name
-    const { category, validity, dataSize } = parsePlanDetails(planName);
+          // ✅ SKIP AWOOF DATA PLANS
+          if (planType === 'awoof') {
+            process.stdout.write('-');
+            skippedAwoofCount++;
+            continue;
+          }
 
-    // ✅ CLEAN UP PLAN NAME
-    const cleanedName = planName
-      .replace(/\(Awoof Data\)/gi, '')
-      .replace(/\(Direct Data\)/gi, '')
-      .replace(/\(SME\)/gi, '')
-      .replace(/\(SME2\)/gi, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+          // Find existing plan
+          const existingPlan = await DataPlan.findOne({
+            network: normalizedNetwork,
+            planId: planId
+          });
 
-    const planData = {
-      planId: planId,
-      network: normalizedNetwork,
-      name: cleanedName,  // ✅ Use cleaned name instead of planName
-      dataSize: dataSize,
-      validity: validity,
-      providerCost: planAmount,
-      category: category,
-      active: true,
-      popular: false,
-      lastUpdated: new Date()
-    };
+          // Determine category and validity from plan name
+          const { category, validity, dataSize } = parsePlanDetails(planName);
+
+          // Clean up plan name (keep labels for categorization)
+          const cleanedName = planName
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const planData = {
+            planId: planId,
+            network: normalizedNetwork,
+            name: cleanedName,
+            dataSize: dataSize,
+            validity: validity,
+            providerCost: planAmount,
+            category: category,
+            planType: planType, // ✅ Save plan type
+            active: true,
+            popular: false,
+            lastUpdated: new Date()
+          };
 
           if (existingPlan) {
-            // Check if price changed
+            // Check for price changes
             if (existingPlan.providerCost !== planAmount) {
               priceChanges.push({
                 network: normalizedNetwork,
-                planId: planId,
-                planName: planName,
+                plan: planName,
                 oldPrice: existingPlan.providerCost,
-                newPrice: planAmount
+                newPrice: planAmount,
+                difference: planAmount - existingPlan.providerCost
               });
             }
 
@@ -141,100 +196,81 @@ for (const product of products) {
               { _id: existingPlan._id },
               { $set: planData }
             );
-            totalUpdated++;
+            
+            updatedCount++;
+            planTypeCounts[planType]++;
+            process.stdout.write('.');
           } else {
             // Create new plan
             await DataPlan.create(planData);
-            totalNew++;
+            newCount++;
+            planTypeCounts[planType]++;
+            process.stdout.write('+');
           }
 
-          process.stdout.write('.');
         } catch (error) {
-          console.error(`\n❌ Error processing product:`, error.message);
-          totalFailed++;
+          console.error(`\n❌ Error processing plan:`, error.message);
+          failedCount++;
+          process.stdout.write('✗');
         }
       }
 
-      console.log(` ✅ ${normalizedNetwork.toUpperCase()} done\n`);
+      console.log(` ✅ ${normalizedNetwork.toUpperCase()} done`);
     }
 
+    // Print summary
     console.log('\n📊 Sync Summary:');
-    console.log(`   ✅ Updated: ${totalUpdated} plans`);
-    console.log(`   ➕ New: ${totalNew} plans`);
-    console.log(`   ❌ Failed: ${totalFailed} plans`);
+    console.log(`   ✅ Updated: ${updatedCount} plans`);
+    console.log(`   ➕ New: ${newCount} plans`);
+    console.log(`   ⏭️  Skipped (Awoof Data): ${skippedAwoofCount} plans`);
+    console.log(`   ❌ Failed: ${failedCount} plans`);
 
+    // Show price changes
     if (priceChanges.length > 0) {
       console.log('\n💰 Price Changes Detected:');
       priceChanges.forEach(change => {
-        console.log(`   ${change.network.toUpperCase()} ${change.planName}`);
-        console.log(`   ₦${change.oldPrice} → ₦${change.newPrice}`);
+        const direction = change.difference > 0 ? '📈' : '📉';
+        console.log(`   ${direction} ${change.network.toUpperCase()}: ${change.plan}`);
+        console.log(`      Old: ₦${change.oldPrice} → New: ₦${change.newPrice} (${change.difference > 0 ? '+' : ''}₦${change.difference})`);
       });
     } else {
-      console.log('\n✅ No price changes detected');
+      console.log('✅ No price changes detected');
     }
 
-    // Final stats
-    const totalPlans = await DataPlan.countDocuments({ active: true });
-    console.log(`\n📈 Total active plans in database: ${totalPlans}`);
+    // Show plan type statistics
+    console.log('\n📈 Plans by Type:');
+    const typeLabels = {
+      direct: 'Direct Data',  // ✅ Fixed: Removed sme2
+      sme: 'SME Data',
+      gift: 'Gift Data'
+    };
+    
+    for (const [type, count] of Object.entries(planTypeCounts)) {
+      if (count > 0) {
+        const label = typeLabels[type] || type.toUpperCase();
+        console.log(`   ${label}: ${count} plans`);
+      }
+    }
 
-    console.log('\n✅ Sync completed successfully!\n');
+    // Get total active plans count
+    const totalPlans = await DataPlan.countDocuments({ active: true });
+    console.log(`\n📊 Total active plans: ${totalPlans}`);
+
+    console.log('\n✅ Sync completed successfully!');
 
   } catch (error) {
-    console.error('❌ Sync error:', error.message);
+    console.error('\n❌ Sync error:', error.message);
     if (error.response) {
-      console.error('Response status:', error.response.status);
-      console.error('Response data:', error.response.data);
+      console.error('API Response:', error.response.status, error.response.statusText);
     }
+    process.exit(1);
   } finally {
-    await mongoose.connection.close();
-    console.log('🔌 MongoDB connection closed');
-    process.exit(0);
+    if (connection) {
+      await mongoose.connection.close();
+      console.log('🔌 MongoDB connection closed');
+    }
   }
 }
 
-// Helper function to parse plan details from name
-function parsePlanDetails(planName) {
-  const lower = planName.toLowerCase();
-  
-  // Extract data size (e.g., "500 MB", "1 GB", "10GB")
-  let dataSize = 'Unknown';
-  const sizeMatch = planName.match(/(\d+\.?\d*)\s*(MB|GB|mb|gb)/i);
-  if (sizeMatch) {
-    dataSize = `${sizeMatch[1]}${sizeMatch[2].toUpperCase()}`;
-  }
-  
-  // Extract validity
-  let validity = '30 days';
-  let category = 'monthly';
-  
-  if (lower.includes('1 day') || lower.includes('daily')) {
-    validity = '1 day';
-    category = 'daily';
-  } else if (lower.includes('2 day')) {
-    validity = '2 days';
-    category = 'daily';
-  } else if (lower.includes('3 day')) {
-    validity = '3 days';
-    category = 'daily';
-  } else if (lower.includes('7 day') || lower.includes('week')) {
-    validity = '7 days';
-    category = 'weekly';
-  } else if (lower.includes('14 day')) {
-    validity = '14 days';
-    category = 'weekly';
-  } else if (lower.includes('30 day') || lower.includes('month')) {
-    validity = '30 days';
-    category = 'monthly';
-  } else if (lower.includes('60 day') || lower.includes('2 month')) {
-    validity = '60 days';
-    category = 'monthly';
-  } else if (lower.includes('90 day') || lower.includes('3 month')) {
-    validity = '90 days';
-    category = 'monthly';
-  }
-  
-  return { category, validity, dataSize };
-}
-
-// Run sync
-syncPlansFromClubConnect();
+// Run the sync
+syncPlans();
