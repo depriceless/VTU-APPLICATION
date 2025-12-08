@@ -225,7 +225,7 @@ router.get('/providers', authenticate, async (req, res) => {
   }
 });
 
-// ========== GET PACKAGES BY OPERATOR ==========
+// ========== GET PACKAGES BY OPERATOR (FIXED - No Duplicates) ==========
 router.get('/packages/:operator', authenticate, async (req, res) => {
   try {
     const { operator } = req.params;
@@ -241,10 +241,13 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
 
     setCacheHeaders(res);
 
+    // Fetch packages from database
     const packages = await CableTVPlan.find({ 
       operator: normalizedOperator, 
       active: true 
     }).sort({ providerCost: 1 });
+
+    console.log(`📦 [${normalizedOperator}] Found ${packages.length} packages from database`);
 
     if (!packages || packages.length === 0) {
       return res.status(404).json({
@@ -253,7 +256,25 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
       });
     }
 
+    // Format packages with pricing
     const formattedPackages = addPricingToPackages(packages);
+    console.log(`📦 [${normalizedOperator}] After formatting: ${formattedPackages.length} packages`);
+
+    // ✅ DEDUPLICATION: Remove any duplicates by packageId
+    const uniquePackages = [];
+    const seenIds = new Set();
+
+    for (const pkg of formattedPackages) {
+      if (!seenIds.has(pkg.packageId)) {
+        seenIds.add(pkg.packageId);
+        uniquePackages.push(pkg);
+      } else {
+        console.log(`⚠️  [${normalizedOperator}] Duplicate found and removed: ${pkg.packageId}`);
+      }
+    }
+
+    console.log(`✅ [${normalizedOperator}] Final unique packages: ${uniquePackages.length}`);
+
     const operatorInfo = OPERATOR_INFO[normalizedOperator];
 
     res.json({
@@ -264,8 +285,8 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
         code: normalizedOperator,
         ...operatorInfo
       },
-      data: formattedPackages,
-      count: formattedPackages.length,
+      data: uniquePackages,  // ← Send deduplicated array
+      count: uniquePackages.length,
       lastModified: getLastModified()
     });
 
@@ -275,53 +296,6 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
       success: false,
       message: 'Failed to fetch cable packages',
       error: error.message
-    });
-  }
-});
-
-// ========== GET POPULAR PACKAGES BY OPERATOR ==========
-router.get('/packages/:operator/popular', authenticate, async (req, res) => {
-  try {
-    const { operator } = req.params;
-    const normalizedOperator = operator.toLowerCase();
-
-    const validOperators = ['dstv', 'gotv', 'startimes'];
-    if (!validOperators.includes(normalizedOperator)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid operator'
-      });
-    }
-
-    setCacheHeaders(res);
-
-    const packages = await CableTVPlan.find({ 
-      operator: normalizedOperator, 
-      active: true,
-      popular: true 
-    }).sort({ providerCost: 1 });
-
-    const formattedPackages = addPricingToPackages(packages);
-    const operatorInfo = OPERATOR_INFO[normalizedOperator];
-
-    res.json({
-      success: true,
-      message: `Popular packages retrieved for ${normalizedOperator.toUpperCase()}`,
-      operator: normalizedOperator,
-      operatorInfo: {
-        code: normalizedOperator,
-        ...operatorInfo
-      },
-      data: formattedPackages,
-      count: formattedPackages.length,
-      lastModified: getLastModified()
-    });
-
-  } catch (error) {
-    console.error('Popular packages error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error retrieving popular packages'
     });
   }
 });
