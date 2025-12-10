@@ -1,6 +1,5 @@
 import React, { useContext, useEffect, useState, useCallback, useRef } from 'react';
-import TransactionDetails from './TransactionDetails';
-import { Share, ActivityIndicator, Alert, AppState, Platform, StatusBar } from 'react-native';
+import { ActivityIndicator, Alert, AppState, Platform, StatusBar, Modal } from 'react-native';
 import {
   View,
   Text,
@@ -9,7 +8,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
-  Modal,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -34,8 +32,6 @@ export default function Dashboard() {
   const [transactions, setTransactions] = useState([]);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [balanceVisible, setBalanceVisible] = useState(true);
-  const [selectedTransaction, setSelectedTransaction] = useState(null);
-  const [showTransactionDetails, setShowTransactionDetails] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [apiError, setApiError] = useState(null);
@@ -368,11 +364,14 @@ export default function Dashboard() {
     }
   }, [fetchTransactions, fetchBalance, isLoggingOut]);
 
-  // Transaction press handler
-  const handleTransactionPress = useCallback((transaction) => {
-    setSelectedTransaction(transaction);
-    setShowTransactionDetails(true);
-  }, []);
+const handleTransactionPress = useCallback((transaction) => {
+  router.push({
+    pathname: '/TransactionDetailsScreen',
+    params: {
+      transaction: JSON.stringify(transaction),
+    }
+  });
+}, [router]);
 
   // Navigation handlers
   const navigateToProfile = useCallback(() => {
@@ -416,86 +415,6 @@ export default function Dashboard() {
     setBalanceVisible(prev => !prev);
   }, []);
 
-  // Share receipt handler
-  const shareReceipt = useCallback(async () => {
-    if (!selectedTransaction) return;
-
-    const formatDate = (dateString) => {
-      return new Date(dateString).toLocaleString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    };
-
-    const getStatusIcon = () => {
-      const iconMap = {
-        completed: '✅',
-        pending: '⏳',
-        failed: '❌',
-      };
-      return iconMap[selectedTransaction.status.toLowerCase()] || '📋';
-    };
-
-    const receiptContent = `
-╔══════════════════════════════════════════════════════╗
-║                  TRANSACTION RECEIPT                 ║
-╚══════════════════════════════════════════════════════╝
-
-🏦 CONNECTPAY
-📧 support@connectpay.com | 📞 +234-XXX-XXXX-XXX
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${getStatusIcon()} STATUS: ${selectedTransaction.status.toUpperCase()}
-
-💰 TRANSACTION AMOUNT
-${selectedTransaction.type === 'credit' ? '+ ₦' : '- ₦'}${selectedTransaction.amount.toLocaleString()}
-
-📝 TRANSACTION TYPE: ${selectedTransaction.type.toUpperCase().replace('_', ' ')}
-🏷️  CATEGORY: ${selectedTransaction.category.toUpperCase()}
-
-${selectedTransaction.description ? `📋 DESCRIPTION: ${selectedTransaction.description}` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔍 TRANSACTION DETAILS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🆔 Reference ID: ${selectedTransaction.reference}
-🔢 Transaction ID: #${selectedTransaction._id.slice(-8).toUpperCase()}
-📅 Date: ${formatDate(selectedTransaction.createdAt)}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 ACCOUNT INFORMATION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-👤 Account Name: ${user?.name || 'N/A'}
-📧 Email: ${user?.email || 'N/A'}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🙏 Thank you for using Connectpay!
-📞 For support: support@connectpay.com
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🕐 Generated: ${new Date().toLocaleString()}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    `.trim();
-
-    try {
-      await Share.share({
-        message: receiptContent,
-        title: `Receipt - ${selectedTransaction.reference}`,
-      });
-      Alert.alert('Success', 'Receipt shared successfully!');
-    } catch (error) {
-      console.error('Share error:', error);
-      Alert.alert('Share Error', 'Unable to share receipt. Please try again.');
-    }
-  }, [selectedTransaction, user]);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -708,43 +627,7 @@ ${selectedTransaction.description ? `📋 DESCRIPTION: ${selectedTransaction.des
           <Text style={[styles.navText, { color: colors.textSecondary }]}>Profile</Text>
         </TouchableOpacity>
       </View>
-
-      {/* Transaction Details Modal */}
-      <Modal
-        visible={showTransactionDetails}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowTransactionDetails(false)}
-      >
-        {selectedTransaction && (
-          <View style={{ flex: 1, backgroundColor: colors.background }}>
-            <TransactionDetails
-              transaction={selectedTransaction}
-              onClose={() => setShowTransactionDetails(false)}
-              userInfo={null}
-            />
-            <View style={{ padding: 20 }}>
-              <TouchableOpacity 
-                style={{
-                  backgroundColor: '#ff2b2b',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingVertical: 12,
-                  borderRadius: 10,
-                  marginBottom: 10,
-                }}
-                onPress={shareReceipt}
-              >
-                <Ionicons name="download" size={20} color="#fff" />
-                <Text style={{ color: '#fff', marginLeft: 8, fontWeight: '600' }}>
-                  Share Receipt
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-      </Modal>
+{/* No more modal - navigation happens in handleTransactionPress */}
 
       {/* Logout Confirmation Modal */}
       <Modal

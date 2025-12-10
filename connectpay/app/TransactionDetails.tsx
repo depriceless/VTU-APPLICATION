@@ -1,18 +1,15 @@
-import React, { useState } from 'react';
+// TransactionDetailsComponent.tsx - The actual component (like FundWalletComponent)
+import React from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   TouchableOpacity,
   ScrollView,
   Alert,
   Share,
-  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-
-const SCREEN_WIDTH = Dimensions.get('window').width;
 
 interface Transaction {
   _id: string;
@@ -50,14 +47,12 @@ interface User {
   username?: string;
 }
 
-interface TransactionDetailsProps {
+interface TransactionDetailsComponentProps {
   transaction: Transaction;
-  onClose: () => void;
   userInfo?: User | null;
 }
 
-export default function TransactionDetails({ transaction, onClose, userInfo }: TransactionDetailsProps) {
-
+export default function TransactionDetailsComponent({ transaction, userInfo }: TransactionDetailsComponentProps) {
 
   // ✅ Format date and time
   const formatDateTime = (dateString: string) => {
@@ -182,34 +177,27 @@ Thank you for using our service!
     `.trim();
   };
 
-  // ✅ Handle download receipt (simulate download)
-  const handleDownloadReceipt = () => {
-    Alert.alert(
-      'Download Receipt',
-      'Receipt download functionality would be implemented here. In a real app, this would generate a PDF or save to device storage.',
-      [
-        { text: 'Share Instead', onPress: handleShareReceipt },
-        { text: 'OK', style: 'cancel' }
-      ]
-    );
-  };
-
   const { date, time } = formatDateTime(transaction.createdAt);
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <Ionicons name="close-outline" size={24} color="#333" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Transaction Details</Text>
-        <TouchableOpacity onPress={handleShareReceipt} style={styles.shareButton}>
-          <Ionicons name="share-outline" size={24} color="#ff2b2b" />
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollContent} 
+        contentContainerStyle={{ paddingBottom: 40 }} 
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Share Button Section */}
+        <View style={styles.shareSection}>
+          <TouchableOpacity 
+            style={styles.shareButton} 
+            onPress={handleShareReceipt}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="share-outline" size={20} color="#ff2b2b" />
+            <Text style={styles.shareButtonText}>Share Receipt</Text>
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Transaction Status Card */}
         <View style={styles.statusCard}>
           <View style={[styles.statusIcon, { backgroundColor: `${getTransactionColor()}15` }]}>
@@ -287,94 +275,40 @@ Thank you for using our service!
             )}
           </View>
         )}
-
-        {/* Betting Information */}
-        {transaction.metadata?.betting && (
-          <View style={styles.infoCard}>
-            <Text style={styles.sectionTitle}>Betting Information</Text>
-            
-            {transaction.metadata.betting.provider && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Betting Provider</Text>
-                <Text style={styles.infoValue}>{transaction.metadata.betting.provider}</Text>
-              </View>
-            )}
-            
-            {transaction.metadata.betting.customerId && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Customer ID</Text>
-                <Text style={styles.infoValueMono}>{transaction.metadata.betting.customerId}</Text>
-              </View>
-            )}
-            
-            {transaction.metadata.betting.customerName && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Customer Name</Text>
-                <Text style={styles.infoValue}>{transaction.metadata.betting.customerName}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Additional Information */}
-        {transaction.metadata && (transaction.metadata.notes || transaction.metadata.source) && (
-          <View style={styles.infoCard}>
-            <Text style={styles.sectionTitle}>Additional Information</Text>
-            
-            {transaction.metadata.notes && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Notes</Text>
-                <Text style={styles.infoValue}>{transaction.metadata.notes}</Text>
-              </View>
-            )}
-            
-            {transaction.metadata.source && (
-              <View style={styles.infoRow}>
-                <Text style={styles.infoLabel}>Source</Text>
-                <Text style={styles.infoValue}>{transaction.metadata.source}</Text>
-              </View>
-            )}
-          </View>
-        )}
-
-      
-       {/* Empty space - Show Receipt section removed */}
-        {/* Bottom Padding */}
-        <View style={styles.bottomPadding} />
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fafafa',
+    backgroundColor: '#f8f9fa',
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+  scrollContent: {
+    flex: 1,
   },
-  closeButton: {
-    padding: 8,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
+  shareSection: {
+    marginHorizontal: 16,
+    marginTop: 20,
+    marginBottom: 10,
   },
   shareButton: {
-    padding: 8,
-  },
-  content: {
-    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
     paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: '#ff2b2b',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+  },
+  shareButtonText: {
+    color: '#ff2b2b',
+    fontSize: 14,
+    fontWeight: '600',
   },
   
   // Status Card
@@ -383,7 +317,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 24,
     alignItems: 'center',
-    marginVertical: 20,
+    marginHorizontal: 16,
+    marginVertical: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -432,6 +367,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
+    marginHorizontal: 16,
     marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -475,14 +411,5 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
     fontFamily: 'monospace',
-  },
-  balanceHighlight: {
-    color: '#28a745',
-    fontWeight: 'bold',
-  },
-  
- 
-  bottomPadding: {
-    height: 40,
   },
 });

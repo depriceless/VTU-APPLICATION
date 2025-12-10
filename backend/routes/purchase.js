@@ -8,7 +8,7 @@ const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const ServiceConfig = require('../models/ServiceConfig');
 const { calculateCustomerPrice, validateCustomerPrice } = require('../config/pricing');
-const { getCablePackageById, getEducationService } = require('../config/cableTVPackages');
+const { getEducationService } = require('../config/cableTVPackages');
 
 // ClubKonnect Configuration
 const CK_CONFIG = {
@@ -1275,9 +1275,6 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
 }
 
 
-// In your routes/purchase.js file, update ONLY processCableTVPurchase function:
-// (Leave processDataPurchase and all other functions unchanged)
-
 async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
   const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
@@ -1294,16 +1291,86 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error('Invalid smart card number');
     }
 
-    // Get package WITHOUT markup (returns ClubKonnect price directly)
-    const packageInfo = getCablePackageById(operator, packageId);
-    if (!packageInfo) {
-      throw new Error('Invalid package selected');
+    // ✅ FETCH FRESH PRICE FROM CLUBKONNECT
+    console.log('📡 Fetching fresh package price from ClubKonnect...');
+    
+    const url = `${CK_CONFIG.baseUrl}/APICableTVPackagesV2.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}`;
+    
+    const response = await axios.get(url, { 
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'VTU-App/1.0'
+      }
+    });
+
+    let data = response.data;
+    
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        throw new Error(`Failed to parse ClubKonnect response`);
+      }
     }
 
-    // REMOVED: Amount validation check - frontend and backend now both use ClubKonnect price
+    // Find operator data
+    let operatorsData = null;
+    if (data.TV_ID) {
+      operatorsData = data.TV_ID;
+    } else if (data.DSTV || data.DStv || data.GOtv || data.Startimes) {
+      operatorsData = data;
+    } else {
+      throw new Error('Invalid response from ClubKonnect API');
+    }
+
+    // Operator mapping
+    const OPERATOR_KEY_MAPPING = {
+      'dstv': ['DStv', 'DSTV'],
+      'gotv': ['GOtv', 'GOTV'],
+      'startimes': ['Startimes', 'STARTIMES', 'StarTimes'],
+      'startime': ['Startimes', 'STARTIMES', 'StarTimes']
+    };
+
+    // Find operator packages
+    let operatorPackages = null;
+    const possibleKeys = OPERATOR_KEY_MAPPING[operator.toLowerCase()];
+    
+    for (const key of possibleKeys) {
+      if (operatorsData[key]) {
+        operatorPackages = operatorsData[key];
+        break;
+      }
+    }
+
+    if (!operatorPackages || !Array.isArray(operatorPackages) || operatorPackages.length === 0) {
+      throw new Error(`No packages found for ${operator.toUpperCase()}`);
+    }
+
+    const products = operatorPackages[0].PRODUCT;
+    
+    if (!products || !Array.isArray(products)) {
+      throw new Error(`No products found for ${operator.toUpperCase()}`);
+    }
+
+    // Find the specific package
+    const packageInfo = products.find(p => p.PACKAGE_ID === packageId);
+    
+    if (!packageInfo) {
+      throw new Error('Invalid package selected or package not available');
+    }
+
+    const clubKonnectPrice = parseFloat(packageInfo.PACKAGE_AMOUNT);
+
+    // ✅ Validate amount matches ClubKonnect price (no markup)
+    if (clubKonnectPrice !== amount) {
+      throw new Error(
+        `Price mismatch: ClubKonnect price is ₦${clubKonnectPrice.toLocaleString()}, but received ₦${amount.toLocaleString()}`
+      );
+    }
+
     console.log('Cable TV Purchase:', {
-      package: packageInfo.name,
-      clubKonnectPrice: packageInfo.providerCost,
+      package: packageInfo.PACKAGE_NAME,
+      clubKonnectPrice: clubKonnectPrice,
       customerPays: amount,
       profit: 0
     });
@@ -1320,7 +1387,8 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error(`Unsupported cable operator: ${operator}`);
     }
 
-    const response = await makeClubKonnectRequest('/APICableTVV1.asp', {
+    // ✅ PURCHASE FROM CLUBKONNECT
+    const purchaseResponse = await makeClubKonnectRequest('/APICableTVV1.asp', {
       CableTV: ckOperator,
       Package: packageId,
       SmartCardNo: smartCardNumber,
@@ -1328,31 +1396,31 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       RequestID: requestId
     });
 
-    const statusCode = response.statuscode || response.status_code;
-    const status = response.status || response.orderstatus;
-    const remark = response.remark || response.message;
+    const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code;
+    const status = purchaseResponse.status || purchaseResponse.orderstatus;
+    const remark = purchaseResponse.remark || purchaseResponse.message;
 
     if (statusCode === '100' || statusCode === '200' || 
         status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
       
       return {
         success: true,
-        reference: response.orderid || requestId,
-        description: `Cable TV - ${operator.toUpperCase()} ${packageInfo.name} - ${smartCardNumber}`,
+        reference: purchaseResponse.orderid || requestId,
+        description: `Cable TV - ${operator.toUpperCase()} ${packageInfo.PACKAGE_NAME} - ${smartCardNumber}`,
         successMessage: remark || 'Cable TV subscription successful',
         transactionData: {
           operator: operator.toUpperCase(),
           packageId,
-          packageName: packageInfo.name,
+          packageName: packageInfo.PACKAGE_NAME,
           smartCardNumber,
           phone,
-          providerCost: packageInfo.providerCost,
-          customerPrice: packageInfo.customerPrice,  // Same as providerCost (no markup)
-          profit: 0,  // Zero profit for Cable TV
+          providerCost: clubKonnectPrice,
+          customerPrice: clubKonnectPrice,  // No markup
+          profit: 0,
           serviceType: 'cable_tv',
-          orderid: response.orderid,
+          orderid: purchaseResponse.orderid,
           statuscode: statusCode,
-          apiResponse: response
+          apiResponse: purchaseResponse
         }
       };
     }

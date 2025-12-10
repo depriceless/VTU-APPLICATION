@@ -290,52 +290,37 @@ export default function BuyCableTV() {
   };
 
   const fetchCablePackages = async (operator: string) => {
-    setIsLoadingPackages(true);
-    setCablePackages([]);
-    setSelectedPackage(null);
-    
-    try {
-      const response = await makeApiRequest(`/cable/packages/${operator}`);
+  setIsLoadingPackages(true);
+  setCablePackages([]);
+  setSelectedPackage(null);
+  
+  try {
+    // ✅ Backend fetches directly from ClubKonnect
+    const response = await makeApiRequest(`/cable/packages/${operator}`);
 
-      if (response.success && response.data) {
-        const validPackages = response.data
-          .map(pkg => {
-            const clubKonnectPrice = parseFloat(pkg.PRODUCT_DISCOUNT_AMOUNT || pkg.amount || pkg.price);
-            
-            return {
-              id: pkg.variation_id || pkg.id,
-              name: pkg.name || pkg.package_name,
-              providerCost: clubKonnectPrice,
-              amount: clubKonnectPrice,
-              customerPrice: clubKonnectPrice,
-              profit: 0,
-              duration: pkg.duration || '30 days',
-              operator: operator,
-              description: pkg.description || pkg.details
-            };
-          })
-          .filter(pkg => {
-            return pkg.providerCost > 0 && 
-                   pkg.customerPrice >= 500 && 
-                   pkg.customerPrice <= 50000;
-          })
-          .sort((a, b) => a.customerPrice - b.customerPrice);
+    if (response.success && response.data) {
+      // ✅ Data already comes formatted from backend
+      const validPackages = response.data
+        .filter(pkg => pkg.customerPrice > 0)
+        .sort((a, b) => a.customerPrice - b.customerPrice);
 
-        if (validPackages.length === 0) {
-          throw new Error('No valid packages available for this operator');
-        }
-
-        setCablePackages(validPackages);
-      } else {
-        throw new Error(response.message || 'Failed to fetch cable packages');
+      if (validPackages.length === 0) {
+        throw new Error('No valid packages available for this operator');
       }
-    } catch (error) {
-      setCablePackages([]);
-      Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages.`);
-    } finally {
-      setIsLoadingPackages(false);
+
+      setCablePackages(validPackages);
+      console.log(`✅ Loaded ${validPackages.length} packages from ClubKonnect`);
+    } else {
+      throw new Error(response.message || 'Failed to fetch cable packages');
     }
-  };
+  } catch (error) {
+    console.error('Package fetch error:', error);
+    setCablePackages([]);
+    Alert.alert('Error', `Failed to load ${operator.toUpperCase()} packages from ClubKonnect.`);
+  } finally {
+    setIsLoadingPackages(false);
+  }
+};
 
   const validateSmartCard = async () => {
     if (!isSmartCardValid) {
@@ -834,26 +819,20 @@ export default function BuyCableTV() {
                 </View>
               ) : cablePackages.length > 0 ? (
                 <>
-                  <TouchableOpacity
-                    style={styles.packageSelector}
-                    onPress={() => setShowPackageModal(true)}
-                  >
-                    <Text style={[
-                      styles.packageSelectorText,
-                      selectedPackage && styles.packageSelectorTextSelected
-                    ]}>
-                      {selectedPackage 
-                        ? `${selectedPackage.name} - ₦${selectedPackage.customerPrice.toLocaleString()}` 
-                        : 'Choose Package'}
-                    </Text>
-                    <Text style={styles.dropdownArrow}>▼</Text>
-                  </TouchableOpacity>
-                  {selectedPackage && (
-                    <View style={styles.packageDetails}>
-                      <Text style={styles.packageDescription}>{selectedPackage.description}</Text>
-                      <Text style={styles.packageDuration}>⏱ Duration: {selectedPackage.duration}</Text>
-                    </View>
-                  )}
+<TouchableOpacity
+  style={styles.packageSelector}
+  onPress={() => setShowPackageModal(true)}
+>
+  <Text style={[
+    styles.packageSelectorText,
+    selectedPackage && styles.packageSelectorTextSelected
+  ]}>
+    {selectedPackage 
+      ? selectedPackage.name 
+      : 'Choose Package'}
+  </Text>
+  <Text style={styles.dropdownArrow}>▼</Text>
+</TouchableOpacity>
                 </>
               ) : (
                 <Text style={styles.validationError}>No packages available for this operator</Text>
@@ -1165,35 +1144,45 @@ export default function BuyCableTV() {
               <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
-          <FlatList
-            data={cablePackages}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.packageItem,
-                  selectedPackage?.id === item.id && styles.packageItemSelected
-                ]}
-                onPress={() => {
-                  setSelectedPackage(item);
-                  setShowPackageModal(false);
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.packageInfo}>
-                  <Text style={styles.packageName}>{item.name}</Text>
-                  <Text style={styles.packageDescription}>{item.description}</Text>
-                  <Text style={styles.packageDuration}>⏱ {item.duration}</Text>
-                </View>
-                <Text style={styles.packagePrice}>₦{item.customerPrice.toLocaleString()}</Text>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No packages available</Text>
-              </View>
-            }
-          />
+<FlatList
+  data={cablePackages}
+  keyExtractor={(item) => item.id}
+  renderItem={({ item }) => (
+    <TouchableOpacity
+      style={[
+        styles.packageItem,
+        selectedPackage?.id === item.id && styles.packageItemSelected
+      ]}
+      onPress={() => {
+        setSelectedPackage(item);
+        setShowPackageModal(false);
+      }}
+      activeOpacity={0.7}
+    >
+      <View style={styles.packageInfo}>
+        <Text style={styles.packageName}>{item.name}</Text>
+        
+        <View style={styles.packageBadgesRow}>
+          <View style={styles.durationBadge}>
+            <Text style={styles.durationBadgeText}>⏱ {item.duration}</Text>
+          </View>
+        </View>
+      </View>
+      
+      {selectedPackage?.id === item.id && (
+        <View style={styles.selectedIndicator}>
+          <Text style={styles.selectedCheckmark}>✓</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  )}
+  ListEmptyComponent={
+    <View style={styles.emptyState}>
+      <Text style={styles.emptyStateText}>No packages available</Text>
+    </View>
+  }
+/>
+
         </View>
       </Modal>
 
@@ -1213,22 +1202,22 @@ export default function BuyCableTV() {
             data={contactsList}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.listItem}
-                onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.contactAvatar}>
-                  <Text style={styles.contactAvatarText}>
-                    {item.name?.charAt(0).toUpperCase() || '?'}
-                  </Text>
-                </View>
-                <View style={styles.contactDetails}>
-                  <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+  <TouchableOpacity
+    style={styles.listItem}
+    onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
+    activeOpacity={0.7}
+  >
+    <View style={styles.contactAvatar}>
+      <Text style={styles.contactAvatarText}>
+        {item.name?.charAt(0).toUpperCase() || '👤'}
+      </Text>
+    </View>
+    <View style={styles.contactDetails}>
+      <Text style={styles.contactName}>{item.name || 'Unknown'}</Text>
+      <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
+    </View>
+  </TouchableOpacity>
+)}
           />
         </View>
       </Modal>
@@ -1253,6 +1242,7 @@ export default function BuyCableTV() {
                 style={styles.listItem}
                 onPress={() => handleContactSelect(item.number, item.name)}
                 activeOpacity={0.7}
+                
               >
                 <View style={styles.contactAvatar}>
                   <Text style={styles.contactAvatarText}>
@@ -1954,37 +1944,34 @@ const styles = StyleSheet.create({
   },
 
   packageItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  paddingHorizontal: 20,
+  paddingVertical: 18,  // ✅ Slightly more padding
+  borderBottomWidth: 1,
+  borderBottomColor: '#f5f5f5',
+},
+
 packageItemSelected: {
-    backgroundColor: '#fff5f5',
-    borderLeftWidth: 4,
-    borderLeftColor: '#ff3b30',
-  },
+  backgroundColor: '#fff5f5',
+  borderLeftWidth: 4,
+  borderLeftColor: '#ff3b30',
+},
 
-  packageInfo: {
-    flex: 1,
-    paddingRight: 12,
-  },
+ packageInfo: {
+  flex: 1,
+  paddingRight: 12,
+},
 
-  packageName: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
 
-  packagePrice: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#2e7d32',
-  },
+ packageName: {
+  fontSize: 15,
+  fontWeight: '600',
+  color: '#1a1a1a',
+  marginBottom: 8,  // ✅ More space below name
+  lineHeight: 20,   // ✅ Better readability
+},
 
   listItem: {
     flexDirection: 'row',
@@ -2031,4 +2018,43 @@ packageItemSelected: {
     fontSize: 11,
     color: '#999',
   },
+packageBadgesRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  marginBottom: 8,
+},
+durationBadge: {
+  backgroundColor: '#f0f0f0',
+  paddingHorizontal: 10,
+  paddingVertical: 4,
+  borderRadius: 12,
+  alignSelf: 'flex-start',
+},
+
+
+durationBadgeText: {
+  fontSize: 11,
+  fontWeight: '600',
+  color: '#666',
+},
+
+
+
+selectedIndicator: {
+  width: 32,
+  height: 32,
+  borderRadius: 16,
+  backgroundColor: '#ff3b30',
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginLeft: 8,
+},
+
+selectedCheckmark: {
+  color: '#fff',
+  fontSize: 16,
+  fontWeight: 'bold',
+},
+
 });
+

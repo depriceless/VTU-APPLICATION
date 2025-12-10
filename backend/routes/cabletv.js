@@ -1,22 +1,15 @@
-// routes/cabletv.js - UPDATED VERSION (Fetches from MongoDB like dataplan.js)
+// routes/cabletv.js - FIXED VERSION (Only ClubKonnect prices)
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticate } = require('../middleware/auth');
-const CableTVPlan = require('../models/CableTVPlan');
 
-// ClubKonnect Configuration (for validation only)
+// ClubKonnect Configuration
 const CK_CONFIG = {
   userId: process.env.CLUBKONNECT_USER_ID,
   apiKey: process.env.CLUBKONNECT_API_KEY,
   baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
 };
-
-console.log('Cable TV Routes - ClubKonnect Config:', {
-  userId: CK_CONFIG.userId ? 'SET' : 'MISSING',
-  apiKey: CK_CONFIG.apiKey ? 'SET' : 'MISSING',
-  baseUrl: CK_CONFIG.baseUrl
-});
 
 // Operator info
 const OPERATOR_INFO = {
@@ -51,39 +44,7 @@ const OPERATOR_MAPPING = {
   'startimes': 'startimes'
 };
 
-// Cache headers helper
-const getLastModified = () => {
-  return new Date();
-};
-
-const setCacheHeaders = (res, maxAge = 3600) => {
-  res.set({
-    'Cache-Control': `public, max-age=${maxAge}`,
-    'Last-Modified': getLastModified().toUTCString()
-  });
-};
-
-// Helper to add pricing to packages (no markup for Cable TV)
-const addPricingToPackages = (packages) => {
-  return packages.map(pkg => ({
-    id: pkg.packageId,
-    packageId: pkg.packageId,
-    variation_id: pkg.packageId,
-    operator: pkg.operator,
-    name: pkg.name,
-    amount: pkg.providerCost,  // Customer pays exact ClubKonnect price
-    providerCost: pkg.providerCost,
-    customerPrice: pkg.providerCost,  // No markup
-    profit: 0,  // Zero profit for Cable TV
-    duration: pkg.duration,
-    description: pkg.description || pkg.name,
-    package_name: pkg.name,
-    popular: pkg.popular || false,
-    active: pkg.active !== false
-  }));
-};
-
-// Helper function to make ClubKonnect requests (for validation only)
+// Helper function to make ClubKonnect requests
 const makeClubKonnectRequest = async (endpoint, params) => {
   try {
     const queryParams = new URLSearchParams({
@@ -186,34 +147,18 @@ router.post('/validate-smartcard', authenticate, async (req, res) => {
 // ========== GET OPERATORS ==========
 router.get('/providers', authenticate, async (req, res) => {
   try {
-    setCacheHeaders(res, 7200);
-    
     const operators = ['dstv', 'gotv', 'startimes'];
-    const operatorsWithStats = await Promise.all(
-      operators.map(async (operator) => {
-        const packages = await CableTVPlan.find({ operator, active: true });
-        const packagesWithPricing = addPricingToPackages(packages);
-        const popularPackages = packagesWithPricing.filter(p => p.popular);
-        
-        return {
-          code: operator,
-          ...OPERATOR_INFO[operator],
-          totalPackages: packagesWithPricing.length,
-          popularPackages: popularPackages.length,
-          priceRange: {
-            min: packagesWithPricing.length > 0 ? Math.min(...packagesWithPricing.map(p => p.amount)) : 0,
-            max: packagesWithPricing.length > 0 ? Math.max(...packagesWithPricing.map(p => p.amount)) : 0
-          }
-        };
-      })
-    );
+    const operatorsWithStats = operators.map(operator => ({
+      code: operator,
+      ...OPERATOR_INFO[operator]
+    }));
 
     res.json({
       success: true,
       message: 'Cable TV providers retrieved',
       providers: operatorsWithStats,
       count: operatorsWithStats.length,
-      lastModified: getLastModified()
+      lastModified: new Date()
     });
 
   } catch (error) {
@@ -225,13 +170,13 @@ router.get('/providers', authenticate, async (req, res) => {
   }
 });
 
-// ========== GET PACKAGES BY OPERATOR (FIXED - No Duplicates) ==========
+// ========== GET PACKAGES BY OPERATOR (FETCH FROM CLUBKONNECT DIRECTLY) ==========
 router.get('/packages/:operator', authenticate, async (req, res) => {
   try {
     const { operator } = req.params;
     const normalizedOperator = operator.toLowerCase();
 
-    const validOperators = ['dstv', 'gotv', 'startimes'];
+    const validOperators = ['dstv', 'gotv', 'startimes', 'startime'];
     if (!validOperators.includes(normalizedOperator)) {
       return res.status(400).json({
         success: false,
@@ -239,116 +184,158 @@ router.get('/packages/:operator', authenticate, async (req, res) => {
       });
     }
 
-    setCacheHeaders(res);
+    console.log(`📡 Fetching ${normalizedOperator.toUpperCase()} packages from ClubKonnect...`);
 
-    // Fetch packages from database
-    const packages = await CableTVPlan.find({ 
-      operator: normalizedOperator, 
-      active: true 
-    }).sort({ providerCost: 1 });
+    // ✅ FETCH DIRECTLY FROM CLUBKONNECT
+    const url = `${CK_CONFIG.baseUrl}/APICableTVPackagesV2.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}`;
+    
+    const response = await axios.get(url, { 
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'VTU-App/1.0'
+      }
+    });
 
-    console.log(`📦 [${normalizedOperator}] Found ${packages.length} packages from database`);
+    let data = response.data;
+    
+    // Parse JSON if needed
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        throw new Error(`Failed to parse ClubKonnect response: ${data}`);
+      }
+    }
 
-    if (!packages || packages.length === 0) {
+    console.log('✅ ClubKonnect response received');
+
+    // Check for different possible response structures
+    let operatorsData = null;
+    
+    if (data.TV_ID) {
+      operatorsData = data.TV_ID;
+    } else if (data.DSTV || data.DStv || data.GOtv || data.Startimes) {
+      operatorsData = data;
+    } else {
+      throw new Error('Invalid response from ClubKonnect API');
+    }
+
+    // Operator mapping for ClubKonnect API
+    const OPERATOR_KEY_MAPPING = {
+      'dstv': ['DStv', 'DSTV'],
+      'gotv': ['GOtv', 'GOTV'],
+      'startimes': ['Startimes', 'STARTIMES', 'StarTimes'],
+      'startime': ['Startimes', 'STARTIMES', 'StarTimes']
+    };
+
+    // Find the operator data
+    let operatorPackages = null;
+    const possibleKeys = OPERATOR_KEY_MAPPING[normalizedOperator];
+    
+    for (const key of possibleKeys) {
+      if (operatorsData[key]) {
+        operatorPackages = operatorsData[key];
+        break;
+      }
+    }
+
+    if (!operatorPackages || !Array.isArray(operatorPackages) || operatorPackages.length === 0) {
       return res.status(404).json({
         success: false,
         message: `No packages available for ${normalizedOperator.toUpperCase()}`
       });
     }
 
-    // Format packages with pricing
-    const formattedPackages = addPricingToPackages(packages);
-    console.log(`📦 [${normalizedOperator}] After formatting: ${formattedPackages.length} packages`);
-
-    // ✅ DEDUPLICATION: Remove any duplicates by packageId
-    const uniquePackages = [];
-    const seenIds = new Set();
-
-    for (const pkg of formattedPackages) {
-      if (!seenIds.has(pkg.packageId)) {
-        seenIds.add(pkg.packageId);
-        uniquePackages.push(pkg);
-      } else {
-        console.log(`⚠️  [${normalizedOperator}] Duplicate found and removed: ${pkg.packageId}`);
-      }
+    const products = operatorPackages[0].PRODUCT;
+    
+    if (!products || !Array.isArray(products)) {
+      return res.status(404).json({
+        success: false,
+        message: `No products found for ${normalizedOperator.toUpperCase()}`
+      });
     }
 
-    console.log(`✅ [${normalizedOperator}] Final unique packages: ${uniquePackages.length}`);
+    console.log(`📦 Found ${products.length} packages for ${normalizedOperator.toUpperCase()}`);
 
-    const operatorInfo = OPERATOR_INFO[normalizedOperator];
+    // Parse duration from package name
+    const parseDuration = (name) => {
+      const nameLower = name.toLowerCase();
+      if (nameLower.includes('weekly') || nameLower.includes('1 week')) return '1 Week';
+      if (nameLower.includes('quarterly') || nameLower.includes('3 months')) return '3 Months';
+      if (nameLower.includes('yearly') || nameLower.includes('1 year')) return '1 Year';
+      if (nameLower.includes('monthly') || nameLower.includes('1 month')) return '1 Month';
+      return '1 Month';
+    };
+
+    // Check if popular
+    const isPopular = (name) => {
+      const popularKeywords = ['padi', 'yanga', 'confam', 'compact', 'smallie', 'jinja', 'jolli', 'basic', 'nova'];
+      const nameLower = name.toLowerCase();
+      return popularKeywords.some(keyword => nameLower.includes(keyword));
+    };
+
+    // ✅ FORMAT PACKAGES WITH CLUBKONNECT PRICES ONLY
+    const formattedPackages = products
+      .map(product => {
+        const packageId = product.PACKAGE_ID;
+        const packageName = product.PACKAGE_NAME;
+        const packageAmount = parseFloat(product.PACKAGE_AMOUNT);
+
+        // Skip invalid packages
+        if (!packageId || !packageName || isNaN(packageAmount) || packageAmount <= 0) {
+          return null;
+        }
+
+        // Skip packages out of range
+        if (packageAmount < 500 || packageAmount > 100000) {
+          return null;
+        }
+
+        return {
+          id: packageId,
+          packageId: packageId,
+          variation_id: packageId,
+          operator: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
+          name: packageName.replace(/\s+/g, ' ').trim(),
+          // ✅ ONLY ONE AMOUNT - ClubKonnect price
+          amount: packageAmount,
+          customerPrice: packageAmount,
+          providerCost: packageAmount,
+          profit: 0,
+          duration: parseDuration(packageName),
+          description: packageName.replace(/\s+/g, ' ').trim(),
+          package_name: packageName,
+          popular: isPopular(packageName),
+          active: true
+        };
+      })
+      .filter(pkg => pkg !== null)
+      .sort((a, b) => a.customerPrice - b.customerPrice);
+
+    console.log(`✅ Returning ${formattedPackages.length} valid packages`);
+
+    const operatorInfo = OPERATOR_INFO[normalizedOperator === 'startime' ? 'startimes' : normalizedOperator];
 
     res.json({
       success: true,
       message: `Packages retrieved for ${normalizedOperator.toUpperCase()}`,
-      operator: normalizedOperator,
+      operator: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
       operatorInfo: {
-        code: normalizedOperator,
+        code: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
         ...operatorInfo
       },
-      data: uniquePackages,  // ← Send deduplicated array
-      count: uniquePackages.length,
-      lastModified: getLastModified()
+      data: formattedPackages,
+      count: formattedPackages.length,
+      lastModified: new Date(),
+      source: 'clubkonnect_direct'
     });
 
   } catch (error) {
     console.error('Get packages error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch cable packages',
+      message: 'Failed to fetch cable packages from ClubKonnect',
       error: error.message
-    });
-  }
-});
-
-// ========== GET SINGLE PACKAGE ==========
-router.get('/package/:packageId', authenticate, async (req, res) => {
-  try {
-    const { packageId } = req.params;
-
-    setCacheHeaders(res);
-
-    const pkg = await CableTVPlan.findOne({ packageId, active: true });
-
-    if (!pkg) {
-      return res.status(404).json({
-        success: false,
-        message: 'Package not found'
-      });
-    }
-
-    const [formattedPackage] = addPricingToPackages([pkg]);
-
-    // Find similar packages (same operator, similar price)
-    const similarPackagesData = await CableTVPlan.find({
-      operator: pkg.operator,
-      active: true,
-      packageId: { $ne: packageId },
-      providerCost: { 
-        $gte: pkg.providerCost - 1000, 
-        $lte: pkg.providerCost + 1000 
-      }
-    }).limit(3);
-
-    const similarPackages = addPricingToPackages(similarPackagesData);
-    const operatorInfo = OPERATOR_INFO[pkg.operator];
-
-    res.json({
-      success: true,
-      message: 'Package retrieved',
-      package: formattedPackage,
-      operator: {
-        code: pkg.operator,
-        ...operatorInfo
-      },
-      similarPackages,
-      lastModified: getLastModified()
-    });
-
-  } catch (error) {
-    console.error('Single package error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error retrieving package'
     });
   }
 });
