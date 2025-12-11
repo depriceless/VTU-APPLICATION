@@ -364,6 +364,17 @@ if (purchaseRoutes) {
   }
 }
 
+try {
+  const electricityRoutes = require('./routes/electricity');
+  app.use('/api/electricity', electricityRoutes);
+  console.log('✅ Electricity routes registered at /api/electricity');
+  console.log('   - GET /api/electricity/providers');
+  console.log('   - POST /api/electricity/validate-meter');
+  console.log('   - GET /api/electricity/history');
+} catch (err) {
+  console.error('❌ Electricity routes error:', err.message);
+}
+
 if (dataRoutes) {
   try {
     app.use('/api/data', dataRoutes);
