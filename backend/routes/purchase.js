@@ -1460,16 +1460,25 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
       throw new Error(`Unsupported electricity provider: ${provider}`);
     }
 
+    // ✅ CALCULATE PROFIT: 2% markup for electricity
     const providerCost = Math.round(amount / 1.02);
     const profit = amount - providerCost;
 
+    console.log('Electricity Purchase:', {
+      provider: companyCode,
+      customerPays: amount,
+      clubKonnectCharge: providerCost,
+      yourProfit: profit
+    });
+
     const requestId = `ELEC_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
+    // ✅ SEND PROVIDER COST TO CLUBKONNECT (not customer amount)
     const response = await makeClubKonnectRequest('/APIElectricityV1.asp', {
       ElectricCompany: companyCode,
       MeterType: meterType,
       MeterNo: meterNumber,
-      Amount: providerCost,
+      Amount: providerCost,  // ← Send reduced amount to ClubKonnect
       PhoneNo: phone,
       RequestID: requestId
     });
@@ -1492,9 +1501,9 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
         meterType: meterType === '01' ? 'Prepaid' : 'Postpaid',
         phone,
         token: response.metertoken,
-        providerCost,
-        customerPrice: amount,
-        profit,
+        providerCost,      // What you paid ClubKonnect
+        customerPrice: amount,  // What customer paid you
+        profit,            // Your profit
         serviceType: 'electricity',
         orderid: response.orderid,
         apiResponse: response

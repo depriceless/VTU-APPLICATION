@@ -328,44 +328,46 @@ export default function BuyElectricity() {
     }
   };
 
-  const validateMeter = async () => {
-    if (!isMeterNumberValid || !selectedProvider || !selectedMeterType) {
-      setMeterError('Please enter valid meter details');
-      return;
-    }
 
-    setIsValidatingMeter(true);
-    setMeterError('');
+const validateMeter = async () => {
+  if (!isMeterNumberValid || !selectedProvider || !selectedMeterType) {
+    setMeterError('Please enter valid meter details');
+    return;
+  }
+
+  setIsValidatingMeter(true);
+  setMeterError('');
+  setCustomerName('');
+  setCustomerAddress('');
+  setCustomerAccountNumber('');
+
+  try {
+    // ✅ FIXED: Changed endpoint to match backend route
+    const response = await makeApiRequest('/electricity/validate-meter', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        meterNumber, 
+        provider: selectedProvider,
+        meterType: selectedMeterType
+      }),
+    });
+
+    if (response?.success) {
+      setCustomerName(response.data?.customerName || 'Verified Customer');
+      setCustomerAddress(response.data?.customerAddress || '');
+      setCustomerAccountNumber(response.data?.accountNumber || '');
+    } else {
+      setMeterError(response?.message || 'Meter validation failed');
+    }
+  } catch (error: any) {
+    setMeterError(error.message || 'Unable to validate meter');
     setCustomerName('');
     setCustomerAddress('');
     setCustomerAccountNumber('');
-
-    try {
-      const response = await makeApiRequest('/purchase/electricity/validate-meter', {
-        method: 'POST',
-        body: JSON.stringify({ 
-          meterNumber, 
-          provider: selectedProvider,
-          meterType: selectedMeterType
-        }),
-      });
-
-      if (response?.success) {
-        setCustomerName(response.data?.customerName || 'Verified Customer');
-        setCustomerAddress(response.data?.customerAddress || '');
-        setCustomerAccountNumber(response.data?.accountNumber || '');
-      } else {
-        setMeterError(response?.message || 'Meter validation failed');
-      }
-    } catch (error: any) {
-      setMeterError(error.message || 'Unable to validate meter');
-      setCustomerName('');
-      setCustomerAddress('');
-      setCustomerAccountNumber('');
-    } finally {
-      setIsValidatingMeter(false);
-    }
-  };
+  } finally {
+    setIsValidatingMeter(false);
+  }
+};
 
   const checkPinStatus = async () => {
     try {
