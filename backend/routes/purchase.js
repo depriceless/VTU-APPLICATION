@@ -1199,56 +1199,55 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
 
 // Add this updated function to your purchase.js file
 
-async function processInternetPurchase({ provider, plan, planType, customerNumber, amount, userId }) {
+async function processInternetPurchase({ provider, planId, planName, customerNumber, amount, userId }) {
   try {
-    if (!provider || !plan || !customerNumber) {
-      throw new Error('Missing required fields: provider, plan, customerNumber');
+    console.log('=== INTERNET PURCHASE START ===');
+    console.log('Provider:', provider);
+    console.log('Plan ID:', planId);
+    console.log('Plan Name:', planName);
+    console.log('Customer Number:', customerNumber);
+    console.log('Amount:', amount);
+    
+    if (!provider || !planId || !customerNumber) {
+      throw new Error('Missing required fields: provider, planId, customerNumber');
     }
 
     if (provider.toLowerCase() !== 'smile') {
       throw new Error('Only Smile internet is currently supported');
     }
 
-    // ✅ USE STATIC PLANS FROM routes/internet.js INSTEAD
-    console.log('📡 Using static Smile plan prices...');
-    
-    // Import the static plans (add this at top of file)
-    // const { SMILE_PLANS } = require('./internet');
-    
-    // For now, let's use a simplified approach - fetch from your own endpoint
-    const selectedPlan = await findSmilePlan(plan);
+    console.log('📡 Looking up plan in static list...');
+    const selectedPlan = findSmilePlanById(planId);
     
     if (!selectedPlan) {
-      throw new Error('Invalid plan selected or plan not available');
+      throw new Error(`Invalid plan ID: "${planId}". Please select a valid Smile plan.`);
     }
+
+    console.log('✅ Plan found:', selectedPlan);
 
     const clubKonnectPrice = selectedPlan.amount;
 
-    // ✅ Validate amount matches plan price
+    // Validate amount matches plan price
     if (clubKonnectPrice !== amount) {
       throw new Error(
-        `PRICE_CHANGED: Plan price is ₦${clubKonnectPrice.toLocaleString()} but received ₦${amount.toLocaleString()}`
+        `Price mismatch: Plan "${selectedPlan.name}" costs ₦${clubKonnectPrice.toLocaleString()} but received ₦${amount.toLocaleString()}`
       );
     }
 
-    console.log('Internet Purchase:', {
-      plan: selectedPlan.name,
-      clubKonnectPrice: clubKonnectPrice,
-      customerPays: amount,
-      profit: 0
-    });
+    console.log('💰 Price validation passed');
 
     const networkCode = 'smile-direct';
-    const planId = selectedPlan.id;
     const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // 🔥 PURCHASE FROM CLUBKONNECT
+    // Purchase from ClubKonnect
     const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', {
       MobileNetwork: networkCode,
       DataPlan: planId,
       MobileNumber: customerNumber,
       RequestID: requestId
     });
+
+    console.log('ClubKonnect Response:', purchaseResponse);
 
     const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code;
     const status = purchaseResponse.status || purchaseResponse.orderstatus;
@@ -1257,14 +1256,16 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
     if (statusCode === '100' || statusCode === '200' || 
         status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
       
+      console.log('✅ Purchase successful!');
+      
       return {
         success: true,
         reference: purchaseResponse.orderid || requestId,
-        description: `Internet - SMILE ${plan} - ${customerNumber}`,
+        description: `Internet - SMILE ${selectedPlan.name} - ${customerNumber}`,
         successMessage: remark || 'Smile internet subscription successful',
         transactionData: {
           provider: 'SMILE',
-          plan: plan,
+          plan: selectedPlan.name,
           planId: planId,
           customerNumber,
           providerCost: clubKonnectPrice,
@@ -1279,16 +1280,20 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
       };
     }
 
+    // Handle specific errors
     if (status === 'INVALID_ACCOUNTNO') {
       throw new Error('Invalid Smile account number');
     }
     if (status === 'DATAPLAN_NOT_AVAILABLE') {
-      throw new Error('Selected plan is not currently available');
+      throw new Error(`Plan "${selectedPlan.name}" (ID: ${planId}) is not currently available`);
     }
 
     throw new Error(remark || status || 'Internet subscription failed');
 
   } catch (error) {
+    console.error('=== INTERNET PURCHASE ERROR ===');
+    console.error('Error:', error.message);
+    
     const reference = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
       success: false,
@@ -1296,7 +1301,8 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
       errorMessage: error.message,
       transactionData: { 
         provider: provider?.toUpperCase(), 
-        plan, 
+        planId,
+        planName, 
         customerNumber, 
         serviceType: 'internet' 
       }
@@ -1304,23 +1310,19 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
   }
 }
 
-// Helper function to find Smile plan from static list
 // Add this near the processInternetPurchase function in routes/purchase.js
 
-async function findSmilePlan(planName) {
-  // ✅ CORRECTED Static Smile plans (same as in routes/internet.js)
-  // Using Official ClubKonnect Plan IDs
+// ✅ FIXED: Enhanced findSmilePlan with logging and better matching
+
+function findSmilePlanById(planId) {
+  console.log('🔍 Looking up plan ID:', planId);
+  
   const SMILE_PLANS = [
-    // FlexiDaily Plans
     { id: '624', name: '1GB FlexiDaily', amount: 450 },
     { id: '625', name: '2.5GB FlexiDaily', amount: 750 },
-    
-    // FlexiWeekly Plans
     { id: '626', name: '1GB FlexiWeekly', amount: 750 },
     { id: '627', name: '2GB FlexiWeekly', amount: 1550 },
     { id: '628', name: '6GB FlexiWeekly', amount: 2300 },
-    
-    // Bigga Plans (30 days)
     { id: '606', name: '1.5GB Bigga', amount: 1550 },
     { id: '607', name: '2GB Bigga', amount: 1850 },
     { id: '608', name: '3GB Bigga', amount: 2300 },
@@ -1336,23 +1338,15 @@ async function findSmilePlan(planName) {
     { id: '618', name: '75GB Bigga', amount: 23000 },
     { id: '619', name: '100GB Bigga', amount: 27500 },
     { id: '668', name: '130GB Bigga', amount: 30500 },
-    
-    // Unlimited Plans
     { id: '730', name: 'UnlimitedLite', amount: 18500 },
     { id: '729', name: 'UnlimitedEssential', amount: 27700 },
-    
-    // Freedom Plans
     { id: '726', name: 'Freedom 3Mbps', amount: 38500 },
     { id: '727', name: 'Freedom 6Mbps', amount: 46500 },
     { id: '728', name: 'Freedom BestEffort', amount: 61500 },
-    
-    // Jumbo Plans
     { id: '665', name: '90GB Jumbo', amount: 31000 },
     { id: '666', name: '160GB Jumbo', amount: 53000 },
     { id: '667', name: '200GB Jumbo', amount: 62000 },
     { id: '721', name: '400GB Jumbo', amount: 77000 },
-    
-    // Annual Plans
     { id: '687', name: '15GB Annual', amount: 14000 },
     { id: '688', name: '35GB Annual', amount: 29000 },
     { id: '689', name: '70GB Annual', amount: 49500 },
@@ -1360,8 +1354,6 @@ async function findSmilePlan(planName) {
     { id: '604', name: '200GB Annual', amount: 107000 },
     { id: '673', name: '500GB Annual', amount: 154000 },
     { id: '674', name: '1TB Annual', amount: 185000 },
-    
-    // SmileVoice Plans
     { id: '747', name: 'SmileVoice 65min', amount: 900 },
     { id: '748', name: 'SmileVoice 135min', amount: 1850 },
     { id: '749', name: 'SmileVoice 430min', amount: 5700 },
@@ -1369,12 +1361,18 @@ async function findSmilePlan(planName) {
     { id: '751', name: 'SmileVoice 450min', amount: 7200 },
     { id: '752', name: 'SmileVoice 175min', amount: 3600 },
     { id: '753', name: 'SmileVoice 500min', amount: 9000 },
-    
-    // Mobile Plan
     { id: '758', name: 'Freedom Mobile Plan', amount: 5000 },
   ];
   
-  return SMILE_PLANS.find(p => p.name === planName);
+  const found = SMILE_PLANS.find(p => p.id === planId);
+  
+  if (found) {
+    console.log('✅ Found plan:', found);
+    return found;
+  }
+  
+  console.error('❌ Plan ID not found:', planId);
+  return null;
 }
 
 async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {

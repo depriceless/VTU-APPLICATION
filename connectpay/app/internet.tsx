@@ -693,17 +693,17 @@ export default function BuyInternet() {
       });
 
       const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'internet',
-          provider: selectedProvider,
-          plan: selectedPlan?.name,
-          planType: 'monthly',
-          customerNumber: customerNumber,
-          amount: amount,
-          pin: pin,
-        }),
-      });
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'internet',
+    provider: selectedProvider,
+    planId: selectedPlan?.id,        // ← CHANGED: Send ID instead of name
+    planName: selectedPlan?.name,    // ← ADDED: Also send name for display
+    customerNumber: customerNumber,
+    amount: amount,
+    pin: pin,
+  }),
+});
 
       console.log('Internet purchase response:', response);
 
