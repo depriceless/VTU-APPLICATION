@@ -267,17 +267,16 @@ export default function BuyInternet() {
 
     if (data.success && data.plans && Array.isArray(data.plans)) {
       const transformedPlans: InternetPlan[] = data.plans.map((plan: any) => ({
-        id: plan.id || plan.planId,
-        name: plan.name || plan.planName,
-        dataSize: plan.dataSize || 'Unknown',
-        speed: plan.speed || '10-20Mbps',
-        validity: plan.validity || '30 days',
-        amount: parseFloat(plan.amount) || 0,
-        description: plan.description,
-        category: plan.category || 'monthly',
-        popular: plan.popular || false
-      }));
-
+  id: plan.id || plan.planId,
+  name: plan.name || plan.planName,
+  dataSize: plan.dataSize || 'Unknown',
+  speed: plan.speed || '10-20Mbps',
+  validity: plan.validity || '30 days',
+  amount: parseFloat(plan.amount) || 0,
+  description: plan.description,
+  category: plan.category || 'monthly',  // ⚠️ This defaults to 'monthly'
+  popular: plan.popular || false
+}));
       console.log(`✅ Loaded ${transformedPlans.length} plans from ClubKonnect`);
       setAvailablePlans(transformedPlans);
       

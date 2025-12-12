@@ -1,4 +1,4 @@
-// routes/internet.js - FIXED: Smile uses static plans (no listing endpoint available)
+// routes/internet.js - FIXED: Using Official ClubKonnect Plan IDs
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -11,45 +11,89 @@ const CK_CONFIG = {
   baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
 };
 
-// 🔥 STATIC SMILE PLANS - ClubKonnect doesn't provide a listing endpoint for Smile
-// Update these prices periodically by checking ClubKonnect dashboard or contacting support
+// ✅ CORRECTED SMILE PLANS - Using Official ClubKonnect Plan IDs & Prices
+// Source: https://www.nellobytesystems.com/APISmilePackagesV2.asp
 const SMILE_PLANS = [
   // FlexiDaily Plans
-  { id: '533', name: '1GB FlexiDaily', dataSize: '1GB', validity: '1 day', amount: 300, category: 'daily', popular: false },
-  { id: '534', name: '2GB FlexiDaily', dataSize: '2GB', validity: '1 day', amount: 500, category: 'daily', popular: true },
-  { id: '535', name: '3GB FlexiDaily', dataSize: '3GB', validity: '1 day', amount: 700, category: 'daily', popular: false },
+  { id: '624', name: '1GB FlexiDaily', dataSize: '1GB', validity: '1 day', amount: 450, category: 'daily', popular: false },
+  { id: '625', name: '2.5GB FlexiDaily', dataSize: '2.5GB', validity: '2 days', amount: 750, category: 'daily', popular: true },
   
   // FlexiWeekly Plans
-  { id: '536', name: '2GB FlexiWeekly', dataSize: '2GB', validity: '7 days', amount: 1000, category: 'weekly', popular: false },
-  { id: '537', name: '5GB FlexiWeekly', dataSize: '5GB', validity: '7 days', amount: 2000, category: 'weekly', popular: true },
-  { id: '538', name: '10GB FlexiWeekly', dataSize: '10GB', validity: '7 days', amount: 3500, category: 'weekly', popular: false },
+  { id: '626', name: '1GB FlexiWeekly', dataSize: '1GB', validity: '7 days', amount: 750, category: 'weekly', popular: false },
+  { id: '627', name: '2GB FlexiWeekly', dataSize: '2GB', validity: '7 days', amount: 1550, category: 'weekly', popular: true },
+  { id: '628', name: '6GB FlexiWeekly', dataSize: '6GB', validity: '7 days', amount: 2300, category: 'weekly', popular: false },
   
-  // FlexiMonthly Plans (most popular)
-  { id: '624', name: '1GB Flexi', dataSize: '1GB', validity: '30 days', amount: 1000, category: 'monthly', popular: false },
-  { id: '625', name: '2GB Flexi', dataSize: '2GB', validity: '30 days', amount: 1500, category: 'monthly', popular: true },
-  { id: '626', name: '3GB Flexi', dataSize: '3GB', validity: '30 days', amount: 2000, category: 'monthly', popular: true },
-  { id: '627', name: '5GB Flexi', dataSize: '5GB', validity: '30 days', amount: 2500, category: 'monthly', popular: true },
-  { id: '628', name: '10GB Flexi', dataSize: '10GB', validity: '30 days', amount: 4000, category: 'monthly', popular: true },
-  { id: '629', name: '15GB Flexi', dataSize: '15GB', validity: '30 days', amount: 5500, category: 'monthly', popular: false },
-  { id: '630', name: '20GB Flexi', dataSize: '20GB', validity: '30 days', amount: 7000, category: 'monthly', popular: false },
-  { id: '631', name: '25GB Flexi', dataSize: '25GB', validity: '30 days', amount: 8500, category: 'monthly', popular: false },
-  { id: '632', name: '30GB Flexi', dataSize: '30GB', validity: '30 days', amount: 10000, category: 'monthly', popular: false },
-  { id: '633', name: '50GB Flexi', dataSize: '50GB', validity: '30 days', amount: 15000, category: 'monthly', popular: false },
-  { id: '634', name: '75GB Flexi', dataSize: '75GB', validity: '30 days', amount: 20000, category: 'monthly', popular: false },
-  { id: '635', name: '100GB Flexi', dataSize: '100GB', validity: '30 days', amount: 25000, category: 'monthly', popular: false },
+  // Bigga Plans (30 days validity) - Most Popular
+  { id: '606', name: '1.5GB Bigga', dataSize: '1.5GB', validity: '30 days', amount: 1550, category: 'monthly', popular: false },
+  { id: '607', name: '2GB Bigga', dataSize: '2GB', validity: '30 days', amount: 1850, category: 'monthly', popular: true },
+  { id: '608', name: '3GB Bigga', dataSize: '3GB', validity: '30 days', amount: 2300, category: 'monthly', popular: true },
+  { id: '620', name: '5GB Bigga', dataSize: '5GB', validity: '30 days', amount: 3100, category: 'monthly', popular: true },
+  { id: '609', name: '6.5GB Bigga', dataSize: '6.5GB', validity: '30 days', amount: 3800, category: 'monthly', popular: false },
+  { id: '722', name: '10GB Bigga', dataSize: '10GB', validity: '30 days', amount: 4600, category: 'monthly', popular: true },
+  { id: '723', name: '15GB Bigga', dataSize: '15GB', validity: '30 days', amount: 6200, category: 'monthly', popular: false },
+  { id: '724', name: '20GB Bigga', dataSize: '20GB', validity: '30 days', amount: 8000, category: 'monthly', popular: false },
+  { id: '725', name: '25GB Bigga', dataSize: '25GB', validity: '30 days', amount: 9500, category: 'monthly', popular: false },
+  { id: '615', name: '30GB Bigga', dataSize: '30GB', validity: '30 days', amount: 12500, category: 'monthly', popular: false },
+  { id: '616', name: '40GB Bigga', dataSize: '40GB', validity: '30 days', amount: 15500, category: 'monthly', popular: false },
+  { id: '617', name: '60GB Bigga', dataSize: '60GB', validity: '30 days', amount: 21000, category: 'monthly', popular: false },
+  { id: '618', name: '75GB Bigga', dataSize: '75GB', validity: '30 days', amount: 23000, category: 'monthly', popular: false },
+  { id: '619', name: '100GB Bigga', dataSize: '100GB', validity: '30 days', amount: 27500, category: 'monthly', popular: false },
+  { id: '668', name: '130GB Bigga', dataSize: '130GB', validity: '30 days', amount: 30500, category: 'monthly', popular: false },
   
   // Unlimited Plans
-  { id: '636', name: 'UnlimitedLite - Day', dataSize: 'Unlimited', validity: '1 day', amount: 1000, category: 'daily', popular: false },
-  { id: '637', name: 'UnlimitedLite - Week', dataSize: 'Unlimited', validity: '7 days', amount: 3000, category: 'weekly', popular: false },
-  { id: '638', name: 'UnlimitedLite - Month', dataSize: 'Unlimited', validity: '30 days', amount: 10000, category: 'monthly', popular: false },
+  { id: '730', name: 'UnlimitedLite', dataSize: 'Unlimited', validity: '30 days', amount: 18500, category: 'monthly', popular: false },
+  { id: '729', name: 'UnlimitedEssential', dataSize: 'Unlimited', validity: '30 days', amount: 27700, category: 'monthly', popular: false },
+  
+  // Freedom Plans (High Speed)
+  { id: '726', name: 'Freedom 3Mbps', dataSize: 'Unlimited', validity: '30 days', amount: 38500, category: 'monthly', popular: false },
+  { id: '727', name: 'Freedom 6Mbps', dataSize: 'Unlimited', validity: '30 days', amount: 46500, category: 'monthly', popular: false },
+  { id: '728', name: 'Freedom BestEffort', dataSize: 'Unlimited', validity: '30 days', amount: 61500, category: 'monthly', popular: false },
+  
+  // Jumbo Plans (Long validity)
+  { id: '665', name: '90GB Jumbo', dataSize: '90GB', validity: '60 days', amount: 31000, category: 'jumbo', popular: false },
+  { id: '666', name: '160GB Jumbo', dataSize: '160GB', validity: '90 days', amount: 53000, category: 'jumbo', popular: false },
+  { id: '667', name: '200GB Jumbo', dataSize: '200GB', validity: '120 days', amount: 62000, category: 'jumbo', popular: false },
+  { id: '721', name: '400GB Jumbo', dataSize: '400GB', validity: '180 days', amount: 77000, category: 'jumbo', popular: false },
+  
+  // 365 Plans (Annual)
+  { id: '687', name: '15GB Annual', dataSize: '15GB', validity: '365 days', amount: 14000, category: 'annual', popular: false },
+  { id: '688', name: '35GB Annual', dataSize: '35GB', validity: '365 days', amount: 29000, category: 'annual', popular: false },
+  { id: '689', name: '70GB Annual', dataSize: '70GB', validity: '365 days', amount: 49500, category: 'annual', popular: false },
+  { id: '664', name: '125GB Annual', dataSize: '125GB', validity: '365 days', amount: 77000, category: 'annual', popular: false },
+  { id: '604', name: '200GB Annual', dataSize: '200GB', validity: '365 days', amount: 107000, category: 'annual', popular: false },
+  { id: '673', name: '500GB Annual', dataSize: '500GB', validity: '365 days', amount: 154000, category: 'annual', popular: false },
+  { id: '674', name: '1TB Annual', dataSize: '1TB', validity: '365 days', amount: 185000, category: 'annual', popular: false },
+  
+  // SmileVoice Plans
+  { id: '747', name: 'SmileVoice 65min', dataSize: '65 minutes', validity: '30 days', amount: 900, category: 'voice', popular: false },
+  { id: '748', name: 'SmileVoice 135min', dataSize: '135 minutes', validity: '30 days', amount: 1850, category: 'voice', popular: false },
+  { id: '749', name: 'SmileVoice 430min', dataSize: '430 minutes', validity: '30 days', amount: 5700, category: 'voice', popular: false },
+  { id: '750', name: 'SmileVoice 150min', dataSize: '150 minutes', validity: '60 days', amount: 2700, category: 'voice', popular: false },
+  { id: '751', name: 'SmileVoice 450min', dataSize: '450 minutes', validity: '60 days', amount: 7200, category: 'voice', popular: false },
+  { id: '752', name: 'SmileVoice 175min', dataSize: '175 minutes', validity: '90 days', amount: 3600, category: 'voice', popular: false },
+  { id: '753', name: 'SmileVoice 500min', dataSize: '500 minutes', validity: '90 days', amount: 9000, category: 'voice', popular: false },
+  
+  // Mobile Plan
+  { id: '758', name: 'Freedom Mobile Plan', dataSize: 'Mobile Data', validity: '30 days', amount: 5000, category: 'mobile', popular: false },
 ];
 
-// Add speed information to all plans
-const formattedSmilePlans = SMILE_PLANS.map(plan => ({
-  ...plan,
-  speed: '10-20Mbps',
-  description: `Smile ${plan.name} - ${plan.dataSize} valid for ${plan.validity}`
-}));
+// Add speed information and descriptions to all plans
+const formattedSmilePlans = SMILE_PLANS.map(plan => {
+  let speed = '10-20Mbps';
+  
+  // Adjust speed based on plan type
+  if (plan.name.includes('Freedom 3Mbps')) speed = '3Mbps';
+  if (plan.name.includes('Freedom 6Mbps')) speed = '6Mbps';
+  if (plan.name.includes('Freedom BestEffort')) speed = 'Best Effort';
+  if (plan.name.includes('UnlimitedLite')) speed = 'Fair Usage';
+  if (plan.name.includes('UnlimitedEssential')) speed = 'Essential Speed';
+  
+  return {
+    ...plan,
+    speed,
+    description: `Smile ${plan.name} - ${plan.dataSize} valid for ${plan.validity}`
+  };
+});
 
 // Internet service providers configuration
 const INTERNET_CONFIG = {
@@ -65,7 +109,7 @@ const INTERNET_CONFIG = {
     customerService: '0700-9999-7654',
     website: 'https://smile.com.ng',
     connectionTypes: ['4G LTE', 'Fixed LTE'],
-    limits: { min: 300, max: 25000 },
+    limits: { min: 450, max: 185000 }, // Updated to match actual price range
     processingTime: '5-10 minutes',
     successRate: 92
   }
@@ -171,7 +215,7 @@ router.get('/provider/:code', authenticate, async (req, res) => {
         customerService: provider.customerService,
         website: provider.website
       },
-      planCategories: ['daily', 'weekly', 'monthly']
+      planCategories: ['daily', 'weekly', 'monthly', 'jumbo', 'annual', 'voice', 'mobile']
     });
 
   } catch (error) {
@@ -224,11 +268,11 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
 
     // Apply filters
     if (category) {
-      const validCategories = ['daily', 'weekly', 'monthly'];
+      const validCategories = ['daily', 'weekly', 'monthly', 'jumbo', 'annual', 'voice', 'mobile'];
       if (!validCategories.includes(category)) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid category. Valid categories are: daily, weekly, monthly',
+          message: 'Invalid category. Valid categories are: daily, weekly, monthly, jumbo, annual, voice, mobile',
           error_code: 'INVALID_CATEGORY'
         });
       }
@@ -244,7 +288,11 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
     const plansByCategory = {
       daily: filteredPlans.filter(p => p.category === 'daily'),
       weekly: filteredPlans.filter(p => p.category === 'weekly'),
-      monthly: filteredPlans.filter(p => p.category === 'monthly')
+      monthly: filteredPlans.filter(p => p.category === 'monthly'),
+      jumbo: filteredPlans.filter(p => p.category === 'jumbo'),
+      annual: filteredPlans.filter(p => p.category === 'annual'),
+      voice: filteredPlans.filter(p => p.category === 'voice'),
+      mobile: filteredPlans.filter(p => p.category === 'mobile')
     };
 
     console.log(`✅ Returning ${filteredPlans.length} Smile plans to client`);
@@ -267,15 +315,20 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
         categories: {
           daily: plansByCategory.daily.length,
           weekly: plansByCategory.weekly.length,
-          monthly: plansByCategory.monthly.length
+          monthly: plansByCategory.monthly.length,
+          jumbo: plansByCategory.jumbo.length,
+          annual: plansByCategory.annual.length,
+          voice: plansByCategory.voice.length,
+          mobile: plansByCategory.mobile.length
         },
         priceRange: filteredPlans.length > 0 ? {
           min: Math.min(...filteredPlans.map(p => p.amount)),
           max: Math.max(...filteredPlans.map(p => p.amount))
         } : { min: 0, max: 0 }
       },
-      dataSource: 'static',
-      note: 'Smile plan prices are configured manually. Contact support to update prices.'
+      dataSource: 'static_official',
+      lastUpdated: '2024-12-07',
+      note: 'Official ClubKonnect plan IDs and prices. Synced with APISmilePackagesV2.asp'
     });
 
   } catch (error) {
@@ -380,10 +433,10 @@ router.get('/refresh-plans', authenticate, async (req, res) => {
   try {
     res.json({
       success: true,
-      message: 'Smile plans retrieved (static configuration)',
+      message: 'Smile plans retrieved (official ClubKonnect configuration)',
       plansCount: formattedSmilePlans.length,
       plans: formattedSmilePlans,
-      note: 'These are statically configured plans. To update prices, modify SMILE_PLANS in routes/internet.js'
+      note: 'These plans use official ClubKonnect plan IDs from APISmilePackagesV2.asp. Last synced: 2024-12-07'
     });
 
   } catch (error) {

@@ -1305,30 +1305,73 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
 }
 
 // Helper function to find Smile plan from static list
+// Add this near the processInternetPurchase function in routes/purchase.js
+
 async function findSmilePlan(planName) {
-  // Static Smile plans (same as in routes/internet.js)
+  // ✅ CORRECTED Static Smile plans (same as in routes/internet.js)
+  // Using Official ClubKonnect Plan IDs
   const SMILE_PLANS = [
-    { id: '533', name: '1GB FlexiDaily', amount: 300 },
-    { id: '534', name: '2GB FlexiDaily', amount: 500 },
-    { id: '535', name: '3GB FlexiDaily', amount: 700 },
-    { id: '536', name: '2GB FlexiWeekly', amount: 1000 },
-    { id: '537', name: '5GB FlexiWeekly', amount: 2000 },
-    { id: '538', name: '10GB FlexiWeekly', amount: 3500 },
-    { id: '624', name: '1GB Flexi', amount: 1000 },
-    { id: '625', name: '2GB Flexi', amount: 1500 },
-    { id: '626', name: '3GB Flexi', amount: 2000 },
-    { id: '627', name: '5GB Flexi', amount: 2500 },
-    { id: '628', name: '10GB Flexi', amount: 4000 },
-    { id: '629', name: '15GB Flexi', amount: 5500 },
-    { id: '630', name: '20GB Flexi', amount: 7000 },
-    { id: '631', name: '25GB Flexi', amount: 8500 },
-    { id: '632', name: '30GB Flexi', amount: 10000 },
-    { id: '633', name: '50GB Flexi', amount: 15000 },
-    { id: '634', name: '75GB Flexi', amount: 20000 },
-    { id: '635', name: '100GB Flexi', amount: 25000 },
-    { id: '636', name: 'UnlimitedLite - Day', amount: 1000 },
-    { id: '637', name: 'UnlimitedLite - Week', amount: 3000 },
-    { id: '638', name: 'UnlimitedLite - Month', amount: 10000 },
+    // FlexiDaily Plans
+    { id: '624', name: '1GB FlexiDaily', amount: 450 },
+    { id: '625', name: '2.5GB FlexiDaily', amount: 750 },
+    
+    // FlexiWeekly Plans
+    { id: '626', name: '1GB FlexiWeekly', amount: 750 },
+    { id: '627', name: '2GB FlexiWeekly', amount: 1550 },
+    { id: '628', name: '6GB FlexiWeekly', amount: 2300 },
+    
+    // Bigga Plans (30 days)
+    { id: '606', name: '1.5GB Bigga', amount: 1550 },
+    { id: '607', name: '2GB Bigga', amount: 1850 },
+    { id: '608', name: '3GB Bigga', amount: 2300 },
+    { id: '620', name: '5GB Bigga', amount: 3100 },
+    { id: '609', name: '6.5GB Bigga', amount: 3800 },
+    { id: '722', name: '10GB Bigga', amount: 4600 },
+    { id: '723', name: '15GB Bigga', amount: 6200 },
+    { id: '724', name: '20GB Bigga', amount: 8000 },
+    { id: '725', name: '25GB Bigga', amount: 9500 },
+    { id: '615', name: '30GB Bigga', amount: 12500 },
+    { id: '616', name: '40GB Bigga', amount: 15500 },
+    { id: '617', name: '60GB Bigga', amount: 21000 },
+    { id: '618', name: '75GB Bigga', amount: 23000 },
+    { id: '619', name: '100GB Bigga', amount: 27500 },
+    { id: '668', name: '130GB Bigga', amount: 30500 },
+    
+    // Unlimited Plans
+    { id: '730', name: 'UnlimitedLite', amount: 18500 },
+    { id: '729', name: 'UnlimitedEssential', amount: 27700 },
+    
+    // Freedom Plans
+    { id: '726', name: 'Freedom 3Mbps', amount: 38500 },
+    { id: '727', name: 'Freedom 6Mbps', amount: 46500 },
+    { id: '728', name: 'Freedom BestEffort', amount: 61500 },
+    
+    // Jumbo Plans
+    { id: '665', name: '90GB Jumbo', amount: 31000 },
+    { id: '666', name: '160GB Jumbo', amount: 53000 },
+    { id: '667', name: '200GB Jumbo', amount: 62000 },
+    { id: '721', name: '400GB Jumbo', amount: 77000 },
+    
+    // Annual Plans
+    { id: '687', name: '15GB Annual', amount: 14000 },
+    { id: '688', name: '35GB Annual', amount: 29000 },
+    { id: '689', name: '70GB Annual', amount: 49500 },
+    { id: '664', name: '125GB Annual', amount: 77000 },
+    { id: '604', name: '200GB Annual', amount: 107000 },
+    { id: '673', name: '500GB Annual', amount: 154000 },
+    { id: '674', name: '1TB Annual', amount: 185000 },
+    
+    // SmileVoice Plans
+    { id: '747', name: 'SmileVoice 65min', amount: 900 },
+    { id: '748', name: 'SmileVoice 135min', amount: 1850 },
+    { id: '749', name: 'SmileVoice 430min', amount: 5700 },
+    { id: '750', name: 'SmileVoice 150min', amount: 2700 },
+    { id: '751', name: 'SmileVoice 450min', amount: 7200 },
+    { id: '752', name: 'SmileVoice 175min', amount: 3600 },
+    { id: '753', name: 'SmileVoice 500min', amount: 9000 },
+    
+    // Mobile Plan
+    { id: '758', name: 'Freedom Mobile Plan', amount: 5000 },
   ];
   
   return SMILE_PLANS.find(p => p.name === planName);
