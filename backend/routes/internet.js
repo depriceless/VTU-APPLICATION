@@ -1,4 +1,4 @@
-// routes/internet.js - FIXED for correct ClubKonnect response structure
+// routes/internet.js - FIXED: Smile uses static plans (no listing endpoint available)
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -11,142 +11,47 @@ const CK_CONFIG = {
   baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
 };
 
-// Cache for plans (to avoid hitting API repeatedly)
-let plansCache = null;
-let cacheTimestamp = null;
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+// 🔥 STATIC SMILE PLANS - ClubKonnect doesn't provide a listing endpoint for Smile
+// Update these prices periodically by checking ClubKonnect dashboard or contacting support
+const SMILE_PLANS = [
+  // FlexiDaily Plans
+  { id: '533', name: '1GB FlexiDaily', dataSize: '1GB', validity: '1 day', amount: 300, category: 'daily', popular: false },
+  { id: '534', name: '2GB FlexiDaily', dataSize: '2GB', validity: '1 day', amount: 500, category: 'daily', popular: true },
+  { id: '535', name: '3GB FlexiDaily', dataSize: '3GB', validity: '1 day', amount: 700, category: 'daily', popular: false },
+  
+  // FlexiWeekly Plans
+  { id: '536', name: '2GB FlexiWeekly', dataSize: '2GB', validity: '7 days', amount: 1000, category: 'weekly', popular: false },
+  { id: '537', name: '5GB FlexiWeekly', dataSize: '5GB', validity: '7 days', amount: 2000, category: 'weekly', popular: true },
+  { id: '538', name: '10GB FlexiWeekly', dataSize: '10GB', validity: '7 days', amount: 3500, category: 'weekly', popular: false },
+  
+  // FlexiMonthly Plans (most popular)
+  { id: '624', name: '1GB Flexi', dataSize: '1GB', validity: '30 days', amount: 1000, category: 'monthly', popular: false },
+  { id: '625', name: '2GB Flexi', dataSize: '2GB', validity: '30 days', amount: 1500, category: 'monthly', popular: true },
+  { id: '626', name: '3GB Flexi', dataSize: '3GB', validity: '30 days', amount: 2000, category: 'monthly', popular: true },
+  { id: '627', name: '5GB Flexi', dataSize: '5GB', validity: '30 days', amount: 2500, category: 'monthly', popular: true },
+  { id: '628', name: '10GB Flexi', dataSize: '10GB', validity: '30 days', amount: 4000, category: 'monthly', popular: true },
+  { id: '629', name: '15GB Flexi', dataSize: '15GB', validity: '30 days', amount: 5500, category: 'monthly', popular: false },
+  { id: '630', name: '20GB Flexi', dataSize: '20GB', validity: '30 days', amount: 7000, category: 'monthly', popular: false },
+  { id: '631', name: '25GB Flexi', dataSize: '25GB', validity: '30 days', amount: 8500, category: 'monthly', popular: false },
+  { id: '632', name: '30GB Flexi', dataSize: '30GB', validity: '30 days', amount: 10000, category: 'monthly', popular: false },
+  { id: '633', name: '50GB Flexi', dataSize: '50GB', validity: '30 days', amount: 15000, category: 'monthly', popular: false },
+  { id: '634', name: '75GB Flexi', dataSize: '75GB', validity: '30 days', amount: 20000, category: 'monthly', popular: false },
+  { id: '635', name: '100GB Flexi', dataSize: '100GB', validity: '30 days', amount: 25000, category: 'monthly', popular: false },
+  
+  // Unlimited Plans
+  { id: '636', name: 'UnlimitedLite - Day', dataSize: 'Unlimited', validity: '1 day', amount: 1000, category: 'daily', popular: false },
+  { id: '637', name: 'UnlimitedLite - Week', dataSize: 'Unlimited', validity: '7 days', amount: 3000, category: 'weekly', popular: false },
+  { id: '638', name: 'UnlimitedLite - Month', dataSize: 'Unlimited', validity: '30 days', amount: 10000, category: 'monthly', popular: false },
+];
 
-// Helper function to fetch plans from ClubKonnect
-async function fetchSmilePlansFromClubKonnect() {
-  try {
-    // Check cache first
-    const now = Date.now();
-    if (plansCache && cacheTimestamp && (now - cacheTimestamp < CACHE_DURATION)) {
-      console.log('✅ Using cached Smile plans');
-      return plansCache;
-    }
+// Add speed information to all plans
+const formattedSmilePlans = SMILE_PLANS.map(plan => ({
+  ...plan,
+  speed: '10-20Mbps',
+  description: `Smile ${plan.name} - ${plan.dataSize} valid for ${plan.validity}`
+}));
 
-    console.log('📡 Fetching fresh Smile plans from ClubKonnect...');
-
-    const url = `${CK_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CK_CONFIG.userId}`;
-    
-    const response = await axios.get(url, {
-      timeout: 30000,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'VTU-App/1.0'
-      }
-    });
-
-    let data = response.data;
-    
-    // Parse if string
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        throw new Error('Failed to parse ClubKonnect response');
-      }
-    }
-
-    console.log('📋 ClubKonnect API Response Keys:', Object.keys(data));
-
-    // 🔥 FIX: ClubKonnect returns data under MOBILE_NETWORK key
-    let smilePlans = [];
-    
-    // Check if MOBILE_NETWORK exists and is an object
-    if (data.MOBILE_NETWORK && typeof data.MOBILE_NETWORK === 'object') {
-      console.log('📋 MOBILE_NETWORK keys:', Object.keys(data.MOBILE_NETWORK));
-      
-      // Try to find Smile plans under various possible keys
-      const possibleKeys = [
-        'SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile',
-        'Smile', 'smile_direct', 'SMILEDIRECT'
-      ];
-      
-      for (const key of possibleKeys) {
-        if (data.MOBILE_NETWORK[key] && Array.isArray(data.MOBILE_NETWORK[key])) {
-          smilePlans = data.MOBILE_NETWORK[key];
-          console.log(`✅ Found Smile plans under key: ${key}`);
-          break;
-        }
-      }
-      
-      // If not found, check all keys in MOBILE_NETWORK
-      if (smilePlans.length === 0) {
-        for (const key in data.MOBILE_NETWORK) {
-          if (Array.isArray(data.MOBILE_NETWORK[key]) && 
-              key.toLowerCase().includes('smile')) {
-            smilePlans = data.MOBILE_NETWORK[key];
-            console.log(`✅ Found Smile plans under key: ${key}`);
-            break;
-          }
-        }
-      }
-    }
-
-    if (smilePlans.length === 0) {
-      console.error('❌ No Smile plans found in ClubKonnect response');
-      console.log('Available structure:', JSON.stringify(data, null, 2));
-      throw new Error('No Smile plans available from provider');
-    }
-
-    console.log(`📊 Found ${smilePlans.length} raw Smile plans`);
-
-    // Transform plans to our format
-    const formattedPlans = smilePlans.map(plan => {
-      const planId = plan.dataplan_id || plan.plan_id || plan.id;
-      const planName = plan.plan || plan.plan_name || plan.name || 'Unknown Plan';
-      const planAmount = parseFloat(plan.plan_amount || plan.amount || 0);
-      const validity = plan.validity || plan.month_validate || plan.plan_validity || '30 days';
-
-      // Extract data size from plan name (e.g., "1GB", "6.5GB")
-      const dataMatch = planName.match(/(\d+\.?\d*)\s*(GB|MB)/i);
-      const dataSize = dataMatch ? dataMatch[0] : 'Unknown';
-
-      // Determine category based on validity
-      let category = 'monthly';
-      if (validity.toLowerCase().includes('day')) {
-        const days = parseInt(validity);
-        if (days <= 1) category = 'daily';
-        else if (days <= 7) category = 'weekly';
-      } else if (validity.toLowerCase().includes('week')) {
-        category = 'weekly';
-      }
-
-      return {
-        id: planId,
-        name: planName,
-        dataSize: dataSize,
-        speed: '10-20Mbps', // Default speed (not provided by API)
-        validity: validity,
-        amount: planAmount,
-        category: category,
-        popular: planAmount >= 2000 && planAmount <= 10000 // Mark mid-range plans as popular
-      };
-    });
-
-    // Update cache
-    plansCache = formattedPlans;
-    cacheTimestamp = now;
-
-    console.log(`✅ Fetched ${formattedPlans.length} Smile plans from ClubKonnect`);
-    return formattedPlans;
-
-  } catch (error) {
-    console.error('❌ Error fetching Smile plans from ClubKonnect:', error.message);
-    
-    // Return fallback plans if fetch fails
-    if (plansCache) {
-      console.log('⚠️  Returning cached plans due to fetch error');
-      return plansCache;
-    }
-    
-    throw error;
-  }
-}
-
-// Internet service providers configuration (static info only)
+// Internet service providers configuration
 const INTERNET_CONFIG = {
   smile: {
     name: 'Smile Communications',
@@ -160,28 +65,12 @@ const INTERNET_CONFIG = {
     customerService: '0700-9999-7654',
     website: 'https://smile.com.ng',
     connectionTypes: ['4G LTE', 'Fixed LTE'],
-    limits: {
-      min: 500,
-      max: 150000
-    },
+    limits: { min: 300, max: 25000 },
     processingTime: '5-10 minutes',
     successRate: 92
   }
 };
 
-// Clear cache periodically (every hour)
-setInterval(() => {
-  if (plansCache && cacheTimestamp) {
-    const age = Date.now() - cacheTimestamp;
-    if (age > CACHE_DURATION) {
-      console.log('🔄 Auto-clearing stale plans cache');
-      plansCache = null;
-      cacheTimestamp = null;
-    }
-  }
-}, CACHE_DURATION);
-
-// Set caching headers helper
 const setCacheHeaders = (res, maxAge = 3600) => {
   res.set({
     'Cache-Control': `public, max-age=${maxAge}`,
@@ -189,10 +78,10 @@ const setCacheHeaders = (res, maxAge = 3600) => {
   });
 };
 
-// GET /api/internet/providers - Get all internet providers
+// GET /api/internet/providers
 router.get('/providers', authenticate, async (req, res) => {
   try {
-    setCacheHeaders(res, 7200); // Cache for 2 hours
+    setCacheHeaders(res, 7200);
 
     const providers = Object.values(INTERNET_CONFIG)
       .filter(provider => provider.status === 'active')
@@ -231,7 +120,7 @@ router.get('/providers', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/internet/provider/:code - Get specific provider details
+// GET /api/internet/provider/:code
 router.get('/provider/:code', authenticate, async (req, res) => {
   try {
     const { code } = req.params;
@@ -295,7 +184,7 @@ router.get('/provider/:code', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/internet/provider/:code/plans - Get internet plans (DYNAMIC from ClubKonnect)
+// GET /api/internet/provider/:code/plans - Returns static Smile plans
 router.get('/provider/:code/plans', authenticate, async (req, res) => {
   try {
     const { code } = req.params;
@@ -329,12 +218,9 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
       });
     }
 
-    // 🔥 FETCH PLANS DYNAMICALLY FROM CLUBKONNECT
-    const plans = await fetchSmilePlansFromClubKonnect();
-
     setCacheHeaders(res, 1800); // Cache for 30 minutes
 
-    let filteredPlans = [...plans];
+    let filteredPlans = [...formattedSmilePlans];
 
     // Apply filters
     if (category) {
@@ -361,7 +247,7 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
       monthly: filteredPlans.filter(p => p.category === 'monthly')
     };
 
-    console.log(`✅ Returning ${filteredPlans.length} plans to client`);
+    console.log(`✅ Returning ${filteredPlans.length} Smile plans to client`);
 
     res.json({
       success: true,
@@ -388,8 +274,8 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
           max: Math.max(...filteredPlans.map(p => p.amount))
         } : { min: 0, max: 0 }
       },
-      dataSource: 'clubkonnect',
-      cacheAge: cacheTimestamp ? Math.floor((Date.now() - cacheTimestamp) / 1000) : 0
+      dataSource: 'static',
+      note: 'Smile plan prices are configured manually. Contact support to update prices.'
     });
 
   } catch (error) {
@@ -403,7 +289,7 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/internet/validate-account - Validate customer account
+// POST /api/internet/validate-account
 router.post('/validate-account', authenticate, async (req, res) => {
   try {
     const { customerNumber, provider } = req.body;
@@ -424,7 +310,6 @@ router.post('/validate-account', authenticate, async (req, res) => {
       });
     }
 
-    // Validate with ClubKonnect
     try {
       const url = `${CK_CONFIG.baseUrl}/APIVerifySmileV1.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}&MobileNetwork=smile-direct&MobileNumber=${customerNumber}`;
       
@@ -465,7 +350,6 @@ router.post('/validate-account', authenticate, async (req, res) => {
     } catch (apiError) {
       console.error('Validation API Error:', apiError);
       
-      // Return soft validation
       res.json({
         success: true,
         message: 'Validation service unavailable, you can still proceed',
@@ -491,28 +375,22 @@ router.post('/validate-account', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/internet/refresh-plans - Force refresh plans cache
+// GET /api/internet/refresh-plans - Returns fresh copy of static plans
 router.get('/refresh-plans', authenticate, async (req, res) => {
   try {
-    // Clear cache
-    plansCache = null;
-    cacheTimestamp = null;
-
-    // Fetch fresh plans
-    const plans = await fetchSmilePlansFromClubKonnect();
-
     res.json({
       success: true,
-      message: 'Plans cache refreshed successfully',
-      plansCount: plans.length,
-      plans: plans
+      message: 'Smile plans retrieved (static configuration)',
+      plansCount: formattedSmilePlans.length,
+      plans: formattedSmilePlans,
+      note: 'These are statically configured plans. To update prices, modify SMILE_PLANS in routes/internet.js'
     });
 
   } catch (error) {
     console.error('Error refreshing plans:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to refresh plans',
+      message: 'Failed to retrieve plans',
       error: error.message
     });
   }
