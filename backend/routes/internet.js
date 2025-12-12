@@ -1,4 +1,4 @@
-// routes/internet.js - UPDATED to fetch prices from ClubKonnect
+// routes/internet.js - FIXED for correct ClubKonnect response structure
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -49,32 +49,56 @@ async function fetchSmilePlansFromClubKonnect() {
       }
     }
 
-    // Extract Smile plans
-    // ClubKonnect returns data in format: { "SMILE-DIRECT": [...plans...] } or similar
+    console.log('📋 ClubKonnect API Response Keys:', Object.keys(data));
+
+    // 🔥 FIX: ClubKonnect returns data under MOBILE_NETWORK key
     let smilePlans = [];
     
-    // Try different possible keys for Smile
-    const possibleKeys = ['SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile'];
-    
-    for (const key of possibleKeys) {
-      if (data[key] && Array.isArray(data[key])) {
-        smilePlans = data[key];
-        break;
+    // Check if MOBILE_NETWORK exists and is an object
+    if (data.MOBILE_NETWORK && typeof data.MOBILE_NETWORK === 'object') {
+      console.log('📋 MOBILE_NETWORK keys:', Object.keys(data.MOBILE_NETWORK));
+      
+      // Try to find Smile plans under various possible keys
+      const possibleKeys = [
+        'SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile',
+        'Smile', 'smile_direct', 'SMILEDIRECT'
+      ];
+      
+      for (const key of possibleKeys) {
+        if (data.MOBILE_NETWORK[key] && Array.isArray(data.MOBILE_NETWORK[key])) {
+          smilePlans = data.MOBILE_NETWORK[key];
+          console.log(`✅ Found Smile plans under key: ${key}`);
+          break;
+        }
+      }
+      
+      // If not found, check all keys in MOBILE_NETWORK
+      if (smilePlans.length === 0) {
+        for (const key in data.MOBILE_NETWORK) {
+          if (Array.isArray(data.MOBILE_NETWORK[key]) && 
+              key.toLowerCase().includes('smile')) {
+            smilePlans = data.MOBILE_NETWORK[key];
+            console.log(`✅ Found Smile plans under key: ${key}`);
+            break;
+          }
+        }
       }
     }
 
     if (smilePlans.length === 0) {
       console.error('❌ No Smile plans found in ClubKonnect response');
-      console.log('Available keys:', Object.keys(data));
+      console.log('Available structure:', JSON.stringify(data, null, 2));
       throw new Error('No Smile plans available from provider');
     }
+
+    console.log(`📊 Found ${smilePlans.length} raw Smile plans`);
 
     // Transform plans to our format
     const formattedPlans = smilePlans.map(plan => {
       const planId = plan.dataplan_id || plan.plan_id || plan.id;
       const planName = plan.plan || plan.plan_name || plan.name || 'Unknown Plan';
       const planAmount = parseFloat(plan.plan_amount || plan.amount || 0);
-      const validity = plan.validity || plan.month_validate || '30 days';
+      const validity = plan.validity || plan.month_validate || plan.plan_validity || '30 days';
 
       // Extract data size from plan name (e.g., "1GB", "6.5GB")
       const dataMatch = planName.match(/(\d+\.?\d*)\s*(GB|MB)/i);
@@ -82,10 +106,12 @@ async function fetchSmilePlansFromClubKonnect() {
 
       // Determine category based on validity
       let category = 'monthly';
-      if (validity.toLowerCase().includes('day') || validity.toLowerCase().includes('week')) {
+      if (validity.toLowerCase().includes('day')) {
         const days = parseInt(validity);
-        if (days <= 7) category = 'weekly';
-        else if (days <= 1) category = 'daily';
+        if (days <= 1) category = 'daily';
+        else if (days <= 7) category = 'weekly';
+      } else if (validity.toLowerCase().includes('week')) {
+        category = 'weekly';
       }
 
       return {
@@ -275,6 +301,8 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
     const { code } = req.params;
     const { category, popular } = req.query;
 
+    console.log('🎯 Plans route hit for provider:', code);
+
     if (!code || typeof code !== 'string') {
       return res.status(400).json({
         success: false,
@@ -332,6 +360,8 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
       weekly: filteredPlans.filter(p => p.category === 'weekly'),
       monthly: filteredPlans.filter(p => p.category === 'monthly')
     };
+
+    console.log(`✅ Returning ${filteredPlans.length} plans to client`);
 
     res.json({
       success: true,
