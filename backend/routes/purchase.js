@@ -1209,71 +1209,37 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
       throw new Error('Only Smile internet is currently supported');
     }
 
-    // 🔥 FETCH FRESH PRICE FROM CLUBKONNECT
-    console.log('📡 Fetching fresh Smile plan price from ClubKonnect...');
+    // ✅ USE STATIC PLANS FROM routes/internet.js INSTEAD
+    console.log('📡 Using static Smile plan prices...');
     
-    const plansUrl = `${CK_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CK_CONFIG.userId}`;
+    // Import the static plans (add this at top of file)
+    // const { SMILE_PLANS } = require('./internet');
     
-    const response = await axios.get(plansUrl, { 
-      timeout: 30000,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'VTU-App/1.0'
-      }
-    });
-
-    let data = response.data;
+    // For now, let's use a simplified approach - fetch from your own endpoint
+    const selectedPlan = await findSmilePlan(plan);
     
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        throw new Error(`Failed to parse ClubKonnect response`);
-      }
-    }
-
-    // Find Smile plans
-    let smilePlans = null;
-    const possibleKeys = ['SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile'];
-    
-    for (const key of possibleKeys) {
-      if (data[key] && Array.isArray(data[key])) {
-        smilePlans = data[key];
-        break;
-      }
-    }
-
-    if (!smilePlans || smilePlans.length === 0) {
-      throw new Error('No Smile plans available from provider');
-    }
-
-    // Find the specific plan
-    const selectedPlan = smilePlans.find(p => 
-      (p.plan || p.plan_name || p.name) === plan
-    );
-
     if (!selectedPlan) {
       throw new Error('Invalid plan selected or plan not available');
     }
 
-    const clubKonnectPrice = parseFloat(selectedPlan.plan_amount || selectedPlan.amount || 0);
+    const clubKonnectPrice = selectedPlan.amount;
 
-    // ✅ Validate amount matches ClubKonnect price (no markup for now)
+    // ✅ Validate amount matches plan price
     if (clubKonnectPrice !== amount) {
       throw new Error(
-        `PRICE_CHANGED: Plan price updated. New price: ₦${clubKonnectPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
+        `PRICE_CHANGED: Plan price is ₦${clubKonnectPrice.toLocaleString()} but received ₦${amount.toLocaleString()}`
       );
     }
 
     console.log('Internet Purchase:', {
-      plan: selectedPlan.plan || selectedPlan.plan_name || selectedPlan.name,
+      plan: selectedPlan.name,
       clubKonnectPrice: clubKonnectPrice,
       customerPays: amount,
       profit: 0
     });
 
     const networkCode = 'smile-direct';
-    const planId = selectedPlan.dataplan_id || selectedPlan.plan_id || selectedPlan.id;
+    const planId = selectedPlan.id;
     const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // 🔥 PURCHASE FROM CLUBKONNECT
@@ -1302,7 +1268,7 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
           planId: planId,
           customerNumber,
           providerCost: clubKonnectPrice,
-          customerPrice: clubKonnectPrice,  // No markup
+          customerPrice: clubKonnectPrice,
           profit: 0,
           serviceType: 'internet',
           orderid: purchaseResponse.orderid,
@@ -1338,6 +1304,35 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
   }
 }
 
+// Helper function to find Smile plan from static list
+async function findSmilePlan(planName) {
+  // Static Smile plans (same as in routes/internet.js)
+  const SMILE_PLANS = [
+    { id: '533', name: '1GB FlexiDaily', amount: 300 },
+    { id: '534', name: '2GB FlexiDaily', amount: 500 },
+    { id: '535', name: '3GB FlexiDaily', amount: 700 },
+    { id: '536', name: '2GB FlexiWeekly', amount: 1000 },
+    { id: '537', name: '5GB FlexiWeekly', amount: 2000 },
+    { id: '538', name: '10GB FlexiWeekly', amount: 3500 },
+    { id: '624', name: '1GB Flexi', amount: 1000 },
+    { id: '625', name: '2GB Flexi', amount: 1500 },
+    { id: '626', name: '3GB Flexi', amount: 2000 },
+    { id: '627', name: '5GB Flexi', amount: 2500 },
+    { id: '628', name: '10GB Flexi', amount: 4000 },
+    { id: '629', name: '15GB Flexi', amount: 5500 },
+    { id: '630', name: '20GB Flexi', amount: 7000 },
+    { id: '631', name: '25GB Flexi', amount: 8500 },
+    { id: '632', name: '30GB Flexi', amount: 10000 },
+    { id: '633', name: '50GB Flexi', amount: 15000 },
+    { id: '634', name: '75GB Flexi', amount: 20000 },
+    { id: '635', name: '100GB Flexi', amount: 25000 },
+    { id: '636', name: 'UnlimitedLite - Day', amount: 1000 },
+    { id: '637', name: 'UnlimitedLite - Week', amount: 3000 },
+    { id: '638', name: 'UnlimitedLite - Month', amount: 10000 },
+  ];
+  
+  return SMILE_PLANS.find(p => p.name === planName);
+}
 
 async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
   const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

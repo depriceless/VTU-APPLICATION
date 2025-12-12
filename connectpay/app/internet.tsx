@@ -1359,11 +1359,7 @@ export default function BuyInternet() {
                     {item.description && (
                       <Text style={styles.planItemDescription}>{item.description}</Text>
                     )}
-                    {item.popular && (
-                      <View style={styles.popularBadge}>
-                        <Text style={styles.popularBadgeText}>POPULAR</Text>
-                      </View>
-                    )}
+                 
                   </View>
                 </TouchableOpacity>
               )}
@@ -1438,12 +1434,13 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  planHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
+planHeader: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: 8,
+},
+
 
   errorBanner: {
     backgroundColor: '#fff3e0',
@@ -1655,23 +1652,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  planMainInfo: {
+planMainInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 4,
+    gap: 12,
   },
 
-  planName: {
+
+    planName: {
     fontSize: 16,
     fontWeight: '600',
     color: '#1a1a1a',
+    flex: 1,
   },
 
-  planPrice: {
+    planPrice: {
     fontSize: 16,
     fontWeight: '700',
     color: '#ff3b30',
+    flexShrink: 0,
   },
 
   planDetails: {
@@ -2135,29 +2136,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 
-  planItemSelected: {
+   planItemSelected: {
     backgroundColor: '#fff5f5',
     borderLeftWidth: 4,
     borderLeftColor: '#ff3b30',
   },
 
-  planItemContent: {
-    flex: 1,
-    position: 'relative',
-  },
+  
+planItemContent: {
+  flex: 1,
+  // No extra padding needed
+},
 
-  planItemName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    flex: 1,
-  },
+planItemName: {
+  fontSize: 16,
+  fontWeight: '600',
+  color: '#1a1a1a',
+  flex: 1,
+},
 
-  planItemPrice: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#ff3b30',
-  },
+
+ planItemPrice: {
+  fontSize: 16,
+  fontWeight: '700',
+  color: '#ff3b30',
+  flexShrink: 0,
+  textAlign: 'right',
+},
 
   planItemDetails: {
     flexDirection: 'row',
@@ -2167,7 +2172,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  planItemDetail: {
+   planItemDetail: {
     fontSize: 12,
     color: '#666',
     backgroundColor: '#f8f9fa',
@@ -2181,21 +2186,5 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
     fontStyle: 'italic',
-  },
-
-  popularBadge: {
-    position: 'absolute',
-    top: -8,
-    right: 0,
-    backgroundColor: '#ff3b30',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-
-  popularBadgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '700',
   },
 });
