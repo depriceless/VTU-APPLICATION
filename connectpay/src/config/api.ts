@@ -1,9 +1,8 @@
 // src/config/api.ts
 import axios, { AxiosInstance } from 'axios';
-import * as SecureStore from 'expo-secure-store'; // ✅ FIXED: Use SecureStore
+import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-// ✅ ADDED: Unified storage helper
 const storage = {
   async getItem(key: string): Promise<string | null> {
     if (Platform.OS === 'web') {
@@ -30,10 +29,8 @@ const storage = {
   }
 };
 
-// ✅ FIXED: Use consistent key name
 const TOKEN_KEY = 'userToken';
 
-// API Configuration
 interface ApiConfig {
   development: {
     android: string;
@@ -47,25 +44,17 @@ interface ApiConfig {
 
 const API_CONFIG: ApiConfig = {
   development: {
-    // For Physical Device on same network
     android: 'http://172.17.23.7:5002/api',
     ios: 'http://172.17.23.7:5002/api',
-    
-    // Alternative for emulators (uncomment if needed)
-    // android: 'http://10.0.2.2:5002/api',  // Android Emulator
-    // ios: 'http://localhost:5002/api',     // iOS Simulator
   },
   production: {
-    // Same URL for both platforms in production
     android: 'https://vtu-application.onrender.com/api',
     ios: 'https://vtu-application.onrender.com/api',
   }
 };
 
-// Determine environment
 const isDevelopment = __DEV__;
 
-// Get base URL
 const getBaseURL = (): string => {
   const env = isDevelopment ? 'development' : 'production';
   return API_CONFIG[env][Platform.OS as 'android' | 'ios'];
@@ -73,7 +62,6 @@ const getBaseURL = (): string => {
 
 export const API_BASE_URL = getBaseURL();
 
-// Enhanced logging
 console.log('=== API Configuration ===');
 console.log('📍 Base URL:', API_BASE_URL);
 console.log('🔧 Environment:', isDevelopment ? 'Development' : 'Production');
@@ -81,7 +69,6 @@ console.log('📱 Platform:', Platform.OS);
 console.log('🔑 Token Key:', TOKEN_KEY);
 console.log('========================');
 
-// Create axios instance with enhanced config
 export const apiClient: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000,
@@ -91,38 +78,24 @@ export const apiClient: AxiosInstance = axios.create({
   }
 });
 
-// Request interceptor
 apiClient.interceptors.request.use(
   async (config) => {
     try {
-      // ✅ FIXED: Use SecureStore with consistent key
       const token = await storage.getItem(TOKEN_KEY);
       
-      // Debug logging
       if (isDevelopment) {
         console.log(`🚀 ${config.method?.toUpperCase()} ${config.url}`);
         console.log(`🔑 Token status: ${token ? 'EXISTS' : 'MISSING'}`);
-        if (token) {
-          console.log(`🔑 Token length: ${token.length}`);
-          console.log(`🔑 Token preview: ${token.substring(0, 20)}...`);
-        }
       }
       
       if (token) {
-        // Ensure headers object exists
         if (!config.headers) {
           config.headers = {} as any;
         }
         config.headers.Authorization = `Bearer ${token}`;
-        
-        if (isDevelopment) {
-          console.log(`✅ Token added to request headers`);
-        }
-      } else {
-        console.warn(`⚠️ No token found in SecureStore (key: ${TOKEN_KEY})`);
       }
     } catch (error) {
-      console.error('❌ Error getting token from SecureStore:', error);
+      console.error('❌ Error getting token:', error);
     }
     return config;
   },
@@ -132,24 +105,19 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor
 apiClient.interceptors.response.use(
   (response) => {
-    // Log success in development
     if (isDevelopment) {
       console.log(`✅ ${response.config.method?.toUpperCase()} ${response.config.url} - ${response.status}`);
     }
     return response;
   },
   async (error) => {
-    // Handle 401 Unauthorized
     if (error.response?.status === 401) {
-      console.log('⚠️ Unauthorized - Clearing token from SecureStore');
+      console.log('⚠️ Unauthorized - Clearing token');
       await storage.removeItem(TOKEN_KEY);
-      // TODO: Navigate to login screen or dispatch logout action
     }
     
-    // Enhanced error logging
     const errorDetails = {
       url: error.config?.url,
       method: error.config?.method?.toUpperCase(),
@@ -160,7 +128,6 @@ apiClient.interceptors.response.use(
     
     console.error('❌ API Error:', errorDetails);
     
-    // Return a user-friendly error
     const userError = {
       message: error.response?.data?.message || 'Network error. Please try again.',
       status: error.response?.status,
@@ -171,7 +138,67 @@ apiClient.interceptors.response.use(
   }
 );
 
-// ✅ ADDED: Export storage helper for use in other files
-export { storage, TOKEN_KEY };
+// Helper function to get auth token (for non-axios requests)
+export const getAuthToken = async (): Promise<string | null> => {
+  try {
+    const token = await storage.getItem(TOKEN_KEY);
+    if (token) {
+      console.log('🔑 Token retrieved successfully');
+      return token;
+    } else {
+      console.warn('⚠️ No token found');
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Error retrieving token:', error);
+    return null;
+  }
+};
 
+// Helper function for fetch-based API calls
+export const makeFetchRequest = async (
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<any> => {
+  try {
+    const token = await getAuthToken();
+    const url = `${API_BASE_URL}${endpoint}`;
+    
+    console.log(`📡 Fetch Request: ${options.method || 'GET'} ${url}`);
+    console.log(`🔑 Token: ${token ? 'EXISTS' : 'MISSING'}`);
+    
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+        ...options.headers,
+      },
+    });
+    
+    console.log(`📥 Response: ${response.status} ${response.statusText}`);
+    
+    if (!response.ok) {
+      let errorData;
+      try {
+        const text = await response.text();
+        errorData = text ? JSON.parse(text) : {};
+      } catch {
+        errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
+      }
+      
+      throw new Error(errorData.message || `HTTP ${response.status}`);
+    }
+    
+    const text = await response.text();
+    return text ? JSON.parse(text) : {};
+    
+  } catch (error: any) {
+    console.error('❌ Fetch Error:', error.message);
+    throw error;
+  }
+};
+
+export { storage, TOKEN_KEY };
 export default apiClient;

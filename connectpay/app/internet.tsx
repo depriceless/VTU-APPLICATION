@@ -218,96 +218,121 @@ export default function BuyInternet() {
 
   // ---------- NEW: Fetch Plans from Backend ----------
   const fetchInternetPlans = async (providerCode: string) => {
-    setIsLoadingPlans(true);
-    setPlansError(null);
+  setIsLoadingPlans(true);
+  setPlansError(null);
+  
+  try {
+    console.log(`📡 Fetching plans for ${providerCode}...`);
     
+    const authToken = await getAuthToken();
+    
+    // Build the full URL
+    const endpoint = `/internet/provider/${providerCode}/plans`;
+    const fullUrl = `${API_CONFIG.BASE_URL}${endpoint}`;
+    
+    console.log('🔍 Full URL:', fullUrl);
+    console.log('🔍 API_CONFIG.BASE_URL:', API_CONFIG.BASE_URL);
+    console.log('🔍 Token exists:', !!authToken);
+    console.log('🔍 Token length:', authToken?.length);
+    
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+    });
+
+    console.log('📥 Response status:', response.status);
+    console.log('📥 Response ok:', response.ok);
+    console.log('📥 Response headers:', JSON.stringify(Object.fromEntries(response.headers.entries())));
+
+    let data;
     try {
-      console.log(`📡 Fetching plans for ${providerCode}...`);
+      const responseText = await response.text();
+      console.log('📥 Response text (first 200 chars):', responseText.substring(0, 200));
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch (parseError) {
+      console.error('❌ JSON Parse Error:', parseError);
+      throw new Error('Invalid response from server');
+    }
+
+    console.log('📥 Parsed data:', JSON.stringify(data, null, 2));
+
+    if (!response.ok) {
+      console.error('❌ HTTP Error:', response.status, data.message);
+      throw new Error(data.message || `HTTP ${response.status}: Failed to fetch plans`);
+    }
+
+    if (data.success && data.plans && Array.isArray(data.plans)) {
+      const transformedPlans: InternetPlan[] = data.plans.map((plan: any) => ({
+        id: plan.id || plan.planId,
+        name: plan.name || plan.planName,
+        dataSize: plan.dataSize || 'Unknown',
+        speed: plan.speed || '10-20Mbps',
+        validity: plan.validity || '30 days',
+        amount: parseFloat(plan.amount) || 0,
+        description: plan.description,
+        category: plan.category || 'monthly',
+        popular: plan.popular || false
+      }));
+
+      console.log(`✅ Loaded ${transformedPlans.length} plans from ClubKonnect`);
+      setAvailablePlans(transformedPlans);
       
-      const authToken = await getAuthToken();
-      const url = `${API_CONFIG.BASE_URL}/internet/provider/${providerCode}/plans`;
-      
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        timeout: 30000,
-      });
+      // Cache plans locally
+      await AsyncStorage.setItem(
+        `internet_plans_${providerCode}`,
+        JSON.stringify({ plans: transformedPlans, timestamp: Date.now() })
+      );
+    } else {
+      console.error('❌ Invalid response structure:', data);
+      throw new Error('No plans available');
+    }
 
-      let data;
-      try {
-        const responseText = await response.text();
-        data = responseText ? JSON.parse(responseText) : {};
-      } catch (parseError) {
-        throw new Error('Invalid response from server');
-      }
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Failed to fetch plans');
-      }
-
-      if (data.success && data.plans && Array.isArray(data.plans)) {
-        // Transform API plans to match our InternetPlan interface
-        const transformedPlans: InternetPlan[] = data.plans.map((plan: any) => ({
-          id: plan.id || plan.planId,
-          name: plan.name || plan.planName,
-          dataSize: plan.dataSize || 'Unknown',
-          speed: plan.speed || '10-20Mbps',
-          validity: plan.validity || '30 days',
-          amount: parseFloat(plan.amount) || 0,
-          description: plan.description,
-          category: plan.category || 'monthly',
-          popular: plan.popular || false
-        }));
-
-        console.log(`✅ Loaded ${transformedPlans.length} plans from ClubKonnect`);
-        setAvailablePlans(transformedPlans);
+  } catch (error: any) {
+    console.error('❌ Error fetching plans:', error);
+    console.error('❌ Error name:', error.name);
+    console.error('❌ Error message:', error.message);
+    console.error('❌ Error stack:', error.stack);
+    
+    setPlansError(error.message || 'Failed to load plans');
+    
+    // Try to load cached plans
+    try {
+      const cached = await AsyncStorage.getItem(`internet_plans_${providerCode}`);
+      if (cached) {
+        const { plans, timestamp } = JSON.parse(cached);
+        const isStale = Date.now() - timestamp > 3600000; // 1 hour
         
-        // Cache plans locally
-        await AsyncStorage.setItem(
-          `internet_plans_${providerCode}`,
-          JSON.stringify({ plans: transformedPlans, timestamp: Date.now() })
-        );
-      } else {
-        throw new Error('No plans available');
-      }
-
-    } catch (error) {
-      console.error('❌ Error fetching plans:', error);
-      setPlansError(error.message || 'Failed to load plans');
-      
-      // Try to load cached plans
-      try {
-        const cached = await AsyncStorage.getItem(`internet_plans_${providerCode}`);
-        if (cached) {
-          const { plans, timestamp } = JSON.parse(cached);
-          const isStale = Date.now() - timestamp > 3600000; // 1 hour
-          
-          if (!isStale) {
-            console.log('⚠️  Using cached plans due to fetch error');
-            setAvailablePlans(plans);
-            setPlansError('Using cached plans - prices may not be current');
-          } else {
-            Alert.alert(
-              'Connection Error',
-              'Unable to fetch current plans. Please check your internet connection and try again.'
-            );
-          }
+        if (!isStale) {
+          console.log('⚠️  Using cached plans due to fetch error');
+          setAvailablePlans(plans);
+          setPlansError('Using cached plans - prices may not be current');
+        } else {
+          Alert.alert(
+            'Connection Error',
+            'Unable to fetch current plans. Please check your internet connection and try again.'
+          );
         }
-      } catch (cacheError) {
+      } else {
         Alert.alert(
           'Error',
           'Unable to load internet plans. Please try again later.'
         );
       }
-    } finally {
-      setIsLoadingPlans(false);
+    } catch (cacheError) {
+      console.error('❌ Cache error:', cacheError);
+      Alert.alert(
+        'Error',
+        'Unable to load internet plans. Please try again later.'
+      );
     }
-  };
-
+  } finally {
+    setIsLoadingPlans(false);
+  }
+};
   // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
     if (!token) {
