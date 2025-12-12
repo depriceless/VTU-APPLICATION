@@ -210,10 +210,10 @@ router.post('/validate-meter', authenticate, async (req, res) => {
     console.log('Meter Number:', meterNumber);
     console.log('Meter Type:', meterType);
 
-    if (!meterNumber || !provider) {
+    if (!meterNumber || !provider || !meterType) {
       return res.status(400).json({
         success: false,
-        message: 'Missing required fields: meterNumber, provider'
+        message: 'Missing required fields: meterNumber, provider, meterType'
       });
     }
 
@@ -260,7 +260,8 @@ router.post('/validate-meter', authenticate, async (req, res) => {
         customerAddress: response.address || response.customer_address || '',
         accountNumber: response.account_number || response.accountNumber || '',
         meterNumber: meterNumber,
-        provider: companyCode
+        provider: companyCode,
+        meterType: meterType
       }
     });
 
@@ -274,6 +275,7 @@ router.post('/validate-meter', authenticate, async (req, res) => {
     });
   }
 });
+
 
 // ✅ GET /api/electricity/history - Get electricity payment history
 router.get('/history', authenticate, async (req, res) => {

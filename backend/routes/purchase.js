@@ -1197,6 +1197,8 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
   }
 }
 
+// Add this updated function to your purchase.js file
+
 async function processInternetPurchase({ provider, plan, planType, customerNumber, amount, userId }) {
   try {
     if (!provider || !plan || !customerNumber) {
@@ -1207,56 +1209,118 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
       throw new Error('Only Smile internet is currently supported');
     }
 
-    const providerCost = amount - 100;
-    const profit = 100;
+    // 🔥 FETCH FRESH PRICE FROM CLUBKONNECT
+    console.log('📡 Fetching fresh Smile plan price from ClubKonnect...');
+    
+    const plansUrl = `${CK_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CK_CONFIG.userId}`;
+    
+    const response = await axios.get(plansUrl, { 
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'VTU-App/1.0'
+      }
+    });
+
+    let data = response.data;
+    
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        throw new Error(`Failed to parse ClubKonnect response`);
+      }
+    }
+
+    // Find Smile plans
+    let smilePlans = null;
+    const possibleKeys = ['SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile'];
+    
+    for (const key of possibleKeys) {
+      if (data[key] && Array.isArray(data[key])) {
+        smilePlans = data[key];
+        break;
+      }
+    }
+
+    if (!smilePlans || smilePlans.length === 0) {
+      throw new Error('No Smile plans available from provider');
+    }
+
+    // Find the specific plan
+    const selectedPlan = smilePlans.find(p => 
+      (p.plan || p.plan_name || p.name) === plan
+    );
+
+    if (!selectedPlan) {
+      throw new Error('Invalid plan selected or plan not available');
+    }
+
+    const clubKonnectPrice = parseFloat(selectedPlan.plan_amount || selectedPlan.amount || 0);
+
+    // ✅ Validate amount matches ClubKonnect price (no markup for now)
+    if (clubKonnectPrice !== amount) {
+      throw new Error(
+        `PRICE_CHANGED: Plan price updated. New price: ₦${clubKonnectPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
+      );
+    }
+
+    console.log('Internet Purchase:', {
+      plan: selectedPlan.plan || selectedPlan.plan_name || selectedPlan.name,
+      clubKonnectPrice: clubKonnectPrice,
+      customerPays: amount,
+      profit: 0
+    });
 
     const networkCode = 'smile-direct';
-    const endpoint = '/APISmileV1.asp';
+    const planId = selectedPlan.dataplan_id || selectedPlan.plan_id || selectedPlan.id;
     const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const response = await makeClubKonnectRequest(endpoint, {
+    // 🔥 PURCHASE FROM CLUBKONNECT
+    const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', {
       MobileNetwork: networkCode,
-      DataPlan: plan,
+      DataPlan: planId,
       MobileNumber: customerNumber,
       RequestID: requestId
     });
 
-    const statusCode = response.statuscode || response.status_code;
-    const status = response.status || response.orderstatus;
-    const remark = response.remark || response.message;
+    const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code;
+    const status = purchaseResponse.status || purchaseResponse.orderstatus;
+    const remark = purchaseResponse.remark || purchaseResponse.message;
 
-    const isSuccess = statusCode === '100' || statusCode === '200' || 
-                      status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED';
-
-    if (!isSuccess) {
-      if (status === 'INVALID_ACCOUNTNO') {
-        throw new Error('Invalid Smile account number');
-      }
-      if (status === 'DATAPLAN_NOT_AVAILABLE') {
-        throw new Error('Selected plan is not currently available');
-      }
-      throw new Error(remark || status || 'Internet subscription failed');
+    if (statusCode === '100' || statusCode === '200' || 
+        status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
+      
+      return {
+        success: true,
+        reference: purchaseResponse.orderid || requestId,
+        description: `Internet - SMILE ${plan} - ${customerNumber}`,
+        successMessage: remark || 'Smile internet subscription successful',
+        transactionData: {
+          provider: 'SMILE',
+          plan: plan,
+          planId: planId,
+          customerNumber,
+          providerCost: clubKonnectPrice,
+          customerPrice: clubKonnectPrice,  // No markup
+          profit: 0,
+          serviceType: 'internet',
+          orderid: purchaseResponse.orderid,
+          statuscode: statusCode,
+          status: status,
+          apiResponse: purchaseResponse
+        }
+      };
     }
 
-    return {
-      success: true,
-      reference: response.orderid || requestId,
-      description: `Internet - SMILE ${plan} - ${customerNumber}`,
-      successMessage: remark || 'Smile internet subscription successful',
-      transactionData: {
-        provider: 'SMILE',
-        plan: plan,
-        customerNumber,
-        providerCost,
-        customerPrice: amount,
-        profit,
-        serviceType: 'internet',
-        orderid: response.orderid,
-        statuscode: statusCode,
-        status: status,
-        apiResponse: response
-      }
-    };
+    if (status === 'INVALID_ACCOUNTNO') {
+      throw new Error('Invalid Smile account number');
+    }
+    if (status === 'DATAPLAN_NOT_AVAILABLE') {
+      throw new Error('Selected plan is not currently available');
+    }
+
+    throw new Error(remark || status || 'Internet subscription failed');
 
   } catch (error) {
     const reference = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -1460,25 +1524,16 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
       throw new Error(`Unsupported electricity provider: ${provider}`);
     }
 
-    // ✅ CALCULATE PROFIT: 2% markup for electricity
     const providerCost = Math.round(amount / 1.02);
     const profit = amount - providerCost;
 
-    console.log('Electricity Purchase:', {
-      provider: companyCode,
-      customerPays: amount,
-      clubKonnectCharge: providerCost,
-      yourProfit: profit
-    });
-
     const requestId = `ELEC_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // ✅ SEND PROVIDER COST TO CLUBKONNECT (not customer amount)
     const response = await makeClubKonnectRequest('/APIElectricityV1.asp', {
       ElectricCompany: companyCode,
       MeterType: meterType,
       MeterNo: meterNumber,
-      Amount: providerCost,  // ← Send reduced amount to ClubKonnect
+      Amount: providerCost,
       PhoneNo: phone,
       RequestID: requestId
     });
@@ -1501,9 +1556,9 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
         meterType: meterType === '01' ? 'Prepaid' : 'Postpaid',
         phone,
         token: response.metertoken,
-        providerCost,      // What you paid ClubKonnect
-        customerPrice: amount,  // What customer paid you
-        profit,            // Your profit
+        providerCost,
+        customerPrice: amount,
+        profit,
         serviceType: 'electricity',
         orderid: response.orderid,
         apiResponse: response

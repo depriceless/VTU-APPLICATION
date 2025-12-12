@@ -1,38 +1,127 @@
-// routes/internet.js - Internet Service Provider API (CORRECTED VERSION)
+// routes/internet.js - UPDATED to fetch prices from ClubKonnect
 const express = require('express');
 const router = express.Router();
+const axios = require('axios');
 const { authenticate } = require('../middleware/auth');
 
-// Internet service providers configuration
+// ClubKonnect Configuration
+const CK_CONFIG = {
+  userId: process.env.CLUBKONNECT_USER_ID,
+  apiKey: process.env.CLUBKONNECT_API_KEY,
+  baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
+};
+
+// Cache for plans (to avoid hitting API repeatedly)
+let plansCache = null;
+let cacheTimestamp = null;
+const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
+
+// Helper function to fetch plans from ClubKonnect
+async function fetchSmilePlansFromClubKonnect() {
+  try {
+    // Check cache first
+    const now = Date.now();
+    if (plansCache && cacheTimestamp && (now - cacheTimestamp < CACHE_DURATION)) {
+      console.log('✅ Using cached Smile plans');
+      return plansCache;
+    }
+
+    console.log('📡 Fetching fresh Smile plans from ClubKonnect...');
+
+    const url = `${CK_CONFIG.baseUrl}/APIDatabundlePlansV2.asp?UserID=${CK_CONFIG.userId}`;
+    
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'VTU-App/1.0'
+      }
+    });
+
+    let data = response.data;
+    
+    // Parse if string
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        throw new Error('Failed to parse ClubKonnect response');
+      }
+    }
+
+    // Extract Smile plans
+    // ClubKonnect returns data in format: { "SMILE-DIRECT": [...plans...] } or similar
+    let smilePlans = [];
+    
+    // Try different possible keys for Smile
+    const possibleKeys = ['SMILE-DIRECT', 'smile-direct', 'SMILE', 'smile'];
+    
+    for (const key of possibleKeys) {
+      if (data[key] && Array.isArray(data[key])) {
+        smilePlans = data[key];
+        break;
+      }
+    }
+
+    if (smilePlans.length === 0) {
+      console.error('❌ No Smile plans found in ClubKonnect response');
+      console.log('Available keys:', Object.keys(data));
+      throw new Error('No Smile plans available from provider');
+    }
+
+    // Transform plans to our format
+    const formattedPlans = smilePlans.map(plan => {
+      const planId = plan.dataplan_id || plan.plan_id || plan.id;
+      const planName = plan.plan || plan.plan_name || plan.name || 'Unknown Plan';
+      const planAmount = parseFloat(plan.plan_amount || plan.amount || 0);
+      const validity = plan.validity || plan.month_validate || '30 days';
+
+      // Extract data size from plan name (e.g., "1GB", "6.5GB")
+      const dataMatch = planName.match(/(\d+\.?\d*)\s*(GB|MB)/i);
+      const dataSize = dataMatch ? dataMatch[0] : 'Unknown';
+
+      // Determine category based on validity
+      let category = 'monthly';
+      if (validity.toLowerCase().includes('day') || validity.toLowerCase().includes('week')) {
+        const days = parseInt(validity);
+        if (days <= 7) category = 'weekly';
+        else if (days <= 1) category = 'daily';
+      }
+
+      return {
+        id: planId,
+        name: planName,
+        dataSize: dataSize,
+        speed: '10-20Mbps', // Default speed (not provided by API)
+        validity: validity,
+        amount: planAmount,
+        category: category,
+        popular: planAmount >= 2000 && planAmount <= 10000 // Mark mid-range plans as popular
+      };
+    });
+
+    // Update cache
+    plansCache = formattedPlans;
+    cacheTimestamp = now;
+
+    console.log(`✅ Fetched ${formattedPlans.length} Smile plans from ClubKonnect`);
+    return formattedPlans;
+
+  } catch (error) {
+    console.error('❌ Error fetching Smile plans from ClubKonnect:', error.message);
+    
+    // Return fallback plans if fetch fails
+    if (plansCache) {
+      console.log('⚠️  Returning cached plans due to fetch error');
+      return plansCache;
+    }
+    
+    throw error;
+  }
+}
+
+// Internet service providers configuration (static info only)
 const INTERNET_CONFIG = {
-  spectranet: {
-    name: 'Spectranet',
-    code: 'spectranet',
-    status: 'active',
-    color: '#FF6600',
-    logo: '/images/providers/spectranet.png',
-    description: '4G LTE Wireless Broadband Internet',
-    serviceType: 'wireless',
-    coverage: ['Lagos', 'Abuja', 'Port Harcourt', 'Ibadan', 'Kano'],
-    customerService: '0700-773-2872',
-    website: 'https://spectranet.com.ng',
-    connectionTypes: ['4G LTE', 'Fixed Wireless'],
-    limits: {
-      min: 1000,
-      max: 200000
-    },
-    processingTime: '5-15 minutes',
-    successRate: 94,
-    plans: [
-      { id: 'daily_500mb', name: 'Daily 500MB', data: '500MB', validity: '1 Day', amount: 300, category: 'daily', popular: false },
-      { id: 'weekly_2gb', name: 'Weekly 2GB', data: '2GB', validity: '7 Days', amount: 1000, category: 'weekly', popular: true },
-      { id: 'monthly_10gb', name: 'Monthly 10GB', data: '10GB', validity: '30 Days', amount: 3500, category: 'monthly', popular: true },
-      { id: 'monthly_25gb', name: 'Monthly 25GB', data: '25GB', validity: '30 Days', amount: 7500, category: 'monthly', popular: true },
-      { id: 'monthly_50gb', name: 'Monthly 50GB', data: '50GB', validity: '30 Days', amount: 12000, category: 'monthly', popular: false },
-      { id: 'monthly_unlimited', name: 'Unlimited Fair Usage', data: 'Unlimited', validity: '30 Days', amount: 19500, category: 'monthly', popular: false }
-    ],
-    lastUpdated: new Date('2024-01-01')
-  },
   smile: {
     name: 'Smile Communications',
     code: 'smile',
@@ -50,108 +139,27 @@ const INTERNET_CONFIG = {
       max: 150000
     },
     processingTime: '5-10 minutes',
-    successRate: 92,
-    plans: [
-      { id: 'smallie_1gb', name: 'Smallie 1GB', data: '1GB', validity: '7 Days', amount: 500, category: 'weekly', popular: true },
-      { id: 'bigga_6gb', name: 'Bigga 6GB', data: '6GB', validity: '30 Days', amount: 2000, category: 'monthly', popular: true },
-      { id: 'mega_15gb', name: 'Mega 15GB', data: '15GB', validity: '30 Days', amount: 4000, category: 'monthly', popular: true },
-      { id: 'giga_30gb', name: 'Giga 30GB', data: '30GB', validity: '30 Days', amount: 7000, category: 'monthly', popular: false },
-      { id: 'jumbo_75gb', name: 'Jumbo 75GB', data: '75GB', validity: '30 Days', amount: 15000, category: 'monthly', popular: false },
-      { id: 'unlimited_weekends', name: 'Unlimited Weekends', data: 'Unlimited', validity: '30 Days', amount: 12500, category: 'monthly', popular: false }
-    ],
-    lastUpdated: new Date('2024-01-01')
-  },
-  swift: {
-    name: 'Swift Networks',
-    code: 'swift',
-    status: 'active',
-    color: '#0066CC',
-    logo: '/images/providers/swift.png',
-    description: 'Fiber Optic and Wireless Internet',
-    serviceType: 'fiber',
-    coverage: ['Lagos', 'Abuja', 'Port Harcourt', 'Ibadan'],
-    customerService: '0700-7934-3859',
-    website: 'https://swiftng.com',
-    connectionTypes: ['Fiber Optic', '4G LTE'],
-    limits: {
-      min: 2000,
-      max: 250000
-    },
-    processingTime: '10-20 minutes',
-    successRate: 89,
-    plans: [
-      { id: 'starter_5gb', name: 'Starter 5GB', data: '5GB', validity: '30 Days', amount: 2000, category: 'monthly', popular: true },
-      { id: 'basic_15gb', name: 'Basic 15GB', data: '15GB', validity: '30 Days', amount: 5000, category: 'monthly', popular: true },
-      { id: 'standard_35gb', name: 'Standard 35GB', data: '35GB', validity: '30 Days', amount: 10000, category: 'monthly', popular: true },
-      { id: 'premium_75gb', name: 'Premium 75GB', data: '75GB', validity: '30 Days', amount: 18000, category: 'monthly', popular: false },
-      { id: 'business_150gb', name: 'Business 150GB', data: '150GB', validity: '30 Days', amount: 35000, category: 'monthly', popular: false },
-      { id: 'unlimited_fiber', name: 'Unlimited Fiber', data: 'Unlimited', validity: '30 Days', amount: 45000, category: 'monthly', popular: false }
-    ],
-    lastUpdated: new Date('2024-01-01')
-  },
-  ipnx: {
-    name: 'IPNX Nigeria',
-    code: 'ipnx',
-    status: 'active',
-    color: '#CC0000',
-    logo: '/images/providers/ipnx.png',
-    description: 'Enterprise and Residential Internet',
-    serviceType: 'fiber',
-    coverage: ['Lagos', 'Abuja', 'Port Harcourt'],
-    customerService: '01-448-0000',
-    website: 'https://ipnxnigeria.net',
-    connectionTypes: ['Fiber Optic', 'Dedicated Line'],
-    limits: {
-      min: 3000,
-      max: 300000
-    },
-    processingTime: '15-30 minutes',
-    successRate: 91,
-    plans: [
-      { id: 'home_10gb', name: 'Home 10GB', data: '10GB', validity: '30 Days', amount: 3000, category: 'monthly', popular: true },
-      { id: 'home_25gb', name: 'Home 25GB', data: '25GB', validity: '30 Days', amount: 6500, category: 'monthly', popular: true },
-      { id: 'home_50gb', name: 'Home 50GB', data: '50GB', validity: '30 Days', amount: 12000, category: 'monthly', popular: false },
-      { id: 'business_100gb', name: 'Business 100GB', data: '100GB', validity: '30 Days', amount: 25000, category: 'monthly', popular: false },
-      { id: 'enterprise_250gb', name: 'Enterprise 250GB', data: '250GB', validity: '30 Days', amount: 55000, category: 'monthly', popular: false },
-      { id: 'dedicated_unlimited', name: 'Dedicated Unlimited', data: 'Unlimited', validity: '30 Days', amount: 150000, category: 'monthly', popular: false }
-    ],
-    lastUpdated: new Date('2024-01-01')
-  },
-  coollink: {
-    name: 'CoolLink Communications',
-    code: 'coollink',
-    status: 'active',
-    color: '#009999',
-    logo: '/images/providers/coollink.png',
-    description: 'Affordable Internet Solutions',
-    serviceType: 'wireless',
-    coverage: ['Lagos', 'Ogun', 'Oyo'],
-    customerService: '0803-000-2665',
-    website: 'https://coollink.ng',
-    connectionTypes: ['4G LTE', 'Fixed Wireless'],
-    limits: {
-      min: 800,
-      max: 100000
-    },
-    processingTime: '10-15 minutes',
-    successRate: 87,
-    plans: [
-      { id: 'lite_2gb', name: 'Lite 2GB', data: '2GB', validity: '30 Days', amount: 800, category: 'monthly', popular: true },
-      { id: 'standard_8gb', name: 'Standard 8GB', data: '8GB', validity: '30 Days', amount: 2500, category: 'monthly', popular: true },
-      { id: 'premium_20gb', name: 'Premium 20GB', data: '20GB', validity: '30 Days', amount: 5500, category: 'monthly', popular: true },
-      { id: 'max_50gb', name: 'Max 50GB', data: '50GB', validity: '30 Days', amount: 12000, category: 'monthly', popular: false },
-      { id: 'ultra_100gb', name: 'Ultra 100GB', data: '100GB', validity: '30 Days', amount: 22000, category: 'monthly', popular: false }
-    ],
-    lastUpdated: new Date('2024-01-01')
+    successRate: 92
   }
 };
 
+// Clear cache periodically (every hour)
+setInterval(() => {
+  if (plansCache && cacheTimestamp) {
+    const age = Date.now() - cacheTimestamp;
+    if (age > CACHE_DURATION) {
+      console.log('🔄 Auto-clearing stale plans cache');
+      plansCache = null;
+      cacheTimestamp = null;
+    }
+  }
+}, CACHE_DURATION);
+
 // Set caching headers helper
 const setCacheHeaders = (res, maxAge = 3600) => {
-  const lastModified = Math.max(...Object.values(INTERNET_CONFIG).map(p => p.lastUpdated.getTime()));
   res.set({
     'Cache-Control': `public, max-age=${maxAge}`,
-    'Last-Modified': new Date(lastModified).toUTCString()
+    'Last-Modified': new Date().toUTCString()
   });
 };
 
@@ -175,9 +183,7 @@ router.get('/providers', authenticate, async (req, res) => {
         processingTime: provider.processingTime,
         successRate: provider.successRate,
         customerService: provider.customerService,
-        website: provider.website,
-        totalPlans: provider.plans.length,
-        popularPlans: provider.plans.filter(p => p.popular).length
+        website: provider.website
       }));
 
     res.json({
@@ -185,9 +191,8 @@ router.get('/providers', authenticate, async (req, res) => {
       message: 'Internet providers retrieved',
       providers,
       count: providers.length,
-      serviceTypes: ['wireless', 'fiber'],
-      supportedServices: ['data_subscription', 'plan_upgrade', 'account_validation'],
-      lastModified: new Date(Math.max(...Object.values(INTERNET_CONFIG).map(p => p.lastUpdated.getTime())))
+      serviceTypes: ['wireless'],
+      supportedServices: ['data_subscription', 'account_validation']
     });
 
   } catch (error) {
@@ -205,7 +210,6 @@ router.get('/provider/:code', authenticate, async (req, res) => {
   try {
     const { code } = req.params;
 
-    // Validate provider code
     if (!code || typeof code !== 'string') {
       return res.status(400).json({
         success: false,
@@ -250,11 +254,9 @@ router.get('/provider/:code', authenticate, async (req, res) => {
         processingTime: provider.processingTime,
         successRate: provider.successRate,
         customerService: provider.customerService,
-        website: provider.website,
-        lastUpdated: provider.lastUpdated
+        website: provider.website
       },
-      planCategories: ['daily', 'weekly', 'monthly'],
-      totalPlans: provider.plans.length
+      planCategories: ['daily', 'weekly', 'monthly']
     });
 
   } catch (error) {
@@ -267,13 +269,12 @@ router.get('/provider/:code', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/internet/provider/:code/plans - Get internet plans for provider
+// GET /api/internet/provider/:code/plans - Get internet plans (DYNAMIC from ClubKonnect)
 router.get('/provider/:code/plans', authenticate, async (req, res) => {
   try {
     const { code } = req.params;
     const { category, popular } = req.query;
 
-    // Validate provider code
     if (!code || typeof code !== 'string') {
       return res.status(400).json({
         success: false,
@@ -282,17 +283,17 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
       });
     }
 
-    const provider = INTERNET_CONFIG[code.toLowerCase()];
-
-    if (!provider) {
-      return res.status(404).json({
+    if (code.toLowerCase() !== 'smile') {
+      return res.status(400).json({
         success: false,
-        message: 'Internet provider not found',
-        error_code: 'PROVIDER_NOT_FOUND'
+        message: 'Only Smile is currently supported',
+        error_code: 'UNSUPPORTED_PROVIDER'
       });
     }
 
-    if (provider.status !== 'active') {
+    const provider = INTERNET_CONFIG[code.toLowerCase()];
+
+    if (!provider || provider.status !== 'active') {
       return res.status(503).json({
         success: false,
         message: 'Provider service temporarily unavailable',
@@ -300,9 +301,12 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
       });
     }
 
-    setCacheHeaders(res);
+    // 🔥 FETCH PLANS DYNAMICALLY FROM CLUBKONNECT
+    const plans = await fetchSmilePlansFromClubKonnect();
 
-    let plans = [...provider.plans]; // Create a copy to avoid mutating original
+    setCacheHeaders(res, 1800); // Cache for 30 minutes
+
+    let filteredPlans = [...plans];
 
     // Apply filters
     if (category) {
@@ -314,19 +318,19 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
           error_code: 'INVALID_CATEGORY'
         });
       }
-      plans = plans.filter(plan => plan.category === category);
+      filteredPlans = filteredPlans.filter(plan => plan.category === category);
     }
 
     if (popular !== undefined) {
       const isPopular = popular === 'true';
-      plans = plans.filter(plan => plan.popular === isPopular);
+      filteredPlans = filteredPlans.filter(plan => plan.popular === isPopular);
     }
 
     // Group plans by category
     const plansByCategory = {
-      daily: plans.filter(p => p.category === 'daily'),
-      weekly: plans.filter(p => p.category === 'weekly'),
-      monthly: plans.filter(p => p.category === 'monthly')
+      daily: filteredPlans.filter(p => p.category === 'daily'),
+      weekly: filteredPlans.filter(p => p.category === 'weekly'),
+      monthly: filteredPlans.filter(p => p.category === 'monthly')
     };
 
     res.json({
@@ -339,22 +343,23 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
         coverage: provider.coverage,
         limits: provider.limits
       },
-      plans,
+      plans: filteredPlans,
       plansByCategory,
       statistics: {
-        total: plans.length,
-        popular: plans.filter(p => p.popular).length,
+        total: filteredPlans.length,
+        popular: filteredPlans.filter(p => p.popular).length,
         categories: {
           daily: plansByCategory.daily.length,
           weekly: plansByCategory.weekly.length,
           monthly: plansByCategory.monthly.length
         },
-        priceRange: plans.length > 0 ? {
-          min: Math.min(...plans.map(p => p.amount)),
-          max: Math.max(...plans.map(p => p.amount))
+        priceRange: filteredPlans.length > 0 ? {
+          min: Math.min(...filteredPlans.map(p => p.amount)),
+          max: Math.max(...filteredPlans.map(p => p.amount))
         } : { min: 0, max: 0 }
       },
-      lastModified: provider.lastUpdated
+      dataSource: 'clubkonnect',
+      cacheAge: cacheTimestamp ? Math.floor((Date.now() - cacheTimestamp) / 1000) : 0
     });
 
   } catch (error) {
@@ -362,7 +367,8 @@ router.get('/provider/:code/plans', authenticate, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error retrieving internet plans',
-      error_code: 'PLANS_FETCH_FAILED'
+      error_code: 'PLANS_FETCH_FAILED',
+      error: error.message
     });
   }
 });
@@ -380,58 +386,68 @@ router.post('/validate-account', authenticate, async (req, res) => {
       });
     }
 
-    const providerConfig = INTERNET_CONFIG[provider.toLowerCase()];
-    if (!providerConfig) {
+    if (provider.toLowerCase() !== 'smile') {
       return res.status(400).json({
         success: false,
-        message: 'Invalid internet provider',
-        error_code: 'INVALID_PROVIDER'
+        message: 'Only Smile is currently supported',
+        error_code: 'UNSUPPORTED_PROVIDER'
       });
     }
 
-    // Validate customer number format (basic validation)
-    if (!/^\d{8,15}$/.test(customerNumber)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid customer number format. Must be 8-15 digits.',
-        error_code: 'INVALID_CUSTOMER_NUMBER'
+    // Validate with ClubKonnect
+    try {
+      const url = `${CK_CONFIG.baseUrl}/APIVerifySmileV1.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}&MobileNetwork=smile-direct&MobileNumber=${customerNumber}`;
+      
+      const response = await axios.get(url, {
+        timeout: 15000,
+        headers: { 'Accept': 'application/json' }
       });
-    }
 
-    // Simulate account validation
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const isValid = Math.random() > 0.12; // 88% validation success rate
+      let data = response.data;
+      if (typeof data === 'string') {
+        data = JSON.parse(data);
+      }
 
-    if (isValid) {
-      // Mock customer data
-      const customerData = {
-        name: 'Sample Customer',
-        customerNumber,
-        accountType: 'Residential',
-        currentPlan: providerConfig.plans[Math.floor(Math.random() * providerConfig.plans.length)].name,
-        status: 'Active',
-        lastPayment: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000), // 20 days ago
-        dataBalance: `${Math.floor(Math.random() * 50) + 1}GB remaining`,
-        expiryDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000) // 10 days from now
-      };
+      if (!data.customer_name || 
+          data.customer_name === 'INVALID_ACCOUNTNO' ||
+          data.customer_name.toUpperCase().includes('INVALID')) {
+        
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid Smile account number',
+          error_code: 'INVALID_ACCOUNT'
+        });
+      }
 
       res.json({
         success: true,
         message: 'Account validation successful',
         customerNumber,
-        provider: providerConfig.name,
-        customerData,
+        provider: 'SMILE',
+        customerData: {
+          name: data.customer_name,
+          customerNumber: customerNumber,
+          status: 'Active'
+        },
         isValid: true
       });
-    } else {
-      res.status(400).json({
-        success: false,
-        message: 'Invalid customer number or account not found',
+
+    } catch (apiError) {
+      console.error('Validation API Error:', apiError);
+      
+      // Return soft validation
+      res.json({
+        success: true,
+        message: 'Validation service unavailable, you can still proceed',
         customerNumber,
-        provider: providerConfig.name,
-        isValid: false,
-        error_code: 'ACCOUNT_NOT_FOUND'
+        provider: 'SMILE',
+        customerData: {
+          name: 'Smile Customer',
+          customerNumber: customerNumber,
+          status: 'Unknown'
+        },
+        isValid: true,
+        warning: 'Could not verify account number'
       });
     }
 
@@ -445,172 +461,31 @@ router.post('/validate-account', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/internet/plans/search - Search internet plans across providers
-router.get('/plans/search', authenticate, async (req, res) => {
+// GET /api/internet/refresh-plans - Force refresh plans cache
+router.get('/refresh-plans', authenticate, async (req, res) => {
   try {
-    const { 
-      provider, 
-      minAmount, 
-      maxAmount, 
-      category, 
-      popular,
-      serviceType
-    } = req.query;
+    // Clear cache
+    plansCache = null;
+    cacheTimestamp = null;
 
-    setCacheHeaders(res, 1800); // Cache for 30 minutes
-
-    let allPlans = [];
-
-    // Collect plans from all providers or specific provider
-    const providers = provider ? [provider.toLowerCase()] : Object.keys(INTERNET_CONFIG);
-    
-    providers.forEach(providerCode => {
-      const providerConfig = INTERNET_CONFIG[providerCode];
-      if (providerConfig && providerConfig.status === 'active') {
-        const providerPlans = providerConfig.plans.map(plan => ({
-          ...plan,
-          provider: {
-            code: providerCode,
-            name: providerConfig.name,
-            serviceType: providerConfig.serviceType,
-            color: providerConfig.color
-          }
-        }));
-        allPlans = allPlans.concat(providerPlans);
-      }
-    });
-
-    // Apply filters
-    if (minAmount) {
-      const min = parseInt(minAmount);
-      if (!isNaN(min)) {
-        allPlans = allPlans.filter(plan => plan.amount >= min);
-      }
-    }
-
-    if (maxAmount) {
-      const max = parseInt(maxAmount);
-      if (!isNaN(max)) {
-        allPlans = allPlans.filter(plan => plan.amount <= max);
-      }
-    }
-
-    if (category) {
-      allPlans = allPlans.filter(plan => plan.category === category);
-    }
-
-    if (popular !== undefined) {
-      const isPopular = popular === 'true';
-      allPlans = allPlans.filter(plan => plan.popular === isPopular);
-    }
-
-    if (serviceType) {
-      allPlans = allPlans.filter(plan => plan.provider.serviceType === serviceType);
-    }
-
-    // Sort by price (ascending)
-    allPlans.sort((a, b) => a.amount - b.amount);
+    // Fetch fresh plans
+    const plans = await fetchSmilePlansFromClubKonnect();
 
     res.json({
       success: true,
-      message: 'Internet plans search results',
-      plans: allPlans,
-      filters: {
-        provider,
-        minAmount: minAmount ? parseInt(minAmount) : null,
-        maxAmount: maxAmount ? parseInt(maxAmount) : null,
-        category,
-        popular: popular ? popular === 'true' : null,
-        serviceType
-      },
-      count: allPlans.length,
-      providers: [...new Set(allPlans.map(p => p.provider.name))]
+      message: 'Plans cache refreshed successfully',
+      plansCount: plans.length,
+      plans: plans
     });
 
   } catch (error) {
-    console.error('Internet plans search error:', error);
+    console.error('Error refreshing plans:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error searching internet plans',
-      error_code: 'SEARCH_FAILED'
+      message: 'Failed to refresh plans',
+      error: error.message
     });
   }
 });
 
-// GET /api/internet/history - Get internet subscription history
-router.get('/history', authenticate, async (req, res) => {
-  try {
-    const { provider, limit = 20, page = 1 } = req.query;
-    
-    const Transaction = require('../models/Transaction');
-
-    // Build query for internet transactions
-    const query = {
-      userId: req.user.userId,
-      $or: [
-        { description: { $regex: /internet/i } },
-        { reference: { $regex: /^NET_/i } }
-      ]
-    };
-
-    if (provider) {
-      query.description = { $regex: new RegExp(`internet.*${provider}`, 'i') };
-    }
-
-    const limitInt = Math.min(parseInt(limit) || 20, 100); // Max 100 records
-    const pageInt = parseInt(page) || 1;
-    const skip = (pageInt - 1) * limitInt;
-    
-    const transactions = await Transaction.find(query)
-      .sort({ createdAt: -1 })
-      .limit(limitInt)
-      .skip(skip);
-
-    const totalTransactions = await Transaction.countDocuments(query);
-
-    const formattedTransactions = transactions.map(tx => {
-      const providerMatch = tx.description.match(/Internet - (\w+) (.+) - (\d+)/);
-      
-      return {
-        _id: tx._id,
-        reference: tx.reference,
-        provider: providerMatch ? providerMatch[1] : 'UNKNOWN',
-        plan: providerMatch ? providerMatch[2] : 'Unknown Plan',
-        customerNumber: providerMatch ? providerMatch[3] : 'Unknown',
-        amount: tx.amount,
-        status: tx.status,
-        createdAt: tx.createdAt,
-        balanceAfter: tx.newBalance
-      };
-    });
-
-    res.json({
-      success: true,
-      message: 'Internet subscription history retrieved',
-      transactions: formattedTransactions,
-      pagination: {
-        page: pageInt,
-        limit: limitInt,
-        total: totalTransactions,
-        pages: Math.ceil(totalTransactions / limitInt)
-      },
-      statistics: {
-        totalSpent: formattedTransactions.reduce((sum, tx) => sum + tx.amount, 0),
-        successfulTransactions: formattedTransactions.filter(tx => tx.status === 'completed').length,
-        failedTransactions: formattedTransactions.filter(tx => tx.status === 'failed').length
-      }
-    });
-
-  } catch (error) {
-    console.error('Internet history error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error retrieving internet history',
-      error_code: 'HISTORY_FETCH_FAILED'
-    });
-  }
-});
-
-// Export the configuration for use in admin routes
 module.exports = router;
-module.exports.INTERNET_CONFIG = INTERNET_CONFIG;

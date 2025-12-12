@@ -112,14 +112,6 @@ try {
   transactionRoutes = null;
 }
 
-// ✅ FIXED: Commented out accountRoutes - file doesn't exist
-// try {
-//   accountRoutes = require('./routes/accountRoutes');
-//   console.log('✅ Account routes loaded');
-// } catch (err) {
-//   console.error('❌ Account routes error:', err.message);
-//   accountRoutes = null;
-// }
 console.log('ℹ️  Account routes commented out - file not created yet');
 
 // === ADMIN AUTH DEBUG SECTION ===
@@ -294,12 +286,21 @@ app.get('/api/get-server-ip', (req, res) => {
   });
 });
 
-// === DIRECT TEST ROUTE FOR ADMIN AUTH ===
 app.get('/api/admin/auth/direct-test', (req, res) => {
   console.log('📍 Direct admin auth test hit');
   res.json({
     success: true,
     message: 'Direct admin auth test route works!',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// === TEST ROUTE FOR INTERNET (NO AUTH) ===
+app.get('/api/internet-test', (req, res) => {
+  console.log('📍 Direct internet test route hit');
+  res.json({
+    success: true,
+    message: 'Internet routes are reachable',
     timestamp: new Date().toISOString()
   });
 });
@@ -334,15 +335,6 @@ if (userRoutes) {
   }
 }
 
-// ✅ FIXED: Commented out account routes registration
-// if (accountRoutes) {
-//   try {
-//     app.use('/api/account', accountRoutes);
-//     console.log('✅ Account routes registered at /api/account');
-//   } catch (err) {
-//     console.error('❌ Account routes registration error:', err.message);
-//   }
-// }
 console.log('ℹ️  Account routes skipped - not loaded');
 
 if (walletRoutes) {
@@ -354,6 +346,98 @@ if (walletRoutes) {
   }
 }
 
+// ============================================
+// 🔥 INTERNET ROUTES - REGISTER EARLY (BEFORE PURCHASE)
+// ============================================
+try {
+  const internetRoutes = require('./routes/internet');
+  console.log('✅ Internet routes module loaded');
+  
+  // Debug the router before registration
+  if (internetRoutes && internetRoutes.stack) {
+    console.log('📋 Internet router has', internetRoutes.stack.length, 'layers');
+    internetRoutes.stack.forEach((layer, index) => {
+      if (layer.route) {
+        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
+        console.log(`   ${index}. ${methods} ${layer.route.path}`);
+      }
+    });
+  } else {
+    console.log('⚠️  Internet router has no stack');
+  }
+  
+  app.use('/api/internet', internetRoutes);
+  console.log('✅ Internet routes registered at /api/internet');
+  console.log('   Expected endpoints:');
+  console.log('   - GET  /api/internet/providers');
+  console.log('   - GET  /api/internet/provider/:code');
+  console.log('   - GET  /api/internet/provider/:code/plans');
+  console.log('   - POST /api/internet/validate-account');
+  console.log('   - GET  /api/internet/refresh-plans');
+  
+} catch (err) {
+  console.error('❌ Internet routes error:', err.message);
+  console.error('Stack:', err.stack);
+}
+
+// ============================================
+// ELECTRICITY ROUTES
+// ============================================
+try {
+  const electricityRoutes = require('./routes/electricity');
+  app.use('/api/electricity', electricityRoutes);
+  console.log('✅ Electricity routes registered at /api/electricity');
+} catch (err) {
+  console.error('❌ Electricity routes error:', err.message);
+}
+
+// ============================================
+// DATA ROUTES
+// ============================================
+if (dataRoutes) {
+  try {
+    app.use('/api/data', dataRoutes);
+    console.log('✅ Data routes registered');
+  } catch (err) {
+    console.error('❌ Data routes registration error:', err.message);
+  }
+}
+
+// ============================================
+// CABLE TV ROUTES
+// ============================================
+if (cableRoutes) {
+  try {
+    app.use('/api/cable', cableRoutes);
+    console.log('✅ Cable routes registered at /api/cable');
+  } catch (err) {
+    console.error('❌ Cable routes registration error:', err.message);
+  }
+}
+
+// ============================================
+// AIRTIME ROUTES
+// ============================================
+try {
+  app.use('/api/airtime', require('./routes/airtime'));
+  console.log('✅ Airtime routes registered');
+} catch (err) {
+  console.error('❌ Airtime routes error:', err.message);
+}
+
+// ============================================
+// BETTING ROUTES
+// ============================================
+try {
+  app.use('/api/betting', require('./routes/betting'));
+  console.log('✅ Betting routes registered');
+} catch (err) {
+  console.error('❌ Betting routes error:', err.message);
+}
+
+// ============================================
+// PURCHASE ROUTES - AFTER SPECIFIC ROUTES
+// ============================================
 if (purchaseRoutes) {
   try {
     app.use('/api/purchase', purchaseRoutes);
@@ -364,49 +448,9 @@ if (purchaseRoutes) {
   }
 }
 
-try {
-  const electricityRoutes = require('./routes/electricity');
-  app.use('/api/electricity', electricityRoutes);
-  console.log('✅ Electricity routes registered at /api/electricity');
-  console.log('   - GET /api/electricity/providers');
-  console.log('   - POST /api/electricity/validate-meter');
-  console.log('   - GET /api/electricity/history');
-} catch (err) {
-  console.error('❌ Electricity routes error:', err.message);
-}
-
-if (dataRoutes) {
-  try {
-    app.use('/api/data', dataRoutes);
-    console.log('✅ Data routes registered');
-  } catch (err) {
-    console.error('❌ Data routes registration error:', err.message);
-  }
-}
-
-if (cableRoutes) {
-  try {
-    app.use('/api/cable', cableRoutes);
-    console.log('✅ Cable routes registered at /api/cable');
-  } catch (err) {
-    console.error('❌ Cable routes registration error:', err.message);
-  }
-}
-
-try {
-  app.use('/api/airtime', require('./routes/airtime'));
-  console.log('✅ Airtime routes registered');
-} catch (err) {
-  console.error('❌ Airtime routes error:', err.message);
-}
-
-try {
-  app.use('/api/betting', require('./routes/betting'));
-  console.log('✅ Betting routes registered');
-} catch (err) {
-  console.error('❌ Betting routes error:', err.message);
-}
-
+// ============================================
+// TRANSACTION ROUTES
+// ============================================
 if (transactionRoutes) {
   try {
     app.use('/api/transactions', transactionRoutes);
@@ -416,11 +460,12 @@ if (transactionRoutes) {
   }
 }
 
-// === ADMIN AUTH REGISTRATION ===
+// ============================================
+// ADMIN AUTH ROUTES
+// ============================================
 if (adminAuthRoutes) {
   try {
     console.log('🔍 About to register admin auth routes...');
-    console.log('🔍 Routes to register at /api/admin/auth:');
     
     if (adminAuthRoutes.stack) {
       adminAuthRoutes.stack.forEach((layer, index) => {
@@ -441,6 +486,9 @@ if (adminAuthRoutes) {
   console.error('❌ Admin auth routes not available for registration');
 }
 
+// ============================================
+// OTHER ADMIN ROUTES
+// ============================================
 if (adminRoutes) {
   try {
     app.use('/api/admin', adminRoutes);
@@ -496,17 +544,11 @@ if (notificationRoutes) {
   }
 }
 
-// ✅ FIXED: Commented out Monnify routes - uses old Balance model
-// try {
-//   const monnifyRoutes = require('./routes/monnify');
-//   app.use('/api/monnify', monnifyRoutes);
-//   console.log('✅ Monnify routes registered');
-// } catch (err) {
-//   console.error('❌ Monnify routes error:', err.message);
-// }
 console.log('ℹ️  Monnify routes commented out - needs Balance→Wallet fix');
 
-// === PAYSTACK ROUTES ===
+// ============================================
+// PAYMENT ROUTES
+// ============================================
 try {
   const paystackRoutes = require('./routes/paystack');
   app.use('/api/paystack', paystackRoutes);
@@ -515,7 +557,6 @@ try {
   console.error('❌ Paystack routes error:', err.message);
 }
 
-// === UNIFIED PAYMENT GATEWAY ROUTES ===
 try {
   const paymentRoutes = require('./routes/payment');
   app.use('/api/payment', paymentRoutes);
@@ -524,29 +565,19 @@ try {
   console.error('❌ Payment gateway routes error:', err.message);
 }
 
-// === PAYMENT GATEWAY ADMIN CONFIG ROUTES ===
 try {
   const paymentGatewayConfigRoutes = require('./routes/paymentGatewayConfig');
   app.use('/api/admin/payment-gateway', paymentGatewayConfigRoutes);
-  console.log('✅ Payment gateway admin config routes registered at /api/admin/payment-gateway');
-  console.log('   - GET /api/admin/payment-gateway/config - Get gateway configuration');
-  console.log('   - POST /api/admin/payment-gateway/switch - Switch active gateway');
-  console.log('   - PUT /api/admin/payment-gateway/keys/:gateway - Update API keys');
-  console.log('   - PATCH /api/admin/payment-gateway/toggle/:gateway - Enable/disable gateway');
+  console.log('✅ Payment gateway admin config routes registered');
 } catch (err) {
   console.error('❌ Payment gateway admin config routes error:', err.message);
 }
 
-// ✅ FIXED: Commented out Card routes - uses old Balance model
-// try {
-//   const cardRoutes = require('./routes/card');
-//   app.use('/api/card', cardRoutes);
-//   console.log('✅ Card payment routes registered at /api/card');
-// } catch (err) {
-//   console.error('❌ Card payment routes error:', err.message);
-// }
 console.log('ℹ️  Card routes commented out - needs Balance→Wallet fix');
 
+// ============================================
+// SUPPORT AND OTHER ROUTES
+// ============================================
 try {
   app.use('/api/support', require('./routes/support'));
   console.log('✅ Support routes registered');
@@ -562,14 +593,6 @@ try {
   console.error('❌ ClubKonnect routes error:', err.message);
 }
 
-// ✅ FIXED: Commented out Services routes - missing ServiceConfig model
-// try {
-//   const servicesRoutes = require('./routes/services');
-//   app.use('/api/services', servicesRoutes);
-//   console.log('✅ Services routes registered at /api/services');
-// } catch (err) {
-//   console.error('❌ Services routes error:', err.message);
-// }
 console.log('ℹ️  Services routes commented out - needs ServiceConfig model');
 
 if (userManagementRoutes) {
@@ -580,6 +603,8 @@ if (userManagementRoutes) {
     console.error('❌ User management routes registration error:', err.message);
   }
 }
+
+console.log('✅ All routes registered\n');
 
 // === 404 HANDLER ===
 app.use((req, res) => {
@@ -637,6 +662,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📍 API Base: http://localhost:${PORT}/api/`);
   console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🧪 Internet test: http://localhost:${PORT}/api/internet-test`);
   console.log(`🔧 Direct admin test: http://localhost:${PORT}/api/admin/auth/direct-test`);
   console.log(`🔐 Change password: http://localhost:${PORT}/api/user/change-password`);
   console.log(`🔑 Change PIN: http://localhost:${PORT}/api/user/change-pin`);
