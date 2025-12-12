@@ -838,18 +838,7 @@ export default function BuyInternet() {
             )}
           </View>
 
-          {/* Customer Name (Optional) */}
-          <View style={styles.card}>
-            <Text style={styles.inputLabel}>Customer Name (Optional)</Text>
-            <TextInput
-              style={styles.textInput}
-              placeholder="Enter customer name for reference"
-              placeholderTextColor="#999"
-              value={customerName}
-              onChangeText={setCustomerName}
-              autoCapitalize="words"
-            />
-          </View>
+         
 
           {/* Provider Selection */}
           <View style={styles.card}>
