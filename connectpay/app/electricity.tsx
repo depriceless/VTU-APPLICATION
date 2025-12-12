@@ -12,8 +12,10 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from 'react-native';
-import * as Contacts from 'expo-contacts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AuthContext } from '../contexts/AuthContext';
 
@@ -22,18 +24,6 @@ const API_CONFIG = {
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
     : `${process.env.EXPO_PUBLIC_API_URL}/api`,
 };
-
-interface Contact {
-  id: string;
-  name: string;
-  phoneNumbers: { number: string }[];
-}
-
-interface RecentNumber {
-  number: string;
-  name?: string;
-  timestamp: number;
-}
 
 interface UserBalance {
   main: number;
@@ -69,7 +59,6 @@ interface MeterType {
   description: string;
 }
 
-// Helper function to safely extract balance amount (same as BuyAirtime)
 const getBalanceAmount = (balanceData: any): number => {
   if (!balanceData) return 0;
   
@@ -93,9 +82,8 @@ const getBalanceAmount = (balanceData: any): number => {
 };
 
 export default function BuyElectricity() {
-  const { token, balance, refreshBalance } = useContext(AuthContext);
+  const { token, balance, refreshBalance, user } = useContext(AuthContext);
   
-  // Form state
   const [currentStep, setCurrentStep] = useState<1 | 2>(1);
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [selectedMeterType, setSelectedMeterType] = useState<string | null>(null);
@@ -103,41 +91,29 @@ export default function BuyElectricity() {
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerAccountNumber, setCustomerAccountNumber] = useState('');
-  const [phone, setPhone] = useState('');
   const [amount, setAmount] = useState('');
   const [pin, setPin] = useState('');
   
-  // UI state
   const [showPinEntry, setShowPinEntry] = useState(false);
-  const [showContactsModal, setShowContactsModal] = useState(false);
-  const [showRecentsModal, setShowRecentsModal] = useState(false);
   const [showProvidersModal, setShowProvidersModal] = useState(false);
   const [showMeterTypeModal, setShowMeterTypeModal] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   
-  // Data state
-  const [contactsList, setContactsList] = useState<Contact[]>([]);
-  const [recentNumbers, setRecentNumbers] = useState<RecentNumber[]>([]);
   const [userBalance, setUserBalance] = useState<UserBalance | null>(null);
   const [pinStatus, setPinStatus] = useState<PinStatus | null>(null);
   const [electricityProviders, setElectricityProviders] = useState<ElectricityProvider[]>([]);
   const [successData, setSuccessData] = useState<any>(null);
   
-  // Loading states
-  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [isValidatingMeter, setIsValidatingMeter] = useState(false);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
   
-  // Error states
   const [pinError, setPinError] = useState('');
   const [meterError, setMeterError] = useState('');
   
   const pinInputRef = useRef<TextInput>(null);
-
-  const quickAmounts = [500, 1000, 2000, 5000, 10000, 20000];
 
   const meterTypes: MeterType[] = [
     { 
@@ -167,22 +143,19 @@ export default function BuyElectricity() {
     { id: '10', name: 'Benin Electric', fullName: 'Benin Electricity Distribution Company', acronym: 'BEDC', isActive: true, minAmount: 500, maxAmount: 100000, fee: 0 },
   ];
 
-  // Validation
-  const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
+  // Get user's phone from context (for backend API)
+  const userPhone = user?.phone || user?.phoneNumber || '';
+
   const isMeterNumberValid = meterNumber.length >= 10 && /^\d+$/.test(meterNumber);
   const amountNum = parseInt(amount) || 0;
   const isAmountValid = amountNum >= 100 && amountNum <= 100000;
   const currentBalance = getBalanceAmount(userBalance);
   const hasEnoughBalance = currentBalance > 0 ? amountNum <= currentBalance : true;
-  const canProceed = isPhoneValid && selectedProvider && selectedMeterType && 
+  const canProceed = selectedProvider && selectedMeterType && 
                     isMeterNumberValid && isAmountValid && customerName.trim() !== '' && hasEnoughBalance;
   const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
 
-  // ============================================================================
-  // EFFECTS
-  // ============================================================================
-
-  // Auto-validate meter when number is entered
+  // Auto-validate meter when number and type are entered
   useEffect(() => {
     if (isMeterNumberValid && selectedProvider && selectedMeterType && meterNumber.length >= 10) {
       const timer = setTimeout(() => {
@@ -197,15 +170,12 @@ export default function BuyElectricity() {
     }
   }, [meterNumber, selectedProvider, selectedMeterType]);
 
-  // Initialize on mount
   useEffect(() => {
-    loadRecentNumbers();
     loadFormState();
     fetchElectricityProviders();
     
     if (balance) {
       const balanceAmount = getBalanceAmount(balance);
-      console.log('Initial balance from context:', balanceAmount);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
@@ -221,14 +191,12 @@ export default function BuyElectricity() {
     }, 1000);
   }, []);
 
-  // Refresh balance on step 2
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
     }
   }, [currentStep]);
 
-  // Clear PIN when modal opens
   useEffect(() => {
     if (showPinEntry) {
       setPin('');
@@ -238,14 +206,9 @@ export default function BuyElectricity() {
     }
   }, [showPinEntry]);
 
-  // Save form state
   useEffect(() => {
     saveFormState();
-  }, [phone, amount, selectedProvider, selectedMeterType, meterNumber]);
-
-  // ============================================================================
-  // API FUNCTIONS
-  // ============================================================================
+  }, [selectedProvider, selectedMeterType, meterNumber, amount]);
 
   const getAuthToken = async () => {
     if (!token) throw new Error('Authentication required');
@@ -328,46 +291,44 @@ export default function BuyElectricity() {
     }
   };
 
-
-const validateMeter = async () => {
-  if (!isMeterNumberValid || !selectedProvider || !selectedMeterType) {
-    setMeterError('Please enter valid meter details');
-    return;
-  }
-
-  setIsValidatingMeter(true);
-  setMeterError('');
-  setCustomerName('');
-  setCustomerAddress('');
-  setCustomerAccountNumber('');
-
-  try {
-    // ✅ FIXED: Changed endpoint to match backend route
-    const response = await makeApiRequest('/electricity/validate-meter', {
-      method: 'POST',
-      body: JSON.stringify({ 
-        meterNumber, 
-        provider: selectedProvider,
-        meterType: selectedMeterType
-      }),
-    });
-
-    if (response?.success) {
-      setCustomerName(response.data?.customerName || 'Verified Customer');
-      setCustomerAddress(response.data?.customerAddress || '');
-      setCustomerAccountNumber(response.data?.accountNumber || '');
-    } else {
-      setMeterError(response?.message || 'Meter validation failed');
+  const validateMeter = async () => {
+    if (!isMeterNumberValid || !selectedProvider || !selectedMeterType) {
+      setMeterError('Please enter valid meter details');
+      return;
     }
-  } catch (error: any) {
-    setMeterError(error.message || 'Unable to validate meter');
+
+    setIsValidatingMeter(true);
+    setMeterError('');
     setCustomerName('');
     setCustomerAddress('');
     setCustomerAccountNumber('');
-  } finally {
-    setIsValidatingMeter(false);
-  }
-};
+
+    try {
+      const response = await makeApiRequest('/electricity/validate-meter', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          meterNumber, 
+          provider: selectedProvider,
+          meterType: selectedMeterType
+        }),
+      });
+
+      if (response?.success) {
+        setCustomerName(response.data?.customerName || 'Verified Customer');
+        setCustomerAddress(response.data?.customerAddress || '');
+        setCustomerAccountNumber(response.data?.accountNumber || '');
+      } else {
+        setMeterError(response?.message || 'Meter validation failed');
+      }
+    } catch (error: any) {
+      setMeterError(error.message || 'Unable to validate meter');
+      setCustomerName('');
+      setCustomerAddress('');
+      setCustomerAccountNumber('');
+    } finally {
+      setIsValidatingMeter(false);
+    }
+  };
 
   const checkPinStatus = async () => {
     try {
@@ -429,13 +390,9 @@ const validateMeter = async () => {
     }
   };
 
-  // ============================================================================
-  // STORAGE FUNCTIONS
-  // ============================================================================
-
   const saveFormState = async () => {
     try {
-      const formState = { phone, selectedProvider, selectedMeterType, meterNumber, amount };
+      const formState = { selectedProvider, selectedMeterType, meterNumber, amount };
       await AsyncStorage.setItem('electricityFormState', JSON.stringify(formState));
     } catch (error) {
       console.log('Error saving form state:', error);
@@ -447,7 +404,6 @@ const validateMeter = async () => {
       const savedState = await AsyncStorage.getItem('electricityFormState');
       if (savedState) {
         const formData = JSON.parse(savedState);
-        if (formData.phone) setPhone(formData.phone);
         if (formData.selectedProvider) setSelectedProvider(formData.selectedProvider);
         if (formData.selectedMeterType) setSelectedMeterType(formData.selectedMeterType);
         if (formData.meterNumber) setMeterNumber(formData.meterNumber);
@@ -456,100 +412,6 @@ const validateMeter = async () => {
     } catch (error) {
       console.log('Error loading form state:', error);
     }
-  };
-
-  const saveRecentNumber = async (number: string, name?: string) => {
-    try {
-      const recent = await AsyncStorage.getItem('recentNumbers');
-      let recentList: RecentNumber[] = recent ? JSON.parse(recent) : [];
-      recentList = recentList.filter(item => item.number !== number);
-      recentList.unshift({ number, name, timestamp: Date.now() });
-      recentList = recentList.slice(0, 10);
-      await AsyncStorage.setItem('recentNumbers', JSON.stringify(recentList));
-      setRecentNumbers(recentList);
-    } catch (error) {
-      console.log('Error saving recent number:', error);
-    }
-  };
-
-  const loadRecentNumbers = async () => {
-    try {
-      const recent = await AsyncStorage.getItem('recentNumbers');
-      if (recent) {
-        setRecentNumbers(JSON.parse(recent));
-      }
-    } catch (error) {
-      console.log('Error loading recent numbers:', error);
-    }
-  };
-
-  // ============================================================================
-  // CONTACT FUNCTIONS
-  // ============================================================================
-
-  const selectContact = async () => {
-    setIsLoadingContacts(true);
-    try {
-      const { status } = await Contacts.requestPermissionsAsync();
-      if (status === 'granted') {
-        const { data } = await Contacts.getContactsAsync({
-          fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Name],
-          pageSize: 100,
-          sort: Contacts.SortTypes.FirstName,
-        });
-        const validContacts = data.filter(c => c.phoneNumbers && c.phoneNumbers.length > 0);
-        if (validContacts.length > 0) {
-          setContactsList(validContacts);
-          setShowContactsModal(true);
-        } else {
-          Alert.alert('No contacts', 'No contacts with phone numbers found.');
-        }
-      } else {
-        Alert.alert('Permission denied', 'Cannot access contacts without permission.');
-      }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load contacts. Please try again.');
-    } finally {
-      setIsLoadingContacts(false);
-    }
-  };
-
-  const showRecentNumbers = () => {
-    if (recentNumbers.length > 0) {
-      setShowRecentsModal(true);
-    } else {
-      Alert.alert('No recent numbers', 'You haven\'t made any recent electricity purchases.');
-    }
-  };
-
-  const handleContactSelect = (number: string, name?: string) => {
-    const cleaned = number.replace(/\D/g, '');
-    let formattedNumber = '';
-
-    if (cleaned.length === 10 && cleaned.startsWith('0')) {
-      formattedNumber = cleaned;
-    } else if (cleaned.length === 10) {
-      formattedNumber = '0' + cleaned;
-    } else if (cleaned.length === 11 && cleaned.startsWith('0')) {
-      formattedNumber = cleaned;
-    } else if (cleaned.length === 13 && cleaned.startsWith('234')) {
-      formattedNumber = '0' + cleaned.substring(3);
-    } else {
-      Alert.alert('Invalid number', 'Selected contact does not have a valid Nigerian phone number.');
-      return;
-    }
-
-    setPhone(formattedNumber);
-    setShowContactsModal(false);
-    setShowRecentsModal(false);
-  };
-
-  // ============================================================================
-  // PAYMENT FUNCTIONS
-  // ============================================================================
-
-  const handleQuickAmount = (quickAmount: number) => {
-    setAmount(quickAmount.toString());
   };
 
   const handleProceedToPayment = () => {
@@ -582,7 +444,7 @@ const validateMeter = async () => {
           provider: selectedProvider,
           meterType: selectedMeterType,
           meterNumber: meterNumber,
-          phone: phone,
+          phone: userPhone, // Use user's phone from context
           amount: amountNum,
           pin: pin,
           customerName: customerName,
@@ -590,8 +452,6 @@ const validateMeter = async () => {
       });
 
       if (response.success === true) {
-        await saveRecentNumber(phone, customerName);
-        
         if (response.newBalance) {
           const balanceAmount = getBalanceAmount(response.newBalance);
           const updatedBalance: UserBalance = {
@@ -613,7 +473,7 @@ const validateMeter = async () => {
         setSuccessData({
           transaction: response.transaction || {},
           providerName,
-          phone,
+          phone: userPhone, // Show user's phone in success modal
           amount: response.transaction?.amount || amountNum,
           meterNumber,
           customerName,
@@ -657,7 +517,6 @@ const validateMeter = async () => {
     setCurrentStep(1);
     setMeterNumber('');
     setAmount('');
-    setPhone('');
     setPin('');
     setCustomerName('');
     setCustomerAddress('');
@@ -667,706 +526,556 @@ const validateMeter = async () => {
     setShowPinEntry(false);
   };
 
-  // ============================================================================
-  // RENDER
-  // ============================================================================
-
   return (
-    <View style={styles.container}>
-      {/* STEP 1: FORM */}
-      {currentStep === 1 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Quick Actions */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Select Recipient</Text>
-            <View style={styles.quickActions}>
-              <TouchableOpacity 
-                style={styles.quickActionBtn} 
-                onPress={selectContact}
-                disabled={isLoadingContacts}
-              >
-                {isLoadingContacts ? (
-                  <ActivityIndicator size="small" color="#ff3b30" />
-                ) : (
-                  <>
-                    <Text style={styles.quickActionIcon}>📱</Text>
-                    <Text style={styles.quickActionText}>Contacts</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={styles.quickActionBtn} 
-                onPress={showRecentNumbers}
-              >
-                <Text style={styles.quickActionIcon}>🕐</Text>
-                <Text style={styles.quickActionText}>Recent</Text>
-                {recentNumbers.length > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{recentNumbers.length}</Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {/* Phone Number */}
-          <View style={styles.card}>
-            <Text style={styles.inputLabel}>Phone Number</Text>
-            <TextInput
-              style={styles.textInput}
-              keyboardType="phone-pad"
-              placeholder="08012345678"
-              placeholderTextColor="#999"
-              maxLength={11}
-              value={phone}
-              onChangeText={setPhone}
-            />
-            {phone !== '' && !isPhoneValid && (
-              <Text style={styles.validationError}>Enter valid 11-digit number starting with 070, 080, 081, or 090</Text>
-            )}
-            {phone !== '' && isPhoneValid && (
-              <View style={styles.validationSuccess}>
-                <Text style={styles.validationSuccessText}>✓ Valid phone number</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Provider Selection */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Electricity Provider</Text>
-            <TouchableOpacity
-              style={styles.packageSelector}
-              onPress={() => setShowProvidersModal(true)}
-              disabled={isLoadingProviders}
+    <KeyboardAvoidingView 
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+    >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <View style={styles.container}>
+          {/* STEP 1: FORM */}
+          {currentStep === 1 && (
+            <ScrollView
+              style={styles.scrollContent}
+              contentContainerStyle={styles.scrollContentContainer}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
             >
-              <Text style={[
-                styles.packageSelectorText,
-                selectedProvider && styles.packageSelectorTextSelected
-              ]}>
-                {selectedProvider ? 
-                  `${electricityProviders.find(p => p.id === selectedProvider)?.fullName} (${electricityProviders.find(p => p.id === selectedProvider)?.acronym})` 
-                  : 'Choose your DISCO'}
-              </Text>
-              {isLoadingProviders ? (
-                <ActivityIndicator size="small" color="#999" />
-              ) : (
-                <Text style={styles.dropdownArrow}>▼</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* Meter Type */}
-          {selectedProvider && (
-            <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Meter Type</Text>
-              <TouchableOpacity
-                style={styles.packageSelector}
-                onPress={() => setShowMeterTypeModal(true)}
-              >
-                <Text style={[
-                  styles.packageSelectorText,
-                  selectedMeterType && styles.packageSelectorTextSelected
-                ]}>
-                  {selectedMeterType ? 
-                    meterTypes.find(m => m.id === selectedMeterType)?.name 
-                    : 'Choose meter type'}
-                </Text>
-                <Text style={styles.dropdownArrow}>▼</Text>
-              </TouchableOpacity>
-              {selectedMeterType && (
-                <Text style={styles.packageDescription}>
-                  {meterTypes.find(m => m.id === selectedMeterType)?.description}
-                </Text>
-              )}
-            </View>
-          )}
-
-          {/* Meter Number */}
-          {selectedProvider && selectedMeterType && (
-            <View style={styles.card}>
-              <Text style={styles.inputLabel}>Meter Number</Text>
-              <View style={styles.inputContainer}>
-                <TextInput
-                  style={[
-                    styles.textInput,
-                    meterError && styles.textInputError,
-                    customerName && !meterError && styles.textInputSuccess
-                  ]}
-                  keyboardType="numeric"
-                  placeholder="Enter meter number"
-                  placeholderTextColor="#999"
-                  value={meterNumber}
-                  onChangeText={setMeterNumber}
-                  maxLength={15}
-                />
-                {isValidatingMeter && (
-                  <ActivityIndicator 
-                    size="small" 
-                    color="#ff3b30" 
-                    style={styles.inputLoader}
-                  />
-                )}
+              {/* Provider Selection */}
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Electricity Provider</Text>
+                <TouchableOpacity
+                  style={styles.packageSelector}
+                  onPress={() => setShowProvidersModal(true)}
+                  disabled={isLoadingProviders}
+                >
+                  <Text style={[
+                    styles.packageSelectorText,
+                    selectedProvider && styles.packageSelectorTextSelected
+                  ]}>
+                    {selectedProvider ? 
+                      `${electricityProviders.find(p => p.id === selectedProvider)?.fullName} (${electricityProviders.find(p => p.id === selectedProvider)?.acronym})` 
+                      : 'Choose your DISCO'}
+                  </Text>
+                  {isLoadingProviders ? (
+                    <ActivityIndicator size="small" color="#999" />
+                  ) : (
+                    <Text style={styles.dropdownArrow}>▼</Text>
+                  )}
+                </TouchableOpacity>
               </View>
-              {meterError && (
-                <Text style={styles.validationError}>{meterError}</Text>
-              )}
-              {customerName && !meterError && (
-                <View style={styles.customerInfo}>
-                  <Text style={styles.validationSuccessText}>✓ Meter verified</Text>
-                  <Text style={styles.customerName}>Customer: {customerName}</Text>
-                  {customerAddress && (
-                    <Text style={styles.customerAddress}>Address: {customerAddress}</Text>
+
+              {/* Meter Number - SHOWN BEFORE METER TYPE */}
+              {selectedProvider && (
+                <View style={styles.card}>
+                  <Text style={styles.inputLabel}>Meter Number</Text>
+                  <View style={styles.inputContainer}>
+                    <TextInput
+                      style={[
+                        styles.textInput,
+                        meterError && styles.textInputError,
+                        customerName && !meterError && styles.textInputSuccess
+                      ]}
+                      keyboardType="numeric"
+                      placeholder="Enter meter number"
+                      placeholderTextColor="#999"
+                      value={meterNumber}
+                      onChangeText={setMeterNumber}
+                      maxLength={15}
+                    />
+                    {isValidatingMeter && (
+                      <ActivityIndicator 
+                        size="small" 
+                        color="#ff3b30" 
+                        style={styles.inputLoader}
+                      />
+                    )}
+                  </View>
+                  {meterError && (
+                    <Text style={styles.validationError}>{meterError}</Text>
                   )}
-                  {customerAccountNumber && (
-                    <Text style={styles.customerAccount}>Account: {customerAccountNumber}</Text>
+                  {meterNumber.length > 0 && !isMeterNumberValid && (
+                    <Text style={styles.validationError}>Meter number must be at least 10 digits</Text>
                   )}
                 </View>
               )}
-            </View>
-          )}
 
-          {/* Amount */}
-          {selectedProvider && selectedMeterType && customerName && (
-            <View style={styles.card}>
-              <Text style={styles.inputLabel}>Amount (₦)</Text>
-              <TextInput
-                style={styles.textInput}
-                keyboardType="numeric"
-                placeholder="Enter amount (min. ₦100)"
-                placeholderTextColor="#999"
-                value={amount}
-                onChangeText={setAmount}
-                maxLength={6}
-              />
-              {amount !== '' && !isAmountValid && (
-                <Text style={styles.validationError}>Amount must be between ₦100 and ₦100,000</Text>
-              )}
-              {amount !== '' && isAmountValid && hasEnoughBalance && (
-                <View style={styles.validationSuccess}>
-                  <Text style={styles.validationSuccessText}>✓ Valid amount</Text>
-                </View>
-              )}
-              {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
-                <Text style={styles.validationError}>
-                  Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
-                </Text>
-              )}
-
-              {/* Quick Amount Buttons */}
-              <View style={styles.quickAmountGrid}>
-                {quickAmounts.map((quickAmt) => (
+              {/* Meter Type - SHOWN AFTER METER NUMBER */}
+              {selectedProvider && meterNumber.length >= 10 && (
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Meter Type</Text>
                   <TouchableOpacity
-                    key={quickAmt}
-                    style={[
-                      styles.quickAmountBtn,
-                      amount === quickAmt.toString() && styles.quickAmountBtnSelected
-                    ]}
-                    onPress={() => handleQuickAmount(quickAmt)}
+                    style={styles.packageSelector}
+                    onPress={() => setShowMeterTypeModal(true)}
                   >
                     <Text style={[
-                      styles.quickAmountText,
-                      amount === quickAmt.toString() && styles.quickAmountTextSelected
+                      styles.packageSelectorText,
+                      selectedMeterType && styles.packageSelectorTextSelected
                     ]}>
-                      ₦{quickAmt.toLocaleString()}
+                      {selectedMeterType ? 
+                        meterTypes.find(m => m.id === selectedMeterType)?.name 
+                        : 'Choose meter type'}
                     </Text>
+                    <Text style={styles.dropdownArrow}>▼</Text>
                   </TouchableOpacity>
-                ))}
-              </View>
-            </View>
+                  {selectedMeterType && (
+                    <Text style={styles.packageDescription}>
+                      {meterTypes.find(m => m.id === selectedMeterType)?.description}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Customer Info (shown after meter validation) */}
+              {selectedProvider && selectedMeterType && customerName && (
+                <View style={styles.card}>
+                  <View style={styles.customerInfo}>
+                    <Text style={styles.validationSuccessText}>✓ Meter verified</Text>
+                    <Text style={styles.customerName}>Customer: {customerName}</Text>
+                    {customerAddress && (
+                      <Text style={styles.customerAddress}>Address: {customerAddress}</Text>
+                    )}
+                    {customerAccountNumber && (
+                      <Text style={styles.customerAccount}>Account: {customerAccountNumber}</Text>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* Amount */}
+              {selectedProvider && selectedMeterType && customerName && (
+                <View style={styles.card}>
+                  <Text style={styles.inputLabel}>Amount (₦)</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    keyboardType="numeric"
+                    placeholder="Enter amount (min. ₦100)"
+                    placeholderTextColor="#999"
+                    value={amount}
+                    onChangeText={setAmount}
+                    maxLength={6}
+                  />
+                  {amount !== '' && !isAmountValid && (
+                    <Text style={styles.validationError}>Amount must be between ₦100 and ₦100,000</Text>
+                  )}
+                  {amount !== '' && isAmountValid && hasEnoughBalance && (
+                    <View style={styles.validationSuccess}>
+                      <Text style={styles.validationSuccessText}>✓ Valid amount</Text>
+                    </View>
+                  )}
+                  {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && (
+                    <Text style={styles.validationError}>
+                      Insufficient balance. Available: ₦{userBalance.total.toLocaleString()}
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Proceed Button */}
+              <TouchableOpacity
+                style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
+                disabled={!canProceed}
+                onPress={() => setCurrentStep(2)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {canProceed && amount 
+                    ? `Review Purchase • ₦${amountNum.toLocaleString()}`
+                    : 'Complete Form to Continue'}
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
           )}
 
-          {/* Proceed Button */}
-          <TouchableOpacity
-            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
-            disabled={!canProceed}
-            onPress={() => setCurrentStep(2)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>
-              {canProceed && amount 
-                ? `Review Purchase • ₦${amountNum.toLocaleString()}`
-                : 'Complete Form to Continue'}
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
+          {/* STEP 2: REVIEW */}
+          {currentStep === 2 && (
+            <ScrollView
+              style={styles.scrollContent}
+              contentContainerStyle={styles.scrollContentContainer}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* Balance Overview */}
+              <View style={styles.balanceOverview}>
+                <View style={styles.balanceHeader}>
+                  <Text style={styles.balanceLabel}>Available Balance</Text>
+                  <TouchableOpacity 
+                    style={styles.refreshButton} 
+                    onPress={fetchUserBalance}
+                    disabled={isLoadingBalance}
+                  >
+                    {isLoadingBalance ? (
+                      <ActivityIndicator size="small" color="#ff3b30" />
+                    ) : (
+                      <Text style={styles.refreshIcon}>↻</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
 
-      {/* STEP 2: REVIEW */}
-      {currentStep === 2 && (
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentContainer}
-        >
-          {/* Balance Overview */}
-          <View style={styles.balanceOverview}>
-            <View style={styles.balanceHeader}>
-              <Text style={styles.balanceLabel}>Available Balance</Text>
-              <TouchableOpacity 
-                style={styles.refreshButton} 
-                onPress={fetchUserBalance}
-                disabled={isLoadingBalance}
-              >
-                {isLoadingBalance ? (
-                  <ActivityIndicator size="small" color="#ff3b30" />
-                ) : (
-                  <Text style={styles.refreshIcon}>↻</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+                {userBalance ? (
+                  <>
+                    <Text style={styles.balanceAmount}>
+                      ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
+                    </Text>
 
-            {userBalance ? (
-              <>
-                <Text style={styles.balanceAmount}>
-                  ₦{Number(userBalance.total || userBalance.amount || 0).toLocaleString()}
-                </Text>
+                    {amountNum > 0 && (
+                      <View style={styles.balanceCalculation}>
+                        <View style={styles.balanceRow}>
+                          <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
+                          <Text style={styles.balanceRowValue}>-₦{amountNum.toLocaleString()}</Text>
+                        </View>
+                        {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
+                          <View style={styles.balanceRow}>
+                            <Text style={styles.balanceRowLabel}>Service Fee</Text>
+                            <Text style={styles.balanceRowValue}>
+                              -₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
+                            </Text>
+                          </View>
+                        )}
+                        <View style={styles.balanceDivider} />
+                        <View style={styles.balanceRow}>
+                          <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
+                          <Text style={[
+                            styles.balanceRowValueBold,
+                            ((userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)) < 0 && styles.negativeAmount
+                          ]}>
+                            ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
 
-                {amountNum > 0 && (
-                  <View style={styles.balanceCalculation}>
-                    <View style={styles.balanceRow}>
-                      <Text style={styles.balanceRowLabel}>Purchase Amount</Text>
-                      <Text style={styles.balanceRowValue}>-₦{amountNum.toLocaleString()}</Text>
-                    </View>
-                    {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
-                      <View style={styles.balanceRow}>
-                        <Text style={styles.balanceRowLabel}>Service Fee</Text>
-                        <Text style={styles.balanceRowValue}>
-                          -₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
+                    {amountNum > (userBalance.total || userBalance.amount || 0) && (
+                      <View style={styles.insufficientWarning}>
+                        <Text style={styles.insufficientWarningText}>
+                          Insufficient balance for this transaction
                         </Text>
                       </View>
                     )}
-                    <View style={styles.balanceDivider} />
-                    <View style={styles.balanceRow}>
-                      <Text style={styles.balanceRowLabelBold}>Remaining Balance</Text>
-                      <Text style={[
-                        styles.balanceRowValueBold,
-                        ((userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)) < 0 && styles.negativeAmount
-                      ]}>
-                        ₦{Math.max(0, (userBalance.total || userBalance.amount || 0) - amountNum - (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
-                      </Text>
-                    </View>
-                  </View>
-                )}
-
-                {amountNum > (userBalance.total || userBalance.amount || 0) && (
-                  <View style={styles.insufficientWarning}>
-                    <Text style={styles.insufficientWarningText}>
-                      Insufficient balance for this transaction
+                  </>
+                ) : (
+                  <View style={styles.balanceLoading}>
+                    <Text style={styles.balanceLoadingText}>
+                      {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
                     </Text>
                   </View>
                 )}
-              </>
-            ) : (
-              <View style={styles.balanceLoading}>
-                <Text style={styles.balanceLoadingText}>
-                  {isLoadingBalance ? 'Loading balance...' : 'Unable to load balance'}
-                </Text>
               </View>
-            )}
-          </View>
-          
-          {/* Transaction Summary */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Transaction Summary</Text>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Provider</Text>
-              <Text style={styles.summaryValue}>
-                {electricityProviders.find(p => p.id === selectedProvider)?.acronym}
-              </Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Meter Type</Text>
-              <Text style={styles.summaryValue}>
-                {meterTypes.find(m => m.id === selectedMeterType)?.name}
-              </Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Meter Number</Text>
-              <Text style={styles.summaryValue}>{meterNumber}</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Customer</Text>
-              <Text style={styles.summaryValue}>{customerName}</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Recipient</Text>
-              <Text style={styles.summaryValue}>{phone}</Text>
-            </View>
-
-            <View style={styles.summaryDivider} />
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Amount</Text>
-              <Text style={styles.summaryValue}>₦{amountNum.toLocaleString()}</Text>
-            </View>
-
-            {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Service Fee</Text>
-                <Text style={styles.summaryValue}>
-                  ₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
-                </Text>
-              </View>
-            )}
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabelTotal}>Total Amount</Text>
-              <Text style={styles.summaryValueTotal}>
-                ₦{(amountNum + (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
-              </Text>
-            </View>
-          </View>
-
-          {/* Action Buttons */}
-          <TouchableOpacity
-            style={[
-              styles.primaryButton, 
-              !hasEnoughBalance && styles.primaryButtonDisabled
-            ]}
-            disabled={!hasEnoughBalance}
-            onPress={handleProceedToPayment}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>
-              {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.secondaryButton}
-            onPress={() => setCurrentStep(1)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.secondaryButtonText}>Edit Details</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      )}
-
-      {/* PIN Entry Modal - Bottom Sheet */}
-      <Modal 
-        visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
-        animationType="slide"
-        transparent={true}
-      >
-        <TouchableOpacity 
-          style={styles.pinModalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            if (!isValidatingPin && !isProcessingPayment) {
-              setShowPinEntry(false);
-              setPin('');
-              setPinError('');
-            }
-          }}
-        >
-          <TouchableOpacity 
-            style={styles.pinBottomSheet}
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.dragHandle} />
-
-            <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
-            <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
-
-            {pinStatus?.attemptsRemaining < 3 && (
-              <View style={styles.attemptsWarning}>
-                <Text style={styles.attemptsWarningText}>
-                  {pinStatus.attemptsRemaining} attempts remaining
-                </Text>
-              </View>
-            )}
-
-            {/* PIN Input Area - Pressable */}
-            <TouchableOpacity 
-              style={styles.pinInputArea}
-              activeOpacity={0.6}
-              onPress={handlePinAreaPress}
-            >
-              <View style={styles.pinDotsContainer}>
-                {[0, 1, 2, 3].map((index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.pinDot,
-                      pin.length > index && styles.pinDotFilled,
-                      pinError && styles.pinDotError
-                    ]}
-                  />
-                ))}
-              </View>
-              <Text style={styles.pinInputHint}>
-                Tap here to enter PIN
-              </Text>
               
-              {/* Actual Input - Transparent overlay */}
-              <TextInput
-                ref={pinInputRef}
-                style={styles.overlayPinInput}
-                value={pin}
-                onChangeText={(text) => {
-                  const cleaned = text.replace(/\D/g, '').substring(0, 4);
-                  setPin(cleaned);
-                  setPinError('');
-                }}
-                keyboardType="number-pad"
-                secureTextEntry={true}
-                maxLength={4}
-                autoFocus={false}
-                caretHidden={true}
-                contextMenuHidden={true}
-              />
-            </TouchableOpacity>
+              {/* Transaction Summary */}
+              <View style={styles.card}>
+                <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
-            {pinError && (
-              <Text style={styles.pinErrorText}>{pinError}</Text>
-            )}
-
-            {/* Confirm Payment Button */}
-            <TouchableOpacity
-              style={[
-                styles.primaryButton,
-                (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
-              ]}
-              disabled={!isPinValid || isValidatingPin || isProcessingPayment}
-              onPress={validatePinAndPurchase}
-              activeOpacity={0.8}
-            >
-              {isValidatingPin || isProcessingPayment ? (
-                <View style={styles.buttonLoading}>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
-                    {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Provider</Text>
+                  <Text style={styles.summaryValue}>
+                    {electricityProviders.find(p => p.id === selectedProvider)?.acronym}
                   </Text>
                 </View>
-              ) : (
-                <Text style={styles.primaryButtonText}>
-                  Confirm Payment
-                </Text>
-              )}
-            </TouchableOpacity>
 
-            {/* Cancel PIN Entry */}
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => {
-                setShowPinEntry(false);
-                setPin('');
-                setPinError('');
-              }}
-              disabled={isValidatingPin || isProcessingPayment}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.secondaryButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      {/* Provider Selection Modal */}
-      <Modal visible={showProvidersModal} animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Provider</Text>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowProvidersModal(false)}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={electricityProviders.filter(p => p.isActive)}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.providerItem,
-                  selectedProvider === item.id && styles.providerItemSelected
-                ]}
-                onPress={() => {
-                  setSelectedProvider(item.id);
-                  setShowProvidersModal(false);
-                  setSelectedMeterType(null);
-                  setMeterNumber('');
-                  setCustomerName('');
-                  setCustomerAddress('');
-                  setCustomerAccountNumber('');
-                  setMeterError('');
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.providerInfo}>
-                  <Text style={styles.providerName}>{item.name}</Text>
-                  <Text style={styles.providerFullName}>{item.fullName}</Text>
-                  <Text style={styles.providerDetails}>
-                    {item.acronym} • Fee: ₦{item.fee} • Min: ₦{item.minAmount.toLocaleString()}
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Meter Type</Text>
+                  <Text style={styles.summaryValue}>
+                    {meterTypes.find(m => m.id === selectedMeterType)?.name}
                   </Text>
                 </View>
-                {selectedProvider === item.id && (
-                  <Text style={styles.selectedIcon}>✓</Text>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Meter Number</Text>
+                  <Text style={styles.summaryValue}>{meterNumber}</Text>
+                </View>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Customer</Text>
+                  <Text style={styles.summaryValue}>{customerName}</Text>
+                </View>
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Phone Number</Text>
+                  <Text style={styles.summaryValue}>{userPhone}</Text>
+                </View>
+
+                <View style={styles.summaryDivider} />
+
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Amount</Text>
+                  <Text style={styles.summaryValue}>₦{amountNum.toLocaleString()}</Text>
+                </View>
+
+                {electricityProviders.find(p => p.id === selectedProvider)?.fee > 0 && (
+                  <View style={styles.summaryItem}>
+                    <Text style={styles.summaryLabel}>Service Fee</Text>
+                    <Text style={styles.summaryValue}>
+                      ₦{electricityProviders.find(p => p.id === selectedProvider)?.fee}
+                    </Text>
+                  </View>
                 )}
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </Modal>
 
-      {/* Meter Type Modal */}
-      <Modal visible={showMeterTypeModal} animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Meter Type</Text>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowMeterTypeModal(false)}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={meterTypes}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={[
-                  styles.meterTypeItem,
-                  selectedMeterType === item.id && styles.meterTypeItemSelected
-                ]}
-                onPress={() => {
-                  setSelectedMeterType(item.id);
-                  setShowMeterTypeModal(false);
-                  setMeterNumber('');
-                  setCustomerName('');
-                  setCustomerAddress('');
-                  setCustomerAccountNumber('');
-                  setMeterError('');
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.meterTypeInfo}>
-                  <Text style={styles.meterTypeName}>{item.name}</Text>
-                  <Text style={styles.meterTypeDescription}>{item.description}</Text>
-                </View>
-                {selectedMeterType === item.id && (
-                  <Text style={styles.selectedIcon}>✓</Text>
-                )}
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </Modal>
-
-      {/* Contacts Modal */}
-      <Modal visible={showContactsModal} animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Contact</Text>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowContactsModal(false)}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={contactsList}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.listItem}
-                onPress={() => handleContactSelect(item.phoneNumbers[0].number, item.name)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.contactAvatar}>
-                  <Text style={styles.contactAvatarText}>
-                    {item.name?.charAt(0).toUpperCase() || '?'}
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabelTotal}>Total Amount</Text>
+                  <Text style={styles.summaryValueTotal}>
+                    ₦{(amountNum + (electricityProviders.find(p => p.id === selectedProvider)?.fee || 0)).toLocaleString()}
                   </Text>
                 </View>
-                <View style={styles.contactDetails}>
-                  <Text style={styles.contactName}>{item.name}</Text>
-                  <Text style={styles.contactPhone}>{item.phoneNumbers[0].number}</Text>
-                </View>
-              </TouchableOpacity>
-            )}
-          />
-        </View>
-      </Modal>
-
-      {/* Recent Numbers Modal */}
-      <Modal visible={showRecentsModal} animationType="slide">
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Recent Numbers</Text>
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowRecentsModal(false)}
-            >
-              <Text style={styles.modalCloseText}>✕</Text>
-            </TouchableOpacity>
-          </View>
-          <FlatList
-            data={recentNumbers}
-            keyExtractor={(item) => item.number + item.timestamp}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.listItem}
-                onPress={() => handleContactSelect(item.number, item.name)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.contactAvatar}>
-                  <Text style={styles.contactAvatarText}>
-                    {item.name?.charAt(0).toUpperCase() || '📱'}
-                  </Text>
-                </View>
-                <View style={styles.contactDetails}>
-                  <Text style={styles.contactName}>
-                    {item.name || 'Unknown'}
-                  </Text>
-                  <Text style={styles.contactPhone}>{item.number}</Text>
-                </View>
-                <Text style={styles.dateText}>
-                  {new Date(item.timestamp).toLocaleDateString()}
-                </Text>
-              </TouchableOpacity>
-            )}
-            ListEmptyComponent={
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No recent numbers found</Text>
               </View>
-            }
-          />
-        </View>
-      </Modal>
 
-      {/* Success Modal */}
-      {showSuccessModal && successData && (
-        <SuccessModal
-          visible={showSuccessModal}
-          onClose={handleCloseSuccessModal}
-          onBuyMore={handleBuyMoreElectricity}
-          transaction={successData.transaction}
-          type="electricity"
-          providerName={successData.providerName}
-          phone={successData.phone}
-          amount={successData.amount}
-          meterNumber={successData.meterNumber}
-          customerName={successData.customerName}
-          customerAddress={successData.customerAddress}
-          meterType={successData.meterType}
-          newBalance={successData.newBalance}
-        />
-      )}
-    </View>
+              {/* Action Buttons */}
+              <TouchableOpacity
+                style={[
+                  styles.primaryButton, 
+                  !hasEnoughBalance && styles.primaryButtonDisabled
+                ]}
+                disabled={!hasEnoughBalance}
+                onPress={handleProceedToPayment}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {!hasEnoughBalance ? 'Insufficient Balance' : 'Proceed to Payment'}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.secondaryButton}
+                onPress={() => setCurrentStep(1)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.secondaryButtonText}>Edit Details</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+
+          {/* PIN Entry Modal - Bottom Sheet */}
+          <Modal 
+            visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
+            animationType="slide"
+            transparent={true}
+          >
+            <TouchableOpacity 
+              style={styles.pinModalOverlay}
+              activeOpacity={1}
+              onPress={() => {
+                if (!isValidatingPin && !isProcessingPayment) {
+                  setShowPinEntry(false);
+                  setPin('');
+                  setPinError('');
+                }
+              }}
+            >
+              <TouchableOpacity 
+                style={styles.pinBottomSheet}
+                activeOpacity={1}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.dragHandle} />
+
+                <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
+                <Text style={styles.pinSubtitle}>Enter your 4-digit PIN to confirm</Text>
+
+                {pinStatus?.attemptsRemaining < 3 && (
+                  <View style={styles.attemptsWarning}>
+                    <Text style={styles.attemptsWarningText}>
+                      {pinStatus.attemptsRemaining} attempts remaining
+                    </Text>
+                  </View>
+                )}
+
+                {/* PIN Input Area - Pressable */}
+                <TouchableOpacity 
+                  style={styles.pinInputArea}
+                  activeOpacity={0.6}
+                  onPress={handlePinAreaPress}
+                >
+                  <View style={styles.pinDotsContainer}>
+                    {[0, 1, 2, 3].map((index) => (
+                      <View
+                        key={index}
+                        style={[
+                          styles.pinDot,
+                          pin.length > index && styles.pinDotFilled,
+                          pinError && styles.pinDotError
+                        ]}
+                      />
+                    ))}
+                  </View>
+                  <Text style={styles.pinInputHint}>
+                    Tap here to enter PIN
+                  </Text>
+                  
+                  {/* Actual Input - Transparent overlay */}
+                  <TextInput
+                    ref={pinInputRef}
+                    style={styles.overlayPinInput}
+                    value={pin}
+                    onChangeText={(text) => {
+                      const cleaned = text.replace(/\D/g, '').substring(0, 4);
+                      setPin(cleaned);
+                      setPinError('');
+                    }}
+                    keyboardType="number-pad"
+                    secureTextEntry={true}
+                    maxLength={4}
+                    autoFocus={false}
+                    caretHidden={true}
+                    contextMenuHidden={true}
+                  />
+                </TouchableOpacity>
+
+                {pinError && (
+                  <Text style={styles.pinErrorText}>{pinError}</Text>
+                )}
+
+                {/* Confirm Payment Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.primaryButton,
+                    (!isPinValid || isValidatingPin || isProcessingPayment) && styles.primaryButtonDisabled
+                  ]}
+                  disabled={!isPinValid || isValidatingPin || isProcessingPayment}
+                  onPress={validatePinAndPurchase}
+                  activeOpacity={0.8}
+                >
+                  {isValidatingPin || isProcessingPayment ? (
+                    <View style={styles.buttonLoading}>
+                      <ActivityIndicator size="small" color="#fff" />
+                      <Text style={[styles.primaryButtonText, styles.buttonLoadingText]}>
+                        {isProcessingPayment ? 'Processing...' : 'Validating...'}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.primaryButtonText}>
+                      Confirm Payment
+                    </Text>
+                  )}
+                </TouchableOpacity>
+
+                {/* Cancel PIN Entry */}
+                <TouchableOpacity
+                  style={styles.secondaryButton}
+                  onPress={() => {
+                    setShowPinEntry(false);
+                    setPin('');
+                    setPinError('');
+                  }}
+                  disabled={isValidatingPin || isProcessingPayment}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.secondaryButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </Modal>
+
+          {/* Provider Selection Modal */}
+          <Modal visible={showProvidersModal} animationType="slide">
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Provider</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowProvidersModal(false)}
+                >
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={electricityProviders.filter(p => p.isActive)}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.providerItem,
+                      selectedProvider === item.id && styles.providerItemSelected
+                    ]}
+                    onPress={() => {
+                      setSelectedProvider(item.id);
+                      setShowProvidersModal(false);
+                      setSelectedMeterType(null);
+                      setMeterNumber('');
+                      setCustomerName('');
+                      setCustomerAddress('');
+                      setCustomerAccountNumber('');
+                      setMeterError('');
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.providerInfo}>
+                      <Text style={styles.providerName}>{item.name}</Text>
+                      <Text style={styles.providerFullName}>{item.fullName}</Text>
+                      <Text style={styles.providerDetails}>
+                        {item.acronym} • Fee: ₦{item.fee} • Min: ₦{item.minAmount.toLocaleString()}
+                      </Text>
+                    </View>
+                    {selectedProvider === item.id && (
+                      <Text style={styles.selectedIcon}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </Modal>
+
+          {/* Meter Type Modal */}
+          <Modal visible={showMeterTypeModal} animationType="slide">
+            <View style={styles.modalContainer}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Meter Type</Text>
+                <TouchableOpacity
+                  style={styles.modalCloseButton}
+                  onPress={() => setShowMeterTypeModal(false)}
+                >
+                  <Text style={styles.modalCloseText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={meterTypes}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.meterTypeItem,
+                      selectedMeterType === item.id && styles.meterTypeItemSelected
+                    ]}
+                    onPress={() => {
+                      setSelectedMeterType(item.id);
+                      setShowMeterTypeModal(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.meterTypeInfo}>
+                      <Text style={styles.meterTypeName}>{item.name}</Text>
+                      <Text style={styles.meterTypeDescription}>{item.description}</Text>
+                    </View>
+                    {selectedMeterType === item.id && (
+                      <Text style={styles.selectedIcon}>✓</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </Modal>
+
+          {/* Success Modal */}
+          {showSuccessModal && successData && (
+            <SuccessModal
+              visible={showSuccessModal}
+              onClose={handleCloseSuccessModal}
+              onBuyMore={handleBuyMoreElectricity}
+              transaction={successData.transaction}
+              type="electricity"
+              providerName={successData.providerName}
+              phone={successData.phone}
+              amount={successData.amount}
+              meterNumber={successData.meterNumber}
+              customerName={successData.customerName}
+              customerAddress={successData.customerAddress}
+              meterType={successData.meterType}
+              newBalance={successData.newBalance}
+            />
+          )}
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1382,7 +1091,7 @@ const styles = StyleSheet.create({
 
   scrollContentContainer: {
     padding: 16,
-    paddingBottom: 40,
+    paddingBottom: 100, // Increased for keyboard
   },
 
   card: {
@@ -1402,53 +1111,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#1a1a1a',
     marginBottom: 16,
-  },
-
-  quickActions: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-
-  quickActionBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e8e8e8',
-    position: 'relative',
-  },
-
-  quickActionIcon: {
-    fontSize: 20,
-    marginBottom: 2,
-  },
-
-  quickActionText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#333',
-  },
-
-  badge: {
-    position: 'absolute',
-    top: 6,
-    right: 6,
-    backgroundColor: '#ff3b30',
-    borderRadius: 8,
-    minWidth: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-
-  badgeText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: '600',
   },
 
   inputLabel: {
@@ -1567,41 +1229,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
-  },
-
-  quickAmountGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 12,
-  },
-
-  quickAmountBtn: {
-    flex: 1,
-    minWidth: '30%',
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e8e8e8',
-    alignItems: 'center',
-  },
-
-  quickAmountBtnSelected: {
-    backgroundColor: '#fff5f5',
-    borderColor: '#ff3b30',
-    borderWidth: 2,
-  },
-
-  quickAmountText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
-  },
-
-  quickAmountTextSelected: {
-    color: '#ff3b30',
   },
 
   primaryButton: {
@@ -2027,61 +1654,5 @@ const styles = StyleSheet.create({
   meterTypeDescription: {
     fontSize: 13,
     color: '#666',
-  },
-
-  listItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-  },
-
-  contactAvatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#f0f0f0',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-
-  contactAvatarText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#666',
-  },
-
-  contactDetails: {
-    flex: 1,
-  },
-
-  contactName: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#1a1a1a',
-    marginBottom: 2,
-  },
-
-  contactPhone: {
-    fontSize: 12,
-    color: '#999',
-  },
-
-  dateText: {
-    fontSize: 11,
-    color: '#999',
-  },
-
-  emptyState: {
-    padding: 40,
-    alignItems: 'center',
-  },
-
-  emptyStateText: {
-    color: '#999',
-    fontSize: 14,
   },
 });

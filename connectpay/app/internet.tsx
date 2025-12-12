@@ -62,6 +62,8 @@ interface InternetPlan {
   validity: string;
   amount: number;
   description?: string;
+  category?: string;
+  popular?: boolean;
 }
 
 interface InternetProvider {
@@ -75,17 +77,14 @@ interface InternetProvider {
 const getBalanceAmount = (balanceData: any): number => {
   if (!balanceData) return 0;
   
-  // If it's already a number, return it directly
   if (typeof balanceData === 'number') {
     return parseFloat(balanceData.toString()) || 0;
   }
   
-  // If it's a string, parse it
   if (typeof balanceData === 'string') {
     return parseFloat(balanceData) || 0;
   }
   
-  // If it's an object, try different possible balance properties
   const amount = balanceData.total || 
                  balanceData.amount || 
                  balanceData.balance || 
@@ -121,24 +120,22 @@ export default function BuyInternet() {
   const [isValidatingPin, setIsValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
 
+  // NEW: States for dynamic plans
+  const [availablePlans, setAvailablePlans] = useState<InternetPlan[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [plansError, setPlansError] = useState<string | null>(null);
+
   // Success modal state
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState(null);
 
-  // Internet Service Providers with their plans
+  // Internet Service Providers (static info only)
   const internetProviders: InternetProvider[] = [
     {
       id: 'smile',
       label: 'SMILE',
       logo: require('../assets/images/smile-logo.jpeg'),
-      plans: [
-        { id: '626', name: '1GB Weekly', dataSize: '1GB', speed: '10Mbps', validity: '7 days', amount: 750 },
-        { id: '607', name: '2GB Monthly', dataSize: '2GB', speed: '10Mbps', validity: '30 days', amount: 1850 },
-        { id: '608', name: '3GB Monthly', dataSize: '3GB', speed: '10Mbps', validity: '30 days', amount: 2300 },
-        { id: '609', name: '6.5GB Monthly', dataSize: '6.5GB', speed: '15Mbps', validity: '30 days', amount: 3800 },
-        { id: '722', name: '10GB Monthly', dataSize: '10GB', speed: '15Mbps', validity: '30 days', amount: 4600 },
-        { id: '725', name: '25GB Monthly', dataSize: '25GB', speed: '20Mbps', validity: '30 days', amount: 9500 },
-      ]
+      plans: availablePlans // Use dynamic plans
     }
   ];
 
@@ -173,6 +170,13 @@ export default function BuyInternet() {
       checkPinStatus();
     }, 1000);
   }, []);
+
+  // Fetch plans when provider is selected
+  useEffect(() => {
+    if (selectedProvider) {
+      fetchInternetPlans(selectedProvider);
+    }
+  }, [selectedProvider]);
 
   // Refresh balance when stepping to review page
   useEffect(() => {
@@ -211,6 +215,98 @@ export default function BuyInternet() {
       console.log('===================');
     }
   }, [userBalance, amount]);
+
+  // ---------- NEW: Fetch Plans from Backend ----------
+  const fetchInternetPlans = async (providerCode: string) => {
+    setIsLoadingPlans(true);
+    setPlansError(null);
+    
+    try {
+      console.log(`📡 Fetching plans for ${providerCode}...`);
+      
+      const authToken = await getAuthToken();
+      const url = `${API_CONFIG.BASE_URL}/internet/provider/${providerCode}/plans`;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        timeout: 30000,
+      });
+
+      let data;
+      try {
+        const responseText = await response.text();
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseError) {
+        throw new Error('Invalid response from server');
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to fetch plans');
+      }
+
+      if (data.success && data.plans && Array.isArray(data.plans)) {
+        // Transform API plans to match our InternetPlan interface
+        const transformedPlans: InternetPlan[] = data.plans.map((plan: any) => ({
+          id: plan.id || plan.planId,
+          name: plan.name || plan.planName,
+          dataSize: plan.dataSize || 'Unknown',
+          speed: plan.speed || '10-20Mbps',
+          validity: plan.validity || '30 days',
+          amount: parseFloat(plan.amount) || 0,
+          description: plan.description,
+          category: plan.category || 'monthly',
+          popular: plan.popular || false
+        }));
+
+        console.log(`✅ Loaded ${transformedPlans.length} plans from ClubKonnect`);
+        setAvailablePlans(transformedPlans);
+        
+        // Cache plans locally
+        await AsyncStorage.setItem(
+          `internet_plans_${providerCode}`,
+          JSON.stringify({ plans: transformedPlans, timestamp: Date.now() })
+        );
+      } else {
+        throw new Error('No plans available');
+      }
+
+    } catch (error) {
+      console.error('❌ Error fetching plans:', error);
+      setPlansError(error.message || 'Failed to load plans');
+      
+      // Try to load cached plans
+      try {
+        const cached = await AsyncStorage.getItem(`internet_plans_${providerCode}`);
+        if (cached) {
+          const { plans, timestamp } = JSON.parse(cached);
+          const isStale = Date.now() - timestamp > 3600000; // 1 hour
+          
+          if (!isStale) {
+            console.log('⚠️  Using cached plans due to fetch error');
+            setAvailablePlans(plans);
+            setPlansError('Using cached plans - prices may not be current');
+          } else {
+            Alert.alert(
+              'Connection Error',
+              'Unable to fetch current plans. Please check your internet connection and try again.'
+            );
+          }
+        }
+      } catch (cacheError) {
+        Alert.alert(
+          'Error',
+          'Unable to load internet plans. Please try again later.'
+        );
+      }
+    } finally {
+      setIsLoadingPlans(false);
+    }
+  };
 
   // ---------- API Helper Functions ----------
   const getAuthToken = async () => {
@@ -313,12 +409,10 @@ export default function BuyInternet() {
       console.log("Refreshing balance from AuthContext");
       console.log("Raw balance object:", JSON.stringify(balance, null, 2));
       
-      // Use AuthContext's refresh function
       if (refreshBalance) {
         await refreshBalance();
       }
       
-      // Update local balance state from AuthContext
       if (balance !== undefined && balance !== null) {
         const balanceAmount = getBalanceAmount(balance);
         
@@ -336,7 +430,6 @@ export default function BuyInternet() {
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
         console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        // Fallback: try direct API call
         console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
@@ -403,11 +496,8 @@ export default function BuyInternet() {
         setCustomerNumber(savedNumber || '');
         setSelectedProvider(savedProvider || null);
         
-        if (savedPlan && savedProvider) {
-          const provider = internetProviders.find(p => p.id === savedProvider);
-          const plan = provider?.plans.find(p => p.id === savedPlan.id);
-          setSelectedPlan(plan || null);
-        }
+        // Don't restore selected plan - user should select fresh plan with current price
+        setSelectedPlan(null);
       }
     } catch (error) {
       console.log('Error loading form state:', error);
@@ -515,6 +605,17 @@ export default function BuyInternet() {
       Alert.alert('Select Provider', 'Please select an internet provider first.');
       return;
     }
+    
+    if (isLoadingPlans) {
+      Alert.alert('Loading Plans', 'Please wait while plans are being loaded...');
+      return;
+    }
+    
+    if (plansError && availablePlans.length === 0) {
+      Alert.alert('No Plans Available', 'Unable to load plans. Please try again.');
+      return;
+    }
+    
     setShowPlansModal(true);
   };
 
@@ -535,7 +636,6 @@ export default function BuyInternet() {
     setShowPinEntry(true);
   };
 
-  // PIN area press handler
   const handlePinAreaPress = () => {
     setTimeout(() => {
       pinInputRef.current?.focus();
@@ -669,6 +769,7 @@ export default function BuyInternet() {
     setPin('');
     setPinError('');
     setShowPinEntry(false);
+    setAvailablePlans([]);
   };
 
   return (
@@ -763,7 +864,7 @@ export default function BuyInternet() {
                   ]}
                   onPress={() => {
                     setSelectedProvider(provider.id);
-                    setSelectedPlan(null); // Reset plan when provider changes
+                    setSelectedPlan(null);
                   }}
                   activeOpacity={0.7}
                 >
@@ -786,14 +887,28 @@ export default function BuyInternet() {
 
           {/* Plan Selection */}
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Select Plan</Text>
+            <View style={styles.planHeader}>
+              <Text style={styles.sectionTitle}>Select Plan</Text>
+              {isLoadingPlans && (
+                <ActivityIndicator size="small" color="#ff3b30" />
+              )}
+            </View>
+            
+            {plansError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorText}>⚠️ {plansError}</Text>
+              </View>
+            )}
+            
             {selectedProvider ? (
               <TouchableOpacity
                 style={[
                   styles.planSelector,
-                  selectedPlan && styles.planSelectorSelected
+                  selectedPlan && styles.planSelectorSelected,
+                  isLoadingPlans && styles.planSelectorDisabled
                 ]}
                 onPress={showPlanSelection}
+                disabled={isLoadingPlans}
                 activeOpacity={0.7}
               >
                 {selectedPlan ? (
@@ -807,7 +922,9 @@ export default function BuyInternet() {
                     </View>
                   </View>
                 ) : (
-                  <Text style={styles.planSelectorPlaceholder}>Tap to select a plan</Text>
+                  <Text style={styles.planSelectorPlaceholder}>
+                    {isLoadingPlans ? 'Loading plans...' : 'Tap to select a plan'}
+                  </Text>
                 )}
                 <Text style={styles.planSelectorArrow}>›</Text>
               </TouchableOpacity>
@@ -904,7 +1021,6 @@ export default function BuyInternet() {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Transaction Summary</Text>
 
-            {/* Provider */}
             {selectedProvider && (
               <View style={styles.summaryItem}>
                 <Text style={styles.summaryLabel}>Provider</Text>
@@ -920,7 +1036,6 @@ export default function BuyInternet() {
               </View>
             )}
 
-            {/* Plan Details */}
             {selectedPlan && (
               <>
                 <View style={styles.summaryItem}>
@@ -940,7 +1055,6 @@ export default function BuyInternet() {
               </>
             )}
 
-            {/* Customer Details */}
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Customer ID</Text>
               <Text style={styles.summaryValue}>{customerNumber}</Text>
@@ -1008,7 +1122,6 @@ export default function BuyInternet() {
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
           >
-            {/* Drag Handle */}
             <View style={styles.dragHandle} />
 
             <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
@@ -1022,7 +1135,6 @@ export default function BuyInternet() {
               </View>
             )}
 
-            {/* PIN Input Area - Pressable */}
             <TouchableOpacity 
               style={styles.pinInputArea}
               activeOpacity={0.6}
@@ -1066,7 +1178,6 @@ export default function BuyInternet() {
               <Text style={styles.pinErrorText}>{pinError}</Text>
             )}
 
-            {/* Confirm Payment Button */}
             <TouchableOpacity
               style={[
                 styles.primaryButton,
@@ -1090,7 +1201,6 @@ export default function BuyInternet() {
               )}
             </TouchableOpacity>
 
-            {/* Cancel PIN Entry */}
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={() => {
@@ -1203,36 +1313,61 @@ export default function BuyInternet() {
               <Text style={styles.modalCloseText}>✕</Text>
             </TouchableOpacity>
           </View>
-          <FlatList
-            data={selectedProvider ? internetProviders.find(p => p.id === selectedProvider)?.plans || [] : []}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+          
+          {isLoadingPlans ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ff3b30" />
+              <Text style={styles.loadingText}>Loading plans from ClubKonnect...</Text>
+            </View>
+          ) : availablePlans.length > 0 ? (
+            <FlatList
+              data={availablePlans}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.planItem,
+                    selectedPlan?.id === item.id && styles.planItemSelected
+                  ]}
+                  onPress={() => handlePlanSelect(item)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.planItemContent}>
+                    <View style={styles.planHeader}>
+                      <Text style={styles.planItemName}>{item.name}</Text>
+                      <Text style={styles.planItemPrice}>₦{item.amount.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.planItemDetails}>
+                      <Text style={styles.planItemDetail}>📊 {item.dataSize}</Text>
+                      <Text style={styles.planItemDetail}>⚡ {item.speed}</Text>
+                      <Text style={styles.planItemDetail}>📅 {item.validity}</Text>
+                    </View>
+                    {item.description && (
+                      <Text style={styles.planItemDescription}>{item.description}</Text>
+                    )}
+                    {item.popular && (
+                      <View style={styles.popularBadge}>
+                        <Text style={styles.popularBadgeText}>POPULAR</Text>
+                      </View>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              )}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>
+                {plansError || 'No plans available'}
+              </Text>
               <TouchableOpacity
-                style={[
-                  styles.planItem,
-                  selectedPlan?.id === item.id && styles.planItemSelected
-                ]}
-                onPress={() => handlePlanSelect(item)}
-                activeOpacity={0.7}
+                style={styles.retryButton}
+                onPress={() => selectedProvider && fetchInternetPlans(selectedProvider)}
               >
-                <View style={styles.planItemContent}>
-                  <View style={styles.planHeader}>
-                    <Text style={styles.planItemName}>{item.name}</Text>
-                    <Text style={styles.planItemPrice}>₦{item.amount.toLocaleString()}</Text>
-                  </View>
-                  <View style={styles.planItemDetails}>
-                    <Text style={styles.planItemDetail}>📊 {item.dataSize}</Text>
-                    <Text style={styles.planItemDetail}>⚡ {item.speed}</Text>
-                    <Text style={styles.planItemDetail}>📅 {item.validity}</Text>
-                  </View>
-                  {item.description && (
-                    <Text style={styles.planItemDescription}>{item.description}</Text>
-                  )}
-                </View>
+                <Text style={styles.retryButtonText}>Retry</Text>
               </TouchableOpacity>
-            )}
-            showsVerticalScrollIndicator={false}
-          />
+            </View>
+          )}
         </View>
       </Modal>
 
@@ -1270,7 +1405,6 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 
-  // Card Styles
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1290,7 +1424,26 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // Quick Actions
+  planHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+
+  errorBanner: {
+    backgroundColor: '#fff3e0',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+
+  errorText: {
+    color: '#e65100',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+
   quickActions: {
     flexDirection: 'row',
     gap: 10,
@@ -1338,7 +1491,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Input Styles
   inputLabel: {
     fontSize: 14,
     fontWeight: '500',
@@ -1378,7 +1530,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Network Grid (Provider Selection)
   networkGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1440,7 +1591,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 
-  // Plan Selection
   planSelector: {
     borderWidth: 1,
     borderColor: '#e8e8e8',
@@ -1456,6 +1606,10 @@ const styles = StyleSheet.create({
     borderColor: '#ff3b30',
     backgroundColor: '#fff5f5',
     borderWidth: 2,
+  },
+
+  planSelectorDisabled: {
+    opacity: 0.6,
   },
 
   planSelectorPlaceholder: {
@@ -1515,7 +1669,6 @@ const styles = StyleSheet.create({
     color: '#666',
   },
 
-  // Buttons
   primaryButton: {
     backgroundColor: '#ff3b30',
     paddingVertical: 16,
@@ -1559,7 +1712,6 @@ const styles = StyleSheet.create({
     marginLeft: 0,
   },
 
-  // Balance Overview
   balanceOverview: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1670,7 +1822,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
-  // Summary Styles
   summaryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1722,7 +1873,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
-  // PIN Entry - Bottom Sheet
   pinModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -1845,7 +1995,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  // Modal Styles
   modalContainer: {
     flex: 1,
     backgroundColor: '#fff',
@@ -1879,6 +2028,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#666',
     fontWeight: '600',
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
   },
 
   listItem: {
@@ -1935,9 +2098,22 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 15,
     color: '#999',
+    marginBottom: 16,
   },
 
-  // Plan Item Styles (in modal)
+  retryButton: {
+    backgroundColor: '#ff3b30',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+
   planItem: {
     padding: 16,
     borderBottomWidth: 1,
@@ -1953,13 +2129,7 @@ const styles = StyleSheet.create({
 
   planItemContent: {
     flex: 1,
-  },
-
-  planHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
+    position: 'relative',
   },
 
   planItemName: {
@@ -1979,6 +2149,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    marginTop: 8,
     marginBottom: 4,
   },
 
@@ -1993,8 +2164,24 @@ const styles = StyleSheet.create({
 
   planItemDescription: {
     fontSize: 12,
-    color: '#888',
+    color: '#666',
     marginTop: 4,
     fontStyle: 'italic',
+  },
+
+  popularBadge: {
+    position: 'absolute',
+    top: -8,
+    right: 0,
+    backgroundColor: '#ff3b30',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+
+  popularBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
   },
 });
