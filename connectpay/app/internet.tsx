@@ -415,17 +415,33 @@ export default function BuyInternet() {
 
   // ---------- PIN Functions ----------
   const checkPinStatus = async () => {
-    try {
-      console.log('Checking PIN status...');
-      const response = await makeApiRequest('/purchase/pin-status');
-      
-      if (response.success) {
-        setPinStatus(response);
-      }
-    } catch (error) {
-      console.error('Error checking PIN status:', error);
+  try {
+    console.log('🔍 Checking PIN status...');
+    console.log('📍 API Base URL:', API_CONFIG.BASE_URL);
+    console.log('📍 Full URL will be:', `${API_CONFIG.BASE_URL}/purchase/pin-status`);
+    
+    const response = await makeApiRequest('/purchase/pin-status');
+    
+    console.log('✅ PIN status response:', response);
+    
+    if (response.success) {
+      setPinStatus(response);
+    } else {
+      console.warn('⚠️ PIN status check returned success: false');
     }
-  };
+  } catch (error) {
+    console.error('❌ Error checking PIN status:', error.message);
+    
+    // Set default PIN status to prevent crashes
+    setPinStatus({
+      isPinSet: false,
+      hasPinSet: false,
+      isLocked: false,
+      lockTimeRemaining: 0,
+      attemptsRemaining: 3
+    });
+  }
+};
 
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);

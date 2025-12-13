@@ -1934,5 +1934,12 @@ router.get('/test-smile-availability', authenticate, async (req, res) => {
     });
   }
 });
-
+router.get('/test-no-auth', (req, res) => {
+  console.log('🧪 Purchase test route hit - NO AUTH');
+  res.json({ 
+    success: true, 
+    message: 'Purchase routes are working!',
+    timestamp: new Date().toISOString()
+  });
+});
 module.exports = router;
