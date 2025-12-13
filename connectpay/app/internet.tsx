@@ -708,13 +708,14 @@ export default function BuyInternet() {
         pinProvided: !!pin
       });
 
-      const response = await makeApiRequest('/purchase', {
+     const response = await makeApiRequest('/purchase', {
   method: 'POST',
   body: JSON.stringify({
     type: 'internet',
     provider: selectedProvider,
-    planId: selectedPlan?.id,        // ← CHANGED: Send ID instead of name
-    planName: selectedPlan?.name,    // ← ADDED: Also send name for display
+    plan: selectedPlan?.name,        // ← CHANGED: Use 'plan' instead of 'planName'
+    planId: selectedPlan?.id,        // ← Keep this for the API call
+    planType: selectedPlan?.category || 'monthly',  // ← ADD: Include planType
     customerNumber: customerNumber,
     amount: amount,
     pin: pin,
