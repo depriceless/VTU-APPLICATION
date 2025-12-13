@@ -133,6 +133,204 @@ const validateServiceAvailability = async (serviceType) => {
   }
 };
 
+// ============================================================
+// ADD THESE FUNCTIONS TO routes/purchase.js
+// Place them AFTER the imports and CK_CONFIG, BEFORE the routes
+// ============================================================
+
+/**
+ * Fetch WAEC packages from ClubKonnect
+ */
+async function fetchWAECPackages() {
+  try {
+    const url = `${CK_CONFIG.baseUrl}/APIWAECPackagesV2.asp?UserID=${CK_CONFIG.userId}`;
+    
+    console.log('📡 Fetching WAEC packages from ClubKonnect...');
+    
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    let data = response.data;
+    
+    // Parse if string
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        console.error('Failed to parse WAEC response');
+        throw new Error('Invalid response from ClubKonnect');
+      }
+    }
+
+    console.log('✅ WAEC Raw Response:', JSON.stringify(data, null, 2));
+    
+    // Transform ClubKonnect data to our format
+    const packages = [];
+    
+    if (data.WAEC && Array.isArray(data.WAEC)) {
+      data.WAEC.forEach(service => {
+        if (service.PRODUCT && Array.isArray(service.PRODUCT)) {
+          service.PRODUCT.forEach(product => {
+            packages.push({
+              id: product.PACKAGE_ID || product.package_id,
+              code: product.PACKAGE_ID || product.package_id,
+              name: product.PACKAGE_NAME || product.name,
+              description: product.PACKAGE_NAME || product.name,
+              price: parseFloat(product.PACKAGE_AMOUNT || product.amount || 0),
+              provider: 'waec',
+              validity: '1 year',
+              active: true
+            });
+          });
+        }
+      });
+    }
+
+    console.log(`✅ Parsed ${packages.length} WAEC packages`);
+    return packages;
+    
+  } catch (error) {
+    console.error('❌ Error fetching WAEC packages:', error.message);
+    
+    // Return fallback packages if API fails
+    return [
+      {
+        id: 'waecdirect',
+        code: 'waecdirect',
+        name: 'WAEC Result Checker PIN',
+        description: 'WAEC Result Checker PIN',
+        price: 3900,
+        provider: 'waec',
+        validity: '1 year',
+        active: true
+      },
+      {
+        id: 'waec-registration',
+        code: 'waec-registration',
+        name: 'WAEC Registration PIN',
+        description: 'WAEC Registration PIN',
+        price: 14000,
+        provider: 'waec',
+        validity: 'Current session',
+        active: true
+      }
+    ];
+  }
+}
+
+/**
+ * Fetch JAMB packages from ClubKonnect
+ */
+async function fetchJAMBPackages() {
+  try {
+    const url = `${CK_CONFIG.baseUrl}/APIJAMBPackagesV2.asp?UserID=${CK_CONFIG.userId}`;
+    
+    console.log('📡 Fetching JAMB packages from ClubKonnect...');
+    
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+
+    let data = response.data;
+    
+    // Parse if string
+    if (typeof data === 'string') {
+      try {
+        data = JSON.parse(data);
+      } catch (e) {
+        console.error('Failed to parse JAMB response');
+        throw new Error('Invalid response from ClubKonnect');
+      }
+    }
+
+    console.log('✅ JAMB Raw Response:', JSON.stringify(data, null, 2));
+    
+    // Transform ClubKonnect data to our format
+    const packages = [];
+    
+    if (data.JAMB && Array.isArray(data.JAMB)) {
+      data.JAMB.forEach(service => {
+        if (service.PRODUCT && Array.isArray(service.PRODUCT)) {
+          service.PRODUCT.forEach(product => {
+            packages.push({
+              id: product.PACKAGE_ID || product.package_id,
+              code: product.PACKAGE_ID || product.package_id,
+              name: product.PACKAGE_NAME || product.name,
+              description: product.PACKAGE_NAME || product.name,
+              price: parseFloat(product.PACKAGE_AMOUNT || product.amount || 0),
+              provider: 'jamb',
+              validity: 'Current session',
+              active: true
+            });
+          });
+        }
+      });
+    }
+
+    console.log(`✅ Parsed ${packages.length} JAMB packages`);
+    return packages;
+    
+  } catch (error) {
+    console.error('❌ Error fetching JAMB packages:', error.message);
+    
+    // Return fallback packages if API fails
+    return [
+      {
+        id: 'utme',
+        code: 'utme',
+        name: 'JAMB UTME e-PIN',
+        description: 'JAMB UTME Registration PIN',
+        price: 4500,
+        provider: 'jamb',
+        validity: 'Current session',
+        active: true
+      },
+      {
+        id: 'de',
+        code: 'de',
+        name: 'JAMB Direct Entry e-PIN',
+        description: 'JAMB Direct Entry Registration PIN',
+        price: 4500,
+        provider: 'jamb',
+        validity: 'Current session',
+        active: true
+      }
+    ];
+  }
+}
+
+/**
+ * Fetch all education packages (WAEC + JAMB)
+ */
+async function fetchAllEducationPackages() {
+  try {
+    console.log('📚 Fetching all education packages...');
+    
+    const [waecPackages, jambPackages] = await Promise.all([
+      fetchWAECPackages(),
+      fetchJAMBPackages()
+    ]);
+
+    return {
+      waec: waecPackages,
+      jamb: jambPackages,
+      all: [...waecPackages, ...jambPackages]
+    };
+  } catch (error) {
+    console.error('❌ Error fetching education packages:', error);
+    throw error;
+  }
+}
+
 // PIN attempt tracking
 const pinAttempts = new Map();
 const PIN_CONFIG = {
@@ -234,6 +432,42 @@ router.get('/history', authenticate, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch history'
+    });
+  }
+});
+
+// ============================================================
+// ADD THIS ROUTE TO routes/purchase.js
+// Place it in the "GET ROUTES" section, after /pin-status
+// ============================================================
+
+/**
+ * GET /api/purchase/education/packages
+ * Fetch all education packages from ClubKonnect
+ */
+router.get('/education/packages', authenticate, async (req, res) => {
+  try {
+    console.log('📚 GET /education/packages called by user:', req.user.userId);
+    
+    const packages = await fetchAllEducationPackages();
+    
+    console.log('✅ Returning packages:', {
+      waec: packages.waec.length,
+      jamb: packages.jamb.length,
+      total: packages.all.length
+    });
+    
+    res.json({
+      success: true,
+      data: packages,
+      lastUpdated: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Error in /education/packages route:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch education packages',
+      error: error.message
     });
   }
 });
@@ -1125,64 +1359,142 @@ async function processFundBettingPurchase({ provider, customerId, customerName, 
   }
 }
 
+// FIXED processEducationPurchase function
+// Replace the existing function in routes/purchase.js
+
+
 async function processEducationPurchase({ provider, examType, phone, amount, userId }) {
   try {
     if (!provider || !examType || !phone) {
       throw new Error('Missing required fields');
     }
 
-    // Get service WITHOUT markup (use ClubKonnect price directly)
-    const serviceInfo = getEducationService(provider, examType);
-    if (!serviceInfo) {
-      throw new Error('Invalid education service selected');
+    console.log('=== EDUCATION PURCHASE START ===');
+    console.log('Provider:', provider);
+    console.log('ExamType (from frontend):', examType);
+    console.log('Phone:', phone);
+    console.log('Amount:', amount);
+
+    // ✅ STEP 1: FETCH FRESH PACKAGES FROM CLUBKONNECT
+    let packages;
+    if (provider === 'waec') {
+      packages = await fetchWAECPackages();
+    } else if (provider === 'jamb') {
+      packages = await fetchJAMBPackages();
+    } else {
+      throw new Error('Unsupported education provider');
     }
 
-    // Validate amount matches ClubKonnect price (no markup)
-    if (serviceInfo.providerCost !== amount) {
-      throw new Error(`Amount mismatch: expected ₦${serviceInfo.providerCost.toLocaleString()}, got ₦${amount.toLocaleString()}`);
+    console.log(`📦 Fetched ${packages.length} packages from ClubKonnect`);
+
+    // ✅ STEP 2: FIND THE SELECTED PACKAGE
+    const selectedPackage = packages.find(pkg => 
+      pkg.code === examType || pkg.id === examType
+    );
+
+    if (!selectedPackage) {
+      console.error('❌ Package not found:', examType);
+      console.log('Available packages:', packages.map(p => p.code));
+      throw new Error(`Package not found: ${examType}`);
     }
 
+    console.log('✅ Selected Package:', selectedPackage);
+
+    // ✅ STEP 3: VALIDATE AMOUNT MATCHES CURRENT CLUBKONNECT PRICE
+    if (selectedPackage.price !== amount) {
+      console.error('❌ Price mismatch!');
+      console.log('ClubKonnect price:', selectedPackage.price);
+      console.log('Customer paid:', amount);
+      
+      throw new Error(
+        `PRICE_CHANGED: Current price is ₦${selectedPackage.price.toLocaleString()}, but received ₦${amount.toLocaleString()}. Please refresh and try again.`
+      );
+    }
+
+    // ✅ STEP 4: PREPARE API CALL
     const requestId = `EDU_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     let endpoint, params;
 
     if (provider === 'waec') {
       endpoint = '/APIWAECV1.asp';
-      params = { ExamType: examType, PhoneNo: phone, RequestID: requestId };
+      params = { 
+        ExamType: selectedPackage.code,  // Use ClubKonnect's code
+        PhoneNo: phone, 
+        RequestID: requestId 
+      };
     } else if (provider === 'jamb') {
       endpoint = '/APIJAMBV1.asp';
-      params = { ExamType: examType, PhoneNo: phone, RequestID: requestId };
-    } else {
-      throw new Error('Unsupported education provider');
+      params = { 
+        ExamType: selectedPackage.code,  // Use ClubKonnect's code
+        PhoneNo: phone, 
+        RequestID: requestId 
+      };
     }
 
+    console.log('📡 API Call:', { endpoint, params });
+
+    // ✅ STEP 5: CALL CLUBKONNECT API
     const response = await makeClubKonnectRequest(endpoint, params);
 
-    const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
-                      response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
+    console.log('📥 ClubKonnect Response:', response);
+
+    // ✅ STEP 6: CHECK SUCCESS
+    const isSuccess = 
+      response.statuscode === '100' || 
+      response.statuscode === '200' || 
+      response.status === 'ORDER_RECEIVED' || 
+      response.status === 'ORDER_COMPLETED';
 
     if (!isSuccess) {
+      // Handle specific errors
+      if (response.status === 'INVALID_EXAMTYPE') {
+        throw new Error('Invalid exam type. Please contact support.');
+      }
+      if (response.status === 'INVALID_PHONENO') {
+        throw new Error('Invalid phone number format');
+      }
+      if (response.status === 'INSUFFICIENT_BALANCE') {
+        throw new Error('Insufficient balance in ClubKonnect account. Please contact support.');
+      }
+      
       throw new Error(response.remark || response.status || 'Purchase failed');
     }
+
+    // ✅ STEP 7: EXTRACT PIN DETAILS
+    const cardDetails = response.carddetails || '';
+    
+    console.log('✅ Purchase successful!');
+    console.log('Card Details:', cardDetails);
+    console.log('Order ID:', response.orderid);
 
     return {
       success: true,
       reference: response.orderid || requestId,
-      description: `${provider.toUpperCase()} ${serviceInfo.name} - ${phone}`,
-      successMessage: response.remark || 'Education payment successful',
+      description: `${provider.toUpperCase()} ${selectedPackage.name} - ${phone}`,
+      successMessage: response.remark || 'Education PIN purchased successfully',
       transactionData: {
         provider: provider.toUpperCase(),
-        examType,
-        serviceName: serviceInfo.name,
+        examType: selectedPackage.code,
+        serviceName: selectedPackage.name,
         phone,
-        providerCost: serviceInfo.providerCost,
-        customerPrice: serviceInfo.providerCost,  // Same as providerCost (no markup)
-        profit: 0,  // Zero profit for Education
+        cardDetails: cardDetails,  // PIN and Serial Number
+        providerCost: selectedPackage.price,
+        customerPrice: selectedPackage.price,
+        profit: 0,  // No markup on education
         serviceType: 'education',
         orderid: response.orderid,
+        statuscode: response.statuscode,
+        date: response.date,
+        walletbalance: response.walletbalance,
         apiResponse: response
       }
     };
+    
   } catch (error) {
+    console.error('=== EDUCATION PURCHASE ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    
     const reference = `EDU_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
       success: false,
@@ -1191,12 +1503,12 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
       transactionData: { 
         provider: provider?.toUpperCase(), 
         examType, 
+        phone,
         serviceType: 'education' 
       }
     };
   }
 }
-
 // Add this updated function to your purchase.js file
 
 async function processInternetPurchase({ provider, plan, planType, customerNumber, amount, userId }) {

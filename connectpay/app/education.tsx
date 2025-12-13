@@ -100,54 +100,10 @@ export default function BuyEducation() {
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState<any>(null);
   const [activeCategory, setActiveCategory] = useState('all');
+  const [examCards, setExamCards] = useState<ExamCard[]>([]);
+  const [isLoadingPackages, setIsLoadingPackages] = useState(true);
+  const [packagesLastUpdated, setPackagesLastUpdated] = useState<string | null>(null);
   const pinInputRef = React.useRef<TextInput>(null);
-
-  const examCards: ExamCard[] = [
-    {
-      id: 'jamb_utme',
-      name: 'JAMB UTME e-PIN',
-      code: 'jamb',
-      price: 4500,
-      description: 'JAMB UTME Registration PIN',
-      examBody: 'jamb',
-      validity: 'Current session',
-      logo: require('../assets/images/jamb.jpeg'),
-      category: 'tertiary'
-    },
-    {
-      id: 'jamb_de',
-      name: 'JAMB Direct Entry e-PIN',
-      code: 'jamb',
-      price: 4500,
-      description: 'JAMB Direct Entry Registration PIN',
-      examBody: 'jamb',
-      validity: 'Current session',
-      logo: require('../assets/images/jamb.jpeg'),
-      category: 'tertiary'
-    },
-    {
-      id: 'waec_checker',
-      name: 'WAEC Result Checker PIN',
-      code: 'waecdirect',
-      price: 3900,
-      description: 'WAEC Result Checker PIN',
-      examBody: 'waec',
-      validity: '1 year',
-      logo: require('../assets/images/waec.png'),
-      category: 'secondary'
-    },
-    {
-      id: 'waec_registration',
-      name: 'WAEC Registration PIN',
-      code: 'waec-registration',
-      price: 14000,
-      description: 'WAEC Registration PIN',
-      examBody: 'waec',
-      validity: 'Current session',
-      logo: require('../assets/images/waec.png'),
-      category: 'secondary'
-    },
-  ];
 
   const categories = [
     { id: 'all', name: 'All Exams' },
@@ -171,6 +127,7 @@ export default function BuyEducation() {
   useEffect(() => {
     loadRecentPurchases();
     loadFormState();
+    fetchEducationPackages(); // ✅ Fetch packages on mount
     
     if (balance) {
       const balanceAmount = getBalanceAmount(balance);
@@ -189,6 +146,142 @@ export default function BuyEducation() {
       checkPinStatus();
     }, 1000);
   }, []);
+
+  const fetchEducationPackages = async () => {
+    setIsLoadingPackages(true);
+    try {
+      console.log('📚 Fetching education packages from backend...');
+      
+      const response = await makeApiRequest('/education/packages');
+      
+      if (response.success && response.data) {
+        console.log('✅ Packages received:', response.data);
+        
+        // Logo mapping
+        const LOGO_MAPPING = {
+          'jamb': require('../assets/images/jamb.jpeg'),
+          'waec': require('../assets/images/waec.png')
+        };
+        
+        // Transform backend packages to ExamCard format
+        const transformedCards: ExamCard[] = [];
+        
+        // Process WAEC packages
+        if (response.data.waec && Array.isArray(response.data.waec)) {
+          response.data.waec.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description,
+              examBody: pkg.provider,
+              validity: pkg.validity,
+              logo: LOGO_MAPPING['waec'],
+              category: 'secondary'
+            });
+          });
+        }
+        
+        // Process JAMB packages
+        if (response.data.jamb && Array.isArray(response.data.jamb)) {
+          response.data.jamb.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description,
+              examBody: pkg.provider,
+              validity: pkg.validity,
+              logo: LOGO_MAPPING['jamb'],
+              category: 'tertiary'
+            });
+          });
+        }
+        
+        console.log('✅ Transformed cards:', transformedCards);
+        setExamCards(transformedCards);
+        setPackagesLastUpdated(response.lastUpdated);
+        
+        // Cache the packages
+        await AsyncStorage.setItem('educationPackages', JSON.stringify({
+          cards: transformedCards,
+          lastUpdated: response.lastUpdated
+        }));
+        
+      } else {
+        throw new Error('Invalid response format');
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching packages:', error);
+      
+      // Try to load from cache
+      try {
+        const cached = await AsyncStorage.getItem('educationPackages');
+        if (cached) {
+          const { cards, lastUpdated } = JSON.parse(cached);
+          setExamCards(cards);
+          setPackagesLastUpdated(lastUpdated);
+          console.log('📦 Using cached packages');
+        } else {
+          // Fallback to hardcoded if no cache
+          setExamCards([
+            {
+              id: 'utme',
+              name: 'JAMB UTME e-PIN',
+              code: 'utme',
+              price: 4500,
+              description: 'JAMB UTME Registration PIN',
+              examBody: 'jamb',
+              validity: 'Current session',
+              logo: require('../assets/images/jamb.jpeg'),
+              category: 'tertiary'
+            },
+            {
+              id: 'de',
+              name: 'JAMB Direct Entry e-PIN',
+              code: 'de',
+              price: 4500,
+              description: 'JAMB Direct Entry Registration PIN',
+              examBody: 'jamb',
+              validity: 'Current session',
+              logo: require('../assets/images/jamb.jpeg'),
+              category: 'tertiary'
+            },
+            {
+              id: 'waecdirect',
+              name: 'WAEC Result Checker PIN',
+              code: 'waecdirect',
+              price: 3900,
+              description: 'WAEC Result Checker PIN',
+              examBody: 'waec',
+              validity: '1 year',
+              logo: require('../assets/images/waec.png'),
+              category: 'secondary'
+            },
+            {
+              id: 'waec-registration',
+              name: 'WAEC Registration PIN',
+              code: 'waec-registration',
+              price: 14000,
+              description: 'WAEC Registration PIN',
+              examBody: 'waec',
+              validity: 'Current session',
+              logo: require('../assets/images/waec.png'),
+              category: 'secondary'
+            }
+          ]);
+          console.log('📦 Using fallback packages');
+        }
+      } catch (cacheError) {
+        console.error('Cache error:', cacheError);
+      }
+    } finally {
+      setIsLoadingPackages(false);
+    }
+  };
 
   useEffect(() => {
     if (currentStep === 2) {
@@ -596,60 +689,76 @@ export default function BuyEducation() {
           contentContainerStyle={styles.scrollContentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {/* Category Filter */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Filter by Category</Text>
-            <View style={styles.categoryRow}>
-              {categories.map((category) => (
-                <TouchableOpacity
-                  key={category.id}
-                  style={[
-                    styles.categoryBtn,
-                    activeCategory === category.id && styles.categoryBtnActive
-                  ]}
-                  onPress={() => handleCategorySelect(category.id)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[
-                    styles.categoryText,
-                    activeCategory === category.id && styles.categoryTextActive
-                  ]}>
-                    {category.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+          {/* Loading Indicator */}
+          {isLoadingPackages && (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ff3b30" />
+              <Text style={styles.loadingText}>Loading education packages...</Text>
             </View>
-          </View>
+          )}
+
+          {/* Category Filter */}
+          {!isLoadingPackages && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Filter by Category</Text>
+              <View style={styles.categoryRow}>
+                {categories.map((category) => (
+                  <TouchableOpacity
+                    key={category.id}
+                    style={[
+                      styles.categoryBtn,
+                      activeCategory === category.id && styles.categoryBtnActive
+                    ]}
+                    onPress={() => handleCategorySelect(category.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[
+                      styles.categoryText,
+                      activeCategory === category.id && styles.categoryTextActive
+                    ]}>
+                      {category.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Exam Selection */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Select Exam Card</Text>
-            <View style={styles.examGrid}>
-              {filteredExams.map((exam) => (
-                <TouchableOpacity
-                  key={exam.id}
-                  style={[
-                    styles.examCard,
-                    selectedExam?.id === exam.id && styles.examCardSelected
-                  ]}
-                  onPress={() => setSelectedExam(exam)}
-                  activeOpacity={0.7}
-                >
-                  <Image source={exam.logo} style={styles.examLogo} />
-                  <Text style={styles.examName}>{exam.name}</Text>
-                  <Text style={styles.examPrice}>{formatCurrency(exam.price)}</Text>
-                  {selectedExam?.id === exam.id && (
-                    <View style={styles.selectedIndicator}>
-                      <Text style={styles.selectedIndicatorText}>✓</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))}
+          {!isLoadingPackages && (
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Select Exam Card</Text>
+              {filteredExams.length === 0 ? (
+                <Text style={styles.noPackagesText}>No packages available</Text>
+              ) : (
+                <View style={styles.examGrid}>
+                  {filteredExams.map((exam) => (
+                    <TouchableOpacity
+                      key={exam.id}
+                      style={[
+                        styles.examCard,
+                        selectedExam?.id === exam.id && styles.examCardSelected
+                      ]}
+                      onPress={() => setSelectedExam(exam)}
+                      activeOpacity={0.7}
+                    >
+                      <Image source={exam.logo} style={styles.examLogo} />
+                      <Text style={styles.examName}>{exam.name}</Text>
+                      <Text style={styles.examPrice}>{formatCurrency(exam.price)}</Text>
+                      {selectedExam?.id === exam.id && (
+                        <View style={styles.selectedIndicator}>
+                          <Text style={styles.selectedIndicatorText}>✓</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
-          </View>
+          )}
 
           {/* Quantity Selection */}
-          {selectedExam && (
+          {!isLoadingPackages && selectedExam && (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Quantity</Text>
               <View style={styles.quantityContainer}>
@@ -690,7 +799,7 @@ export default function BuyEducation() {
           )}
 
           {/* Phone Number Input */}
-          {selectedExam && (
+          {!isLoadingPackages && selectedExam && (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Recipient Phone Number</Text>
               <TextInput
@@ -719,22 +828,24 @@ export default function BuyEducation() {
           )}
 
           {/* Proceed Button */}
-          <TouchableOpacity
-            style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
-            disabled={!canProceed}
-            onPress={() => setCurrentStep(2)}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.primaryButtonText}>
-              {canProceed 
-                ? `Review Purchase • ${formatCurrency(totalAmount)}` 
-                : 'Complete Form to Continue'
-              }
-            </Text>
-          </TouchableOpacity>
+          {!isLoadingPackages && (
+            <TouchableOpacity
+              style={[styles.primaryButton, !canProceed && styles.primaryButtonDisabled]}
+              disabled={!canProceed}
+              onPress={() => setCurrentStep(2)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.primaryButtonText}>
+                {canProceed 
+                  ? `Review Purchase • ${formatCurrency(totalAmount)}` 
+                  : 'Complete Form to Continue'
+                }
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Recent Purchases */}
-          {recentPurchases.length > 0 && (
+          {!isLoadingPackages && recentPurchases.length > 0 && (
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Recent Purchases</Text>
               <View style={styles.recentList}>
@@ -774,7 +885,7 @@ export default function BuyEducation() {
                   <ActivityIndicator size="small" color="#ff3b30" />
                 ) : (
                   <Text style={styles.refreshIcon}>↻</Text>
-                )}
+              )}
               </TouchableOpacity>
             </View>
 
@@ -1030,6 +1141,22 @@ const styles = StyleSheet.create({
   scrollContentContainer: {
     padding: 16,
     paddingBottom: 40,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: '#666',
+  },
+  noPackagesText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 14,
+    paddingVertical: 20,
   },
   card: {
     backgroundColor: '#fff',
