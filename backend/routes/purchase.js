@@ -1197,16 +1197,19 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
   }
 }
 
-// Add this updated function to your purchase.js file
 async function processInternetPurchase({ provider, planId, planName, customerNumber, amount, userId }) {
+  const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
   try {
     console.log('=== INTERNET PURCHASE START ===');
     console.log('Provider:', provider);
-    console.log('Plan ID:', planId);
+    console.log('Plan ID:', planId, 'Type:', typeof planId);
     console.log('Plan Name:', planName);
     console.log('Customer Number:', customerNumber);
     console.log('Amount:', amount);
+    console.log('Request ID:', requestId);
     
+    // Validation
     if (!provider || !planId || !customerNumber) {
       throw new Error('Missing required fields: provider, planId, customerNumber');
     }
@@ -1215,68 +1218,85 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
       throw new Error('Only Smile internet is currently supported');
     }
 
+    // Lookup plan
     console.log('📡 Looking up plan in static list...');
     const selectedPlan = findSmilePlanById(planId);
     
     if (!selectedPlan) {
+      console.error('❌ Invalid plan ID:', planId);
       throw new Error(`Invalid plan ID: "${planId}". Please select a valid Smile plan.`);
     }
 
-    console.log('✅ Plan found:', selectedPlan);
+    console.log('✅ Plan found:', JSON.stringify(selectedPlan, null, 2));
 
     const clubKonnectPrice = selectedPlan.amount;
 
-    // Validate amount matches plan price
+    // Price validation
     if (clubKonnectPrice !== amount) {
+      console.error(`❌ Price mismatch: Expected ₦${clubKonnectPrice}, Got ₦${amount}`);
       throw new Error(
         `Price mismatch: Plan "${selectedPlan.name}" costs ₦${clubKonnectPrice.toLocaleString()} but received ₦${amount.toLocaleString()}`
       );
     }
 
-    console.log('💰 Price validation passed');
+    console.log('✅ Price validation passed');
 
-    // ✅ CRITICAL FIX: Use correct network code for Smile
-    const networkCode = 'smile-direct';
-    const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    console.log('📡 Calling ClubKonnect API...');
-    console.log('Network Code:', networkCode);
-    console.log('Data Plan (planId):', planId);
-    console.log('Mobile Number:', customerNumber);
-    console.log('Request ID:', requestId);
-
-    // ✅ CRITICAL: Ensure planId is passed as string, not object
+    // ✅ CRITICAL FIX: Smile API doesn't use MobileNetwork parameter
+    // Based on ClubKonnect documentation, Smile uses different parameter structure
     const apiParams = {
-      MobileNetwork: networkCode,
-      DataPlan: String(planId),  // Force string conversion
-      MobileNumber: String(customerNumber),  // Force string conversion
+      DataPlan: String(planId).trim(),
+      MobileNumber: String(customerNumber).trim(),
       RequestID: requestId
     };
 
+    console.log('📡 Calling ClubKonnect Smile API...');
+    console.log('API Endpoint: /APISmileV1.asp');
     console.log('API Params:', JSON.stringify(apiParams, null, 2));
 
-    // Purchase from ClubKonnect
-    const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', apiParams);
-
-    console.log('ClubKonnect Response:', JSON.stringify(purchaseResponse, null, 2));
-
-    const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code;
-    const status = purchaseResponse.status || purchaseResponse.orderstatus;
-    const remark = purchaseResponse.remark || purchaseResponse.message;
-
-    console.log('Status Code:', statusCode);
-    console.log('Status:', status);
-    console.log('Remark:', remark);
-
-    // Check for success
-    if (statusCode === '100' || statusCode === '200' || 
-        status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
+    // Make the API call
+    let purchaseResponse;
+    try {
+      purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', apiParams);
+      console.log('✅ ClubKonnect Response:', JSON.stringify(purchaseResponse, null, 2));
+    } catch (apiError) {
+      console.error('❌ ClubKonnect API Error:', apiError.message);
       
-      console.log('✅ Purchase successful!');
+      // Check if it's a network availability error
+      if (apiError.message.includes('MobileNetwork_NOT_AVAILABLE')) {
+        throw new Error('Smile service is temporarily unavailable. Please try again later or contact support.');
+      }
+      
+      throw apiError;
+    }
+
+    // Parse response
+    const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code || purchaseResponse.StatusCode;
+    const status = purchaseResponse.status || purchaseResponse.orderstatus || purchaseResponse.Status;
+    const remark = purchaseResponse.remark || purchaseResponse.message || purchaseResponse.Remark;
+    const orderId = purchaseResponse.orderid || purchaseResponse.OrderID || purchaseResponse.transactionid || requestId;
+
+    console.log('📊 Response Analysis:');
+    console.log('  Status Code:', statusCode);
+    console.log('  Status:', status);
+    console.log('  Remark:', remark);
+    console.log('  Order ID:', orderId);
+
+    // ✅ SUCCESS - Check for multiple success indicators
+    const successIndicators = [
+      statusCode === '100',
+      statusCode === '200',
+      status === 'ORDER_RECEIVED',
+      status === 'ORDER_COMPLETED',
+      status === 'SUCCESSFUL',
+      remark?.toLowerCase().includes('success')
+    ];
+
+    if (successIndicators.some(indicator => indicator)) {
+      console.log('✅✅✅ Purchase successful!');
       
       return {
         success: true,
-        reference: purchaseResponse.orderid || requestId,
+        reference: orderId,
         description: `Internet - SMILE ${selectedPlan.name} - ${customerNumber}`,
         successMessage: remark || 'Smile internet subscription successful',
         transactionData: {
@@ -1288,68 +1308,68 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
           customerPrice: clubKonnectPrice,
           profit: 0,
           serviceType: 'internet',
-          orderid: purchaseResponse.orderid,
+          orderid: orderId,
           statuscode: statusCode,
           status: status,
+          remark: remark,
           apiResponse: purchaseResponse
         }
       };
     }
 
-    // Handle specific errors with better messages
-    if (status === 'INVALID_ACCOUNTNO' || status === 'INVALID_MOBILENUMBER') {
-      throw new Error('Invalid Smile account number. Please verify the customer number.');
-    }
-    if (status === 'DATAPLAN_NOT_AVAILABLE' || status === 'MobileNetwork_NOT_AVAILABLE') {
-      throw new Error(`The selected plan (${selectedPlan.name}) is temporarily unavailable. Please try another plan or contact support.`);
-    }
-    if (status === 'INSUFFICIENT_BALANCE') {
-      throw new Error('Insufficient balance in provider account. Please contact administrator.');
-    }
+    // ❌ FAILURE - Handle specific error cases
+    console.error('❌ Purchase failed. Status:', status, 'Remark:', remark);
+    
+    // Map ClubKonnect errors to user-friendly messages
+    const errorMessages = {
+      'INVALID_ACCOUNTNO': 'Invalid Smile account number. Please verify the customer number.',
+      'INVALID_MOBILENUMBER': 'Invalid customer number format. Please check and try again.',
+      'DATAPLAN_NOT_AVAILABLE': `The ${selectedPlan.name} plan is temporarily unavailable. Please try another plan.`,
+      'MobileNetwork_NOT_AVAILABLE': 'Smile network service is temporarily unavailable. Please try again later.',
+      'INSUFFICIENT_BALANCE': 'Service provider balance insufficient. Please contact administrator.',
+      'INVALID_DATAPLAN': `Invalid plan selected. Plan ID "${planId}" is not recognized.`,
+      'AUTHENTICATION_FAILED': 'Service authentication error. Please contact administrator.',
+      'ORDER_FAILED': 'Transaction failed. Please try again or contact support.'
+    };
 
-    // Generic error
-    throw new Error(remark || status || 'Internet subscription failed. Please try again.');
+    const errorMessage = errorMessages[status] || remark || status || 'Internet subscription failed. Please try again.';
+    throw new Error(errorMessage);
 
   } catch (error) {
     console.error('=== INTERNET PURCHASE ERROR ===');
-    console.error('Error Name:', error.name);
+    console.error('Error Type:', error.constructor.name);
     console.error('Error Message:', error.message);
-    console.error('Error Stack:', error.stack);
     
-    const reference = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
       success: false,
-      reference,
-      errorMessage: error.message,
+      reference: requestId,
+      errorMessage: error.message || 'Internet subscription failed',
       transactionData: { 
         provider: provider?.toUpperCase(), 
         planId,
         planName, 
         customerNumber, 
-        serviceType: 'internet' 
+        serviceType: 'internet',
+        error: error.message
       }
     };
   }
 }
 
-// Helper function to find Smile plan by ID
+// Keep the same findSmilePlanById function
 function findSmilePlanById(planId) {
-  console.log('🔍 Looking up plan ID:', planId, 'Type:', typeof planId);
-  
-  // Ensure planId is a string for comparison
-  const searchId = String(planId);
+  const searchId = String(planId).trim();
+  console.log('🔍 Searching for plan ID:', searchId, 'Length:', searchId.length);
   
   const SMILE_PLANS = [
-    // FlexiDaily Plans
+    // FlexiDaily
     { id: '624', name: '1GB FlexiDaily', amount: 450 },
     { id: '625', name: '2.5GB FlexiDaily', amount: 750 },
-    
-    // FlexiWeekly Plans
+    // FlexiWeekly
     { id: '626', name: '1GB FlexiWeekly', amount: 750 },
     { id: '627', name: '2GB FlexiWeekly', amount: 1550 },
     { id: '628', name: '6GB FlexiWeekly', amount: 2300 },
-    
-    // Bigga Plans (Most Popular)
+    // Bigga (Most Popular)
     { id: '606', name: '1.5GB Bigga', amount: 1550 },
     { id: '607', name: '2GB Bigga', amount: 1850 },
     { id: '608', name: '3GB Bigga', amount: 2300 },
@@ -1365,23 +1385,19 @@ function findSmilePlanById(planId) {
     { id: '618', name: '75GB Bigga', amount: 23000 },
     { id: '619', name: '100GB Bigga', amount: 27500 },
     { id: '668', name: '130GB Bigga', amount: 30500 },
-    
-    // Unlimited Plans
+    // Unlimited
     { id: '730', name: 'UnlimitedLite', amount: 18500 },
     { id: '729', name: 'UnlimitedEssential', amount: 27700 },
-    
-    // Freedom Plans
+    // Freedom
     { id: '726', name: 'Freedom 3Mbps', amount: 38500 },
     { id: '727', name: 'Freedom 6Mbps', amount: 46500 },
     { id: '728', name: 'Freedom BestEffort', amount: 61500 },
-    
-    // Jumbo Plans
+    // Jumbo
     { id: '665', name: '90GB Jumbo', amount: 31000 },
     { id: '666', name: '160GB Jumbo', amount: 53000 },
     { id: '667', name: '200GB Jumbo', amount: 62000 },
     { id: '721', name: '400GB Jumbo', amount: 77000 },
-    
-    // Annual Plans
+    // Annual
     { id: '687', name: '15GB Annual', amount: 14000 },
     { id: '688', name: '35GB Annual', amount: 29000 },
     { id: '689', name: '70GB Annual', amount: 49500 },
@@ -1389,8 +1405,7 @@ function findSmilePlanById(planId) {
     { id: '604', name: '200GB Annual', amount: 107000 },
     { id: '673', name: '500GB Annual', amount: 154000 },
     { id: '674', name: '1TB Annual', amount: 185000 },
-    
-    // Voice Plans
+    // Voice
     { id: '747', name: 'SmileVoice 65min', amount: 900 },
     { id: '748', name: 'SmileVoice 135min', amount: 1850 },
     { id: '749', name: 'SmileVoice 430min', amount: 5700 },
@@ -1398,20 +1413,20 @@ function findSmilePlanById(planId) {
     { id: '751', name: 'SmileVoice 450min', amount: 7200 },
     { id: '752', name: 'SmileVoice 175min', amount: 3600 },
     { id: '753', name: 'SmileVoice 500min', amount: 9000 },
-    
-    // Mobile Plan
+    // Mobile
     { id: '758', name: 'Freedom Mobile Plan', amount: 5000 },
   ];
   
   const found = SMILE_PLANS.find(p => p.id === searchId);
   
   if (found) {
-    console.log('✅ Found plan:', found);
+    console.log('✅ Found plan:', found.id, '-', found.name, '- ₦' + found.amount);
     return found;
   }
   
-  console.error('❌ Plan ID not found:', searchId);
-  console.error('Available IDs:', SMILE_PLANS.map(p => p.id).join(', '));
+  console.error('❌ Plan ID not found!');
+  console.error('Searched for:', searchId);
+  console.error('First 10 available IDs:', SMILE_PLANS.slice(0, 10).map(p => p.id).join(', '));
   return null;
 }
 
