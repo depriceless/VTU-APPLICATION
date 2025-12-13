@@ -1198,7 +1198,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
 }
 
 // Add this updated function to your purchase.js file
-
 async function processInternetPurchase({ provider, planId, planName, customerNumber, amount, userId }) {
   try {
     console.log('=== INTERNET PURCHASE START ===');
@@ -1236,23 +1235,40 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
 
     console.log('💰 Price validation passed');
 
+    // ✅ CRITICAL FIX: Use correct network code for Smile
     const networkCode = 'smile-direct';
     const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Purchase from ClubKonnect
-    const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', {
-      MobileNetwork: networkCode,
-      DataPlan: planId,
-      MobileNumber: customerNumber,
-      RequestID: requestId
-    });
+    console.log('📡 Calling ClubKonnect API...');
+    console.log('Network Code:', networkCode);
+    console.log('Data Plan (planId):', planId);
+    console.log('Mobile Number:', customerNumber);
+    console.log('Request ID:', requestId);
 
-    console.log('ClubKonnect Response:', purchaseResponse);
+    // ✅ CRITICAL: Ensure planId is passed as string, not object
+    const apiParams = {
+      MobileNetwork: networkCode,
+      DataPlan: String(planId),  // Force string conversion
+      MobileNumber: String(customerNumber),  // Force string conversion
+      RequestID: requestId
+    };
+
+    console.log('API Params:', JSON.stringify(apiParams, null, 2));
+
+    // Purchase from ClubKonnect
+    const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', apiParams);
+
+    console.log('ClubKonnect Response:', JSON.stringify(purchaseResponse, null, 2));
 
     const statusCode = purchaseResponse.statuscode || purchaseResponse.status_code;
     const status = purchaseResponse.status || purchaseResponse.orderstatus;
     const remark = purchaseResponse.remark || purchaseResponse.message;
 
+    console.log('Status Code:', statusCode);
+    console.log('Status:', status);
+    console.log('Remark:', remark);
+
+    // Check for success
     if (statusCode === '100' || statusCode === '200' || 
         status === 'ORDER_RECEIVED' || status === 'ORDER_COMPLETED') {
       
@@ -1280,19 +1296,25 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
       };
     }
 
-    // Handle specific errors
-    if (status === 'INVALID_ACCOUNTNO') {
-      throw new Error('Invalid Smile account number');
+    // Handle specific errors with better messages
+    if (status === 'INVALID_ACCOUNTNO' || status === 'INVALID_MOBILENUMBER') {
+      throw new Error('Invalid Smile account number. Please verify the customer number.');
     }
-    if (status === 'DATAPLAN_NOT_AVAILABLE') {
-      throw new Error(`Plan "${selectedPlan.name}" (ID: ${planId}) is not currently available`);
+    if (status === 'DATAPLAN_NOT_AVAILABLE' || status === 'MobileNetwork_NOT_AVAILABLE') {
+      throw new Error(`The selected plan (${selectedPlan.name}) is temporarily unavailable. Please try another plan or contact support.`);
+    }
+    if (status === 'INSUFFICIENT_BALANCE') {
+      throw new Error('Insufficient balance in provider account. Please contact administrator.');
     }
 
-    throw new Error(remark || status || 'Internet subscription failed');
+    // Generic error
+    throw new Error(remark || status || 'Internet subscription failed. Please try again.');
 
   } catch (error) {
     console.error('=== INTERNET PURCHASE ERROR ===');
-    console.error('Error:', error.message);
+    console.error('Error Name:', error.name);
+    console.error('Error Message:', error.message);
+    console.error('Error Stack:', error.stack);
     
     const reference = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
@@ -1310,19 +1332,24 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
   }
 }
 
-// Add this near the processInternetPurchase function in routes/purchase.js
-
-// ✅ FIXED: Enhanced findSmilePlan with logging and better matching
-
+// Helper function to find Smile plan by ID
 function findSmilePlanById(planId) {
-  console.log('🔍 Looking up plan ID:', planId);
+  console.log('🔍 Looking up plan ID:', planId, 'Type:', typeof planId);
+  
+  // Ensure planId is a string for comparison
+  const searchId = String(planId);
   
   const SMILE_PLANS = [
+    // FlexiDaily Plans
     { id: '624', name: '1GB FlexiDaily', amount: 450 },
     { id: '625', name: '2.5GB FlexiDaily', amount: 750 },
+    
+    // FlexiWeekly Plans
     { id: '626', name: '1GB FlexiWeekly', amount: 750 },
     { id: '627', name: '2GB FlexiWeekly', amount: 1550 },
     { id: '628', name: '6GB FlexiWeekly', amount: 2300 },
+    
+    // Bigga Plans (Most Popular)
     { id: '606', name: '1.5GB Bigga', amount: 1550 },
     { id: '607', name: '2GB Bigga', amount: 1850 },
     { id: '608', name: '3GB Bigga', amount: 2300 },
@@ -1338,15 +1365,23 @@ function findSmilePlanById(planId) {
     { id: '618', name: '75GB Bigga', amount: 23000 },
     { id: '619', name: '100GB Bigga', amount: 27500 },
     { id: '668', name: '130GB Bigga', amount: 30500 },
+    
+    // Unlimited Plans
     { id: '730', name: 'UnlimitedLite', amount: 18500 },
     { id: '729', name: 'UnlimitedEssential', amount: 27700 },
+    
+    // Freedom Plans
     { id: '726', name: 'Freedom 3Mbps', amount: 38500 },
     { id: '727', name: 'Freedom 6Mbps', amount: 46500 },
     { id: '728', name: 'Freedom BestEffort', amount: 61500 },
+    
+    // Jumbo Plans
     { id: '665', name: '90GB Jumbo', amount: 31000 },
     { id: '666', name: '160GB Jumbo', amount: 53000 },
     { id: '667', name: '200GB Jumbo', amount: 62000 },
     { id: '721', name: '400GB Jumbo', amount: 77000 },
+    
+    // Annual Plans
     { id: '687', name: '15GB Annual', amount: 14000 },
     { id: '688', name: '35GB Annual', amount: 29000 },
     { id: '689', name: '70GB Annual', amount: 49500 },
@@ -1354,6 +1389,8 @@ function findSmilePlanById(planId) {
     { id: '604', name: '200GB Annual', amount: 107000 },
     { id: '673', name: '500GB Annual', amount: 154000 },
     { id: '674', name: '1TB Annual', amount: 185000 },
+    
+    // Voice Plans
     { id: '747', name: 'SmileVoice 65min', amount: 900 },
     { id: '748', name: 'SmileVoice 135min', amount: 1850 },
     { id: '749', name: 'SmileVoice 430min', amount: 5700 },
@@ -1361,19 +1398,181 @@ function findSmilePlanById(planId) {
     { id: '751', name: 'SmileVoice 450min', amount: 7200 },
     { id: '752', name: 'SmileVoice 175min', amount: 3600 },
     { id: '753', name: 'SmileVoice 500min', amount: 9000 },
+    
+    // Mobile Plan
     { id: '758', name: 'Freedom Mobile Plan', amount: 5000 },
   ];
   
-  const found = SMILE_PLANS.find(p => p.id === planId);
+  const found = SMILE_PLANS.find(p => p.id === searchId);
   
   if (found) {
     console.log('✅ Found plan:', found);
     return found;
   }
   
-  console.error('❌ Plan ID not found:', planId);
+  console.error('❌ Plan ID not found:', searchId);
+  console.error('Available IDs:', SMILE_PLANS.map(p => p.id).join(', '));
   return null;
 }
+
+router.post('/internet/test-purchase', authenticate, async (req, res) => {
+  try {
+    const { planId, customerNumber } = req.body;
+    
+    console.log('=== DIAGNOSTIC TEST ===');
+    console.log('Plan ID:', planId, 'Type:', typeof planId);
+    console.log('Customer:', customerNumber);
+    
+    const testParams = {
+      MobileNetwork: 'smile-direct',
+      DataPlan: String(planId),
+      MobileNumber: String(customerNumber),
+      RequestID: `TEST_${Date.now()}`
+    };
+    
+    console.log('Test Params:', JSON.stringify(testParams, null, 2));
+    
+    // Build full URL
+    const queryParams = new URLSearchParams({
+      UserID: CK_CONFIG.userId,
+      APIKey: CK_CONFIG.apiKey,
+      ...testParams
+    });
+    
+    const url = `${CK_CONFIG.baseUrl}/APISmileV1.asp?${queryParams}`;
+    console.log('Full URL:', url);
+    
+    const response = await axios.get(url, {
+      timeout: 30000,
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('Response Status:', response.status);
+    console.log('Response Data:', JSON.stringify(response.data, null, 2));
+    
+    res.json({
+      success: true,
+      testUrl: url.replace(CK_CONFIG.apiKey, 'HIDDEN'),
+      response: response.data
+    });
+    
+  } catch (error) {
+    console.error('Test Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
+router.post('/smile-api-test', authenticate, async (req, res) => {
+  try {
+    console.log('=== SMILE API TEST ===');
+    
+    const { planId, customerNumber } = req.body;
+    
+    if (!planId || !customerNumber) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing planId or customerNumber'
+      });
+    }
+
+    // Test 1: Try with smile-direct (current approach)
+    console.log('\n📡 TEST 1: Using smile-direct');
+    const test1Params = {
+      UserID: CK_CONFIG.userId,
+      APIKey: CK_CONFIG.apiKey,
+      MobileNetwork: 'smile-direct',
+      DataPlan: String(planId),
+      MobileNumber: String(customerNumber),
+      RequestID: `TEST1_${Date.now()}`
+    };
+    
+    const url1 = `${CK_CONFIG.baseUrl}/APISmileV1.asp?${new URLSearchParams(test1Params)}`;
+    console.log('URL:', url1.replace(CK_CONFIG.apiKey, 'HIDDEN'));
+    
+    try {
+      const response1 = await axios.get(url1, { timeout: 15000 });
+      console.log('✅ Response 1:', JSON.stringify(response1.data, null, 2));
+    } catch (err1) {
+      console.error('❌ Error 1:', err1.response?.data || err1.message);
+    }
+
+    // Test 2: Try without MobileNetwork parameter
+    console.log('\n📡 TEST 2: Without MobileNetwork parameter');
+    const test2Params = {
+      UserID: CK_CONFIG.userId,
+      APIKey: CK_CONFIG.apiKey,
+      DataPlan: String(planId),
+      MobileNumber: String(customerNumber),
+      RequestID: `TEST2_${Date.now()}`
+    };
+    
+    const url2 = `${CK_CONFIG.baseUrl}/APISmileV1.asp?${new URLSearchParams(test2Params)}`;
+    console.log('URL:', url2.replace(CK_CONFIG.apiKey, 'HIDDEN'));
+    
+    try {
+      const response2 = await axios.get(url2, { timeout: 15000 });
+      console.log('✅ Response 2:', JSON.stringify(response2.data, null, 2));
+    } catch (err2) {
+      console.error('❌ Error 2:', err2.response?.data || err2.message);
+    }
+
+    // Test 3: Try with different parameter names
+    console.log('\n📡 TEST 3: Using Package instead of DataPlan');
+    const test3Params = {
+      UserID: CK_CONFIG.userId,
+      APIKey: CK_CONFIG.apiKey,
+      Package: String(planId),
+      MobileNumber: String(customerNumber),
+      RequestID: `TEST3_${Date.now()}`
+    };
+    
+    const url3 = `${CK_CONFIG.baseUrl}/APISmileV1.asp?${new URLSearchParams(test3Params)}`;
+    console.log('URL:', url3.replace(CK_CONFIG.apiKey, 'HIDDEN'));
+    
+    try {
+      const response3 = await axios.get(url3, { timeout: 15000 });
+      console.log('✅ Response 3:', JSON.stringify(response3.data, null, 2));
+    } catch (err3) {
+      console.error('❌ Error 3:', err3.response?.data || err3.message);
+    }
+
+    // Test 4: Check credentials with a simpler endpoint
+    console.log('\n📡 TEST 4: Testing credentials with wallet balance');
+    const test4Params = {
+      UserID: CK_CONFIG.userId,
+      APIKey: CK_CONFIG.apiKey
+    };
+    
+    const url4 = `${CK_CONFIG.baseUrl}/APIWalletBalanceV1.asp?${new URLSearchParams(test4Params)}`;
+    
+    try {
+      const response4 = await axios.get(url4, { timeout: 15000 });
+      console.log('✅ Credentials valid. Wallet response:', JSON.stringify(response4.data, null, 2));
+    } catch (err4) {
+      console.error('❌ Credentials invalid!', err4.response?.data || err4.message);
+    }
+
+    res.json({
+      success: true,
+      message: 'Test complete. Check server console for detailed logs.',
+      note: 'Look for the test that returned success (✅) vs errors (❌)'
+    });
+
+  } catch (error) {
+    console.error('Test error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
   const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
