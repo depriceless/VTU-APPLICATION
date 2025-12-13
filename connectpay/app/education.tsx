@@ -152,7 +152,7 @@ export default function BuyEducation() {
     try {
       console.log('📚 Fetching education packages from backend...');
       
-      const response = await makeApiRequest('/education/packages');
+     const response = await makeApiRequest('/education/packages');
       
       if (response.success && response.data) {
         console.log('✅ Packages received:', response.data);

@@ -392,6 +392,21 @@ try {
 }
 
 // ============================================
+// EDUCATION ROUTES
+// ============================================
+try {
+  const educationRoutes = require('./routes/education');
+  app.use('/api/education', educationRoutes);
+  console.log('✅ Education routes registered at /api/education');
+  console.log('   Expected endpoints:');
+  console.log('   - GET /api/education/packages');
+  console.log('   - GET /api/education/test');
+} catch (err) {
+  console.error('❌ Education routes error:', err.message);
+  console.error('Stack:', err.stack);
+}
+
+// ============================================
 // DATA ROUTES
 // ============================================
 if (dataRoutes) {
