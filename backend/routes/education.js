@@ -12,6 +12,7 @@ const CK_CONFIG = {
 
 /**
  * Fetch WAEC packages from ClubKonnect
+ * FIXED: ClubKonnect returns EXAM_TYPE array, not WAEC array
  */
 async function fetchWAECPackages() {
   try {
@@ -42,26 +43,43 @@ async function fetchWAECPackages() {
     
     const packages = [];
     
-    if (data.WAEC && Array.isArray(data.WAEC)) {
-      data.WAEC.forEach(service => {
-        if (service.PRODUCT && Array.isArray(service.PRODUCT)) {
-          service.PRODUCT.forEach(product => {
-            packages.push({
-              id: product.PACKAGE_ID || product.package_id,
-              code: product.PACKAGE_ID || product.package_id,
-              name: product.PACKAGE_NAME || product.name,
-              description: product.PACKAGE_NAME || product.name,
-              price: parseFloat(product.PACKAGE_AMOUNT || product.amount || 0),
-              provider: 'waec',
-              validity: '1 year',
-              active: true
-            });
-          });
-        }
+    // ✅ FIX: ClubKonnect uses EXAM_TYPE array instead of WAEC array
+    if (data.EXAM_TYPE && Array.isArray(data.EXAM_TYPE)) {
+      console.log(`Found ${data.EXAM_TYPE.length} WAEC products`);
+      
+      data.EXAM_TYPE.forEach(product => {
+        packages.push({
+          id: product.PRODUCT_CODE || product.product_code || 'waecdirect',
+          code: product.PRODUCT_CODE || product.product_code || 'waecdirect',
+          name: product.PRODUCT_DESCRIPTION || product.description || 'WAEC Result Checker PIN',
+          description: product.PRODUCT_DESCRIPTION || product.description || 'WAEC Result Checker PIN',
+          price: parseFloat(product.PRODUCT_AMOUNT || product.amount || 3900),
+          provider: 'waec',
+          validity: '1 year',
+          active: true
+        });
       });
     }
 
     console.log(`✅ Parsed ${packages.length} WAEC packages`);
+    
+    // If no packages, return fallback
+    if (packages.length === 0) {
+      console.log('⚠️ No WAEC packages from API, using fallback');
+      return [
+        {
+          id: 'waecdirect',
+          code: 'waecdirect',
+          name: 'WAEC Result Checker PIN',
+          description: 'WAEC Result Checker PIN',
+          price: 3900,
+          provider: 'waec',
+          validity: '1 year',
+          active: true
+        }
+      ];
+    }
+    
     return packages;
     
   } catch (error) {
@@ -78,16 +96,6 @@ async function fetchWAECPackages() {
         provider: 'waec',
         validity: '1 year',
         active: true
-      },
-      {
-        id: 'waec-registration',
-        code: 'waec-registration',
-        name: 'WAEC Registration PIN',
-        description: 'WAEC Registration PIN',
-        price: 14000,
-        provider: 'waec',
-        validity: 'Current session',
-        active: true
       }
     ];
   }
@@ -95,6 +103,7 @@ async function fetchWAECPackages() {
 
 /**
  * Fetch JAMB packages from ClubKonnect
+ * FIXED: ClubKonnect returns EXAM_TYPE array, not JAMB array
  */
 async function fetchJAMBPackages() {
   try {
@@ -125,26 +134,53 @@ async function fetchJAMBPackages() {
     
     const packages = [];
     
-    if (data.JAMB && Array.isArray(data.JAMB)) {
-      data.JAMB.forEach(service => {
-        if (service.PRODUCT && Array.isArray(service.PRODUCT)) {
-          service.PRODUCT.forEach(product => {
-            packages.push({
-              id: product.PACKAGE_ID || product.package_id,
-              code: product.PACKAGE_ID || product.package_id,
-              name: product.PACKAGE_NAME || product.name,
-              description: product.PACKAGE_NAME || product.name,
-              price: parseFloat(product.PACKAGE_AMOUNT || product.amount || 0),
-              provider: 'jamb',
-              validity: 'Current session',
-              active: true
-            });
-          });
-        }
+    // ✅ FIX: ClubKonnect uses EXAM_TYPE array instead of JAMB array
+    if (data.EXAM_TYPE && Array.isArray(data.EXAM_TYPE)) {
+      console.log(`Found ${data.EXAM_TYPE.length} JAMB products`);
+      
+      data.EXAM_TYPE.forEach(product => {
+        packages.push({
+          id: product.PRODUCT_CODE || product.product_code || 'utme',
+          code: product.PRODUCT_CODE || product.product_code || 'utme',
+          name: product.PRODUCT_DESCRIPTION || product.description || 'JAMB UTME e-PIN',
+          description: product.PRODUCT_DESCRIPTION || product.description || 'JAMB UTME e-PIN',
+          price: parseFloat(product.PRODUCT_AMOUNT || product.amount || 4500),
+          provider: 'jamb',
+          validity: 'Current session',
+          active: true
+        });
       });
     }
 
     console.log(`✅ Parsed ${packages.length} JAMB packages`);
+    
+    // If no packages, return fallback
+    if (packages.length === 0) {
+      console.log('⚠️ No JAMB packages from API, using fallback');
+      return [
+        {
+          id: 'utme',
+          code: 'utme',
+          name: 'JAMB UTME e-PIN',
+          description: 'JAMB UTME Registration PIN',
+          price: 4500,
+          provider: 'jamb',
+          validity: 'Current session',
+          active: true
+        },
+        {
+          id: 'de',
+          code: 'de',
+          name: 'JAMB Direct Entry e-PIN',
+          description: 'JAMB Direct Entry Registration PIN',
+          price: 4500,
+          provider: 'jamb',
+          validity: 'Current session',
+          active: true
+        }
+      ];
+    }
+    
     return packages;
     
   } catch (error) {

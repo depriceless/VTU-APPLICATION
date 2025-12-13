@@ -147,142 +147,186 @@ export default function BuyEducation() {
     }, 1000);
   }, []);
 
-  const fetchEducationPackages = async () => {
-    setIsLoadingPackages(true);
-    try {
-      console.log('📚 Fetching education packages from backend...');
+const fetchEducationPackages = async () => {
+  setIsLoadingPackages(true);
+  
+  // Define fallback packages that ALWAYS work
+  const FALLBACK_PACKAGES: ExamCard[] = [
+    {
+      id: 'utme',
+      name: 'JAMB UTME e-PIN',
+      code: 'utme',
+      price: 4500,
+      description: 'JAMB UTME Registration PIN',
+      examBody: 'jamb',
+      validity: 'Current session',
+      logo: require('../assets/images/jamb.jpeg'),
+      category: 'tertiary'
+    },
+    {
+      id: 'de',
+      name: 'JAMB Direct Entry e-PIN',
+      code: 'de',
+      price: 4500,
+      description: 'JAMB Direct Entry Registration PIN',
+      examBody: 'jamb',
+      validity: 'Current session',
+      logo: require('../assets/images/jamb.jpeg'),
+      category: 'tertiary'
+    },
+    {
+      id: 'waecdirect',
+      name: 'WAEC Result Checker PIN',
+      code: 'waecdirect',
+      price: 3900,
+      description: 'WAEC Result Checker PIN',
+      examBody: 'waec',
+      validity: '1 year',
+      logo: require('../assets/images/waec.png'),
+      category: 'secondary'
+    },
+    {
+      id: 'waec-registration',
+      name: 'WAEC Registration PIN',
+      code: 'waec-registration',
+      price: 14000,
+      description: 'WAEC Registration PIN',
+      examBody: 'waec',
+      validity: 'Current session',
+      logo: require('../assets/images/waec.png'),
+      category: 'secondary'
+    }
+  ];
+
+  try {
+    console.log('📚 Starting package fetch...');
+    console.log('API Base URL:', API_CONFIG.BASE_URL);
+    
+    // Try to fetch from backend
+    const response = await makeApiRequest('/education/packages');
+    
+    console.log('📦 Backend response received:', {
+      success: response?.success,
+      hasData: !!response?.data,
+      dataKeys: response?.data ? Object.keys(response.data) : []
+    });
+    
+    if (!response || !response.success || !response.data) {
+      console.warn('⚠️ Invalid response structure, using fallback');
+      throw new Error('Invalid response from server');
+    }
+    
+    // Logo mapping
+    const LOGO_MAPPING = {
+      'jamb': require('../assets/images/jamb.jpeg'),
+      'waec': require('../assets/images/waec.png')
+    };
+    
+    const transformedCards: ExamCard[] = [];
+    const packagesData = response.data;
+    
+    // Process WAEC packages
+    if (packagesData.waec && Array.isArray(packagesData.waec) && packagesData.waec.length > 0) {
+      console.log('📚 Processing', packagesData.waec.length, 'WAEC packages');
+      packagesData.waec.forEach((pkg: any) => {
+        transformedCards.push({
+          id: pkg.id || pkg.code,
+          name: pkg.name,
+          code: pkg.code,
+          price: pkg.price,
+          description: pkg.description || pkg.name,
+          examBody: pkg.provider || 'waec',
+          validity: pkg.validity || '1 year',
+          logo: LOGO_MAPPING['waec'],
+          category: 'secondary'
+        });
+      });
+    } else {
+      console.log('ℹ️ No WAEC packages from API, using fallback');
+    }
+    
+    // Process JAMB packages
+    if (packagesData.jamb && Array.isArray(packagesData.jamb) && packagesData.jamb.length > 0) {
+      console.log('📚 Processing', packagesData.jamb.length, 'JAMB packages');
+      packagesData.jamb.forEach((pkg: any) => {
+        transformedCards.push({
+          id: pkg.id || pkg.code,
+          name: pkg.name,
+          code: pkg.code,
+          price: pkg.price,
+          description: pkg.description || pkg.name,
+          examBody: pkg.provider || 'jamb',
+          validity: pkg.validity || 'Current session',
+          logo: LOGO_MAPPING['jamb'],
+          category: 'tertiary'
+        });
+      });
+    } else {
+      console.log('ℹ️ No JAMB packages from API, using fallback');
+    }
+    
+    // If we got packages from API, use them
+    if (transformedCards.length > 0) {
+      console.log('✅ Using', transformedCards.length, 'packages from API');
+      setExamCards(transformedCards);
+      setPackagesLastUpdated(response.lastUpdated || new Date().toISOString());
       
-     const response = await makeApiRequest('/education/packages');
-      
-      if (response.success && response.data) {
-        console.log('✅ Packages received:', response.data);
-        
-        // Logo mapping
-        const LOGO_MAPPING = {
-          'jamb': require('../assets/images/jamb.jpeg'),
-          'waec': require('../assets/images/waec.png')
-        };
-        
-        // Transform backend packages to ExamCard format
-        const transformedCards: ExamCard[] = [];
-        
-        // Process WAEC packages
-        if (response.data.waec && Array.isArray(response.data.waec)) {
-          response.data.waec.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description,
-              examBody: pkg.provider,
-              validity: pkg.validity,
-              logo: LOGO_MAPPING['waec'],
-              category: 'secondary'
-            });
-          });
-        }
-        
-        // Process JAMB packages
-        if (response.data.jamb && Array.isArray(response.data.jamb)) {
-          response.data.jamb.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description,
-              examBody: pkg.provider,
-              validity: pkg.validity,
-              logo: LOGO_MAPPING['jamb'],
-              category: 'tertiary'
-            });
-          });
-        }
-        
-        console.log('✅ Transformed cards:', transformedCards);
-        setExamCards(transformedCards);
-        setPackagesLastUpdated(response.lastUpdated);
-        
-        // Cache the packages
+      // Cache the packages
+      try {
         await AsyncStorage.setItem('educationPackages', JSON.stringify({
           cards: transformedCards,
-          lastUpdated: response.lastUpdated
+          lastUpdated: response.lastUpdated || new Date().toISOString()
         }));
-        
-      } else {
-        throw new Error('Invalid response format');
-      }
-      
-    } catch (error: any) {
-      console.error('❌ Error fetching packages:', error);
-      
-      // Try to load from cache
-      try {
-        const cached = await AsyncStorage.getItem('educationPackages');
-        if (cached) {
-          const { cards, lastUpdated } = JSON.parse(cached);
-          setExamCards(cards);
-          setPackagesLastUpdated(lastUpdated);
-          console.log('📦 Using cached packages');
-        } else {
-          // Fallback to hardcoded if no cache
-          setExamCards([
-            {
-              id: 'utme',
-              name: 'JAMB UTME e-PIN',
-              code: 'utme',
-              price: 4500,
-              description: 'JAMB UTME Registration PIN',
-              examBody: 'jamb',
-              validity: 'Current session',
-              logo: require('../assets/images/jamb.jpeg'),
-              category: 'tertiary'
-            },
-            {
-              id: 'de',
-              name: 'JAMB Direct Entry e-PIN',
-              code: 'de',
-              price: 4500,
-              description: 'JAMB Direct Entry Registration PIN',
-              examBody: 'jamb',
-              validity: 'Current session',
-              logo: require('../assets/images/jamb.jpeg'),
-              category: 'tertiary'
-            },
-            {
-              id: 'waecdirect',
-              name: 'WAEC Result Checker PIN',
-              code: 'waecdirect',
-              price: 3900,
-              description: 'WAEC Result Checker PIN',
-              examBody: 'waec',
-              validity: '1 year',
-              logo: require('../assets/images/waec.png'),
-              category: 'secondary'
-            },
-            {
-              id: 'waec-registration',
-              name: 'WAEC Registration PIN',
-              code: 'waec-registration',
-              price: 14000,
-              description: 'WAEC Registration PIN',
-              examBody: 'waec',
-              validity: 'Current session',
-              logo: require('../assets/images/waec.png'),
-              category: 'secondary'
-            }
-          ]);
-          console.log('📦 Using fallback packages');
-        }
+        console.log('✅ Packages cached successfully');
       } catch (cacheError) {
-        console.error('Cache error:', cacheError);
+        console.warn('⚠️ Could not cache packages:', cacheError);
       }
-    } finally {
-      setIsLoadingPackages(false);
+    } else {
+      // No packages from API, use fallback
+      console.log('⚠️ No packages from API, using fallback');
+      throw new Error('No packages in API response');
     }
-  };
-
+    
+  } catch (error: any) {
+    console.error('❌ Error fetching packages:', error.message);
+    
+    // Try to load from cache
+    let usedCache = false;
+    try {
+      const cached = await AsyncStorage.getItem('educationPackages');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.cards && Array.isArray(parsed.cards) && parsed.cards.length > 0) {
+          console.log('📦 Using', parsed.cards.length, 'cached packages');
+          setExamCards(parsed.cards);
+          setPackagesLastUpdated(parsed.lastUpdated);
+          usedCache = true;
+        }
+      }
+    } catch (cacheError) {
+      console.warn('⚠️ Could not load from cache:', cacheError);
+    }
+    
+    // If cache didn't work, use fallback
+    if (!usedCache) {
+      console.log('📦 Using', FALLBACK_PACKAGES.length, 'fallback packages');
+      setExamCards(FALLBACK_PACKAGES);
+      setPackagesLastUpdated(new Date().toISOString());
+      
+      // Cache the fallback packages for next time
+      try {
+        await AsyncStorage.setItem('educationPackages', JSON.stringify({
+          cards: FALLBACK_PACKAGES,
+          lastUpdated: new Date().toISOString()
+        }));
+      } catch (e) {
+        // Ignore cache errors
+      }
+    }
+  } finally {
+    setIsLoadingPackages(false);
+  }
+};
   useEffect(() => {
     if (currentStep === 2) {
       fetchUserBalance();
