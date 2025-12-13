@@ -1196,7 +1196,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
     };
   }
 }
-
 async function processInternetPurchase({ provider, planId, planName, customerNumber, amount, userId }) {
   const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
@@ -1241,9 +1240,10 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
 
     console.log('✅ Price validation passed');
 
-    // ✅ CRITICAL FIX: Smile API doesn't use MobileNetwork parameter
-    // Based on ClubKonnect documentation, Smile uses different parameter structure
+    // ✅ FIXED: Include MobileNetwork parameter as per ClubKonnect documentation
+    // Documentation: https://www.nellobytesystems.com/APISmileV1.asp?UserID=...&MobileNetwork=smile-direct&DataPlan=...
     const apiParams = {
+      MobileNetwork: 'smile-direct',  // ✅ THIS IS REQUIRED!
       DataPlan: String(planId).trim(),
       MobileNumber: String(customerNumber).trim(),
       RequestID: requestId
@@ -1261,9 +1261,13 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
     } catch (apiError) {
       console.error('❌ ClubKonnect API Error:', apiError.message);
       
-      // Check if it's a network availability error
+      // Check for specific error cases
       if (apiError.message.includes('MobileNetwork_NOT_AVAILABLE')) {
         throw new Error('Smile service is temporarily unavailable. Please try again later or contact support.');
+      }
+      
+      if (apiError.message.includes('INVALID_ACCOUNTNO')) {
+        throw new Error('Invalid Smile account number. Please verify the customer number and try again.');
       }
       
       throw apiError;
@@ -1329,7 +1333,8 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
       'INSUFFICIENT_BALANCE': 'Service provider balance insufficient. Please contact administrator.',
       'INVALID_DATAPLAN': `Invalid plan selected. Plan ID "${planId}" is not recognized.`,
       'AUTHENTICATION_FAILED': 'Service authentication error. Please contact administrator.',
-      'ORDER_FAILED': 'Transaction failed. Please try again or contact support.'
+      'ORDER_FAILED': 'Transaction failed. Please try again or contact support.',
+      'INVALID_MobileNetwork': 'Invalid network parameter. Please contact administrator.'
     };
 
     const errorMessage = errorMessages[status] || remark || status || 'Internet subscription failed. Please try again.';
@@ -1356,7 +1361,7 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
   }
 }
 
-// Keep the same findSmilePlanById function
+// Helper function to find Smile plan by ID
 function findSmilePlanById(planId) {
   const searchId = String(planId).trim();
   console.log('🔍 Searching for plan ID:', searchId, 'Length:', searchId.length);
