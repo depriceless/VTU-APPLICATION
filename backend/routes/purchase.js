@@ -1240,15 +1240,12 @@ async function processInternetPurchase({ provider, planId, planName, customerNum
 
     console.log('✅ Price validation passed');
 
-    // ✅ FIXED: Include MobileNetwork parameter as per ClubKonnect documentation
-    // Documentation: https://www.nellobytesystems.com/APISmileV1.asp?UserID=...&MobileNetwork=smile-direct&DataPlan=...
-    const apiParams = {
-      MobileNetwork: 'smile-direct',  // ✅ THIS IS REQUIRED!
-      DataPlan: String(planId).trim(),
-      MobileNumber: String(customerNumber).trim(),
-      RequestID: requestId
-    };
-
+  const apiParams = {
+  MobileNetwork: 'smile-direct',
+  datatplan: String(planId).trim(),  // ← Changed to lowercase
+  MobileNumber: String(customerNumber).trim(),
+  RequestID: requestId
+};
     console.log('📡 Calling ClubKonnect Smile API...');
     console.log('API Endpoint: /APISmileV1.asp');
     console.log('API Params:', JSON.stringify(apiParams, null, 2));
@@ -1896,6 +1893,45 @@ router.get('/test-clubkonnect', async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+Add this route BEFORE module.exports
+router.get('/test-smile-availability', authenticate, async (req, res) => {
+  try {
+    console.log('=== TESTING SMILE AVAILABILITY ===');
+    
+    // Test 1: Check wallet balance (verifies credentials)
+    const walletResponse = await makeClubKonnectRequest('/APIWalletBalanceV1.asp', {});
+    console.log('✅ Wallet Balance:', walletResponse);
+    
+    // Test 2: Try to fetch Smile packages
+    const packagesUrl = `${CK_CONFIG.baseUrl}/APISmilePackagesV2.asp?UserID=${CK_CONFIG.userId}`;
+    const packagesResponse = await axios.get(packagesUrl, { timeout: 15000 });
+    console.log('✅ Smile Packages Response:', packagesResponse.data);
+    
+    // Test 3: Try to verify a Smile number (doesn't charge)
+    const verifyResponse = await makeClubKonnectRequest('/APIVerifySmileV1.asp', {
+      MobileNetwork: 'smile-direct',
+      MobileNumber: '08141900468'
+    });
+    console.log('✅ Verify Response:', verifyResponse);
+    
+    res.json({
+      success: true,
+      wallet: walletResponse,
+      packages: packagesResponse.data,
+      verification: verifyResponse,
+      message: 'All tests completed. Check server console for details.'
+    });
+    
+  } catch (error) {
+    console.error('❌ Test Error:', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data
+    });
   }
 });
 
