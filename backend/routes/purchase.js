@@ -1327,14 +1327,14 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
   }
 }
 
-// ✅ COMPLETE EASYACCESS PURCHASE FUNCTION
 async function processEasyAccessDataPurchase({ network, phone, planId, plan, amount, userId }) {
   try {
-    console.log('=== EASYACCESS DATA PURCHASE START ===');
+    console.log('\n=== EASYACCESS DATA PURCHASE START ===');
     console.log('Network:', network);
     console.log('Phone:', phone);
     console.log('Plan ID:', planId);
     console.log('Amount:', amount);
+    console.log('Token:', process.env.EASYACCESS_TOKEN);
 
     if (!network || !phone || !planId) {
       throw new Error('Missing required fields: network, phone, planId');
@@ -1361,16 +1361,19 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
 
     for (const productType of types) {
       try {
-        const response = await axios.get(
-          `${EASYACCESS_BASE_URL}/get_plans.php?product_type=${productType}`,
-          {
-            headers: {
-              'AuthorizationToken': EASYACCESS_TOKEN,
-              'cache-control': 'no-cache'
-            },
-            timeout: 30000
-          }
-        );
+        const url = `${EASYACCESS_BASE_URL}/get_plans.php?product_type=${productType}`;
+        console.log(`🔄 Fetching from: ${url}`);
+        
+        const response = await axios.get(url, {
+          headers: {
+            'AuthorizationToken': EASYACCESS_TOKEN,
+            'cache-control': 'no-cache'
+          },
+          timeout: 30000
+        });
+
+        console.log(`✅ Response status: ${response.status}`);
+        console.log(`✅ Response data:`, response.data);
 
         let data = response.data;
         
@@ -1384,12 +1387,13 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
           selectedPlan = networkPlans.find(p => p.plan_id === planId);
           
           if (selectedPlan) {
-            console.log('✅ Found plan:', selectedPlan.name);
+            console.log('✅ Found plan:', selectedPlan);
             break;
           }
         }
       } catch (error) {
-        console.error(`Error fetching ${productType}:`, error.message);
+        console.error(`❌ Error fetching ${productType}:`, error.message);
+        console.error(`❌ Response:`, error.response?.data);
       }
     }
 
@@ -1408,7 +1412,7 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
 
     if (pricing.customerPrice !== amount) {
       throw new Error(
-        `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()}). Please refresh and try again.`
+        `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
       );
     }
 
@@ -1423,6 +1427,10 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     const clientReference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     console.log('📡 Calling EasyAccess data purchase API...');
+    console.log('Network Code:', networkCode);
+    console.log('Plan ID:', planId);
+    console.log('Phone:', phone);
+    console.log('Client Reference:', clientReference);
 
     const FormData = require('form-data');
     const formData = new FormData();
@@ -1431,18 +1439,20 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     formData.append('dataplan', planId);
     formData.append('client_reference', clientReference);
 
-    const purchaseResponse = await axios.post(
-      `${EASYACCESS_BASE_URL}/data.php`,
-      formData,
-      {
-        headers: {
-          'AuthorizationToken': EASYACCESS_TOKEN,
-          'cache-control': 'no-cache',
-          ...formData.getHeaders()
-        },
-        timeout: 60000
-      }
-    );
+    const purchaseUrl = `${EASYACCESS_BASE_URL}/data.php`;
+    console.log('🔄 Purchase URL:', purchaseUrl);
+
+    const purchaseResponse = await axios.post(purchaseUrl, formData, {
+      headers: {
+        'AuthorizationToken': EASYACCESS_TOKEN,
+        'cache-control': 'no-cache',
+        ...formData.getHeaders()
+      },
+      timeout: 60000
+    });
+
+    console.log('📥 Purchase Response Status:', purchaseResponse.status);
+    console.log('📥 Purchase Response Data:', purchaseResponse.data);
 
     let purchaseData = purchaseResponse.data;
     
@@ -1450,30 +1460,31 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
       try {
         purchaseData = JSON.parse(purchaseData);
       } catch (e) {
-        console.error('Failed to parse EasyAccess response:', purchaseData);
+        console.error('❌ Failed to parse purchase response:', purchaseData);
         throw new Error('Invalid response from provider');
       }
     }
-
-    console.log('📥 EasyAccess Response:', purchaseData);
 
     const isSuccess = purchaseData.success === 'true' || purchaseData.success === true;
 
     if (!isSuccess) {
       const errorMessage = purchaseData.message || 'Purchase failed';
       console.error('❌ EasyAccess purchase failed:', errorMessage);
+      
+      if (errorMessage.includes('Not an API User')) {
+        console.error('🚨 CRITICAL: Account not activated!');
+        console.error('🚨 Token being used:', EASYACCESS_TOKEN);
+        console.error('🚨 Contact EasyAccess support immediately');
+      }
+      
       throw new Error(errorMessage);
     }
 
-    const reference = purchaseData.reference_no || clientReference;
-    const balanceAfter = purchaseData.balance_after || null;
-
     console.log('✅ EasyAccess purchase successful!');
-    console.log('Reference:', reference);
 
     return {
       success: true,
-      reference: reference,
+      reference: purchaseData.reference_no || clientReference,
       description: `Data purchase - ${network.toUpperCase()} ${selectedPlan.name} - ${phone} (EasyAccess)`,
       successMessage: 'Data purchase successful',
       transactionData: {
@@ -1486,16 +1497,17 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
         profit: pricing.profit,
         serviceType: 'data',
         provider: 'easyaccess',
-        reference: reference,
+        reference: purchaseData.reference_no || clientReference,
         clientReference: clientReference,
-        balanceAfter: balanceAfter,
+        balanceAfter: purchaseData.balance_after || null,
         apiResponse: purchaseData
       }
     };
 
   } catch (error) {
-    console.error('=== EASYACCESS PURCHASE ERROR ===');
+    console.error('\n=== EASYACCESS PURCHASE ERROR ===');
     console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     
     const reference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
