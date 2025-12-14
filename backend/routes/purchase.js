@@ -1,4 +1,4 @@
-// routes/purchase.js - FIXED VERSION
+// routes/purchase.js - COMPLETE FIXED VERSION
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
@@ -111,7 +111,8 @@ const validateServiceAvailability = async (serviceType) => {
       'fund_betting': 'fund_betting',
       'betting': 'fund_betting',
       'cable_tv': 'cable_tv',
-      'print_recharge': 'print_recharge'
+      'print_recharge': 'print_recharge',
+      'data_easyaccess': 'data_easyaccess'  // ✅ ADDED
     };
     
     if (serviceTypeMapping[normalizedServiceType]) {
@@ -133,15 +134,8 @@ const validateServiceAvailability = async (serviceType) => {
   }
 };
 
-// ============================================================
-// ADD THESE FUNCTIONS TO routes/purchase.js
-// Place them AFTER the imports and CK_CONFIG, BEFORE the routes
-// ============================================================
-
-
 /**
  * Fetch WAEC packages from ClubKonnect
- * FIXED: ClubKonnect returns EXAM_TYPE array, not WAEC array
  */
 async function fetchWAECPackages() {
   try {
@@ -159,7 +153,6 @@ async function fetchWAECPackages() {
 
     let data = response.data;
     
-    // Parse if string
     if (typeof data === 'string') {
       try {
         data = JSON.parse(data);
@@ -173,7 +166,6 @@ async function fetchWAECPackages() {
     
     const packages = [];
     
-    // ✅ FIX: ClubKonnect uses EXAM_TYPE array instead of WAEC array
     if (data.EXAM_TYPE && Array.isArray(data.EXAM_TYPE)) {
       console.log(`Found ${data.EXAM_TYPE.length} WAEC products`);
       
@@ -193,7 +185,6 @@ async function fetchWAECPackages() {
 
     console.log(`✅ Parsed ${packages.length} WAEC packages`);
     
-    // If no packages from API, return fallback
     if (packages.length === 0) {
       console.log('⚠️ No WAEC packages from API, using fallback');
       return [
@@ -215,7 +206,6 @@ async function fetchWAECPackages() {
   } catch (error) {
     console.error('❌ Error fetching WAEC packages:', error.message);
     
-    // Return fallback packages if API fails
     return [
       {
         id: 'waecdirect',
@@ -231,10 +221,8 @@ async function fetchWAECPackages() {
   }
 }
 
-
 /**
  * Fetch JAMB packages from ClubKonnect
- * FIXED: ClubKonnect returns EXAM_TYPE array, not JAMB array
  */
 async function fetchJAMBPackages() {
   try {
@@ -252,7 +240,6 @@ async function fetchJAMBPackages() {
 
     let data = response.data;
     
-    // Parse if string
     if (typeof data === 'string') {
       try {
         data = JSON.parse(data);
@@ -266,7 +253,6 @@ async function fetchJAMBPackages() {
     
     const packages = [];
     
-    // ✅ FIX: ClubKonnect uses EXAM_TYPE array instead of JAMB array
     if (data.EXAM_TYPE && Array.isArray(data.EXAM_TYPE)) {
       console.log(`Found ${data.EXAM_TYPE.length} JAMB products`);
       
@@ -286,7 +272,6 @@ async function fetchJAMBPackages() {
 
     console.log(`✅ Parsed ${packages.length} JAMB packages`);
     
-    // If no packages from API, return fallback
     if (packages.length === 0) {
       console.log('⚠️ No JAMB packages from API, using fallback');
       return [
@@ -318,7 +303,6 @@ async function fetchJAMBPackages() {
   } catch (error) {
     console.error('❌ Error fetching JAMB packages:', error.message);
     
-    // Return fallback packages if API fails
     return [
       {
         id: 'utme',
@@ -343,6 +327,7 @@ async function fetchJAMBPackages() {
     ];
   }
 }
+
 /**
  * Fetch all education packages (WAEC + JAMB)
  */
@@ -471,15 +456,6 @@ router.get('/history', authenticate, async (req, res) => {
   }
 });
 
-// ============================================================
-// ADD THIS ROUTE TO routes/purchase.js
-// Place it in the "GET ROUTES" section, after /pin-status
-// ============================================================
-
-/**
- * GET /api/purchase/education/packages
- * Fetch all education packages from ClubKonnect
- */
 router.get('/education/packages', authenticate, async (req, res) => {
   try {
     console.log('📚 GET /education/packages called by user:', req.user.userId);
@@ -506,13 +482,6 @@ router.get('/education/packages', authenticate, async (req, res) => {
     });
   }
 });
-
-// ============================================================
-// EASYACCESS DATA PLANS ENDPOINT
-// Add this in the GET ROUTES section of routes/purchase.js
-// ============================================================
-
-
 
 router.get('/test-connection', authenticate, async (req, res) => {
   try {
@@ -900,19 +869,20 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: serviceValidation.reason });
     }
 
-   const amountLimits = {
-  airtime: { min: 50, max: 200000 },
-  data: { min: 50, max: 500000 },
-   data_easyaccess: { min: 50, max: 500000 },
-  electricity: { min: 100, max: 100000 },
-  education: { min: 500, max: 1000000 },
-  print_recharge: { min: 100, max: 50000 },
-  recharge: { min: 100, max: 50000 },  // ← ADD THIS LINE
-  transfer: { min: 100, max: 1000000 },
-  internet: { min: 500, max: 200000 },
-  fund_betting: { min: 100, max: 500000 },
-  cable_tv: { min: 500, max: 50000 }
-};
+    const amountLimits = {
+      airtime: { min: 50, max: 200000 },
+      data: { min: 50, max: 500000 },
+      data_easyaccess: { min: 50, max: 500000 },  // ✅ ADDED
+      electricity: { min: 100, max: 100000 },
+      education: { min: 500, max: 1000000 },
+      print_recharge: { min: 100, max: 50000 },
+      recharge: { min: 100, max: 50000 },
+      transfer: { min: 100, max: 1000000 },
+      internet: { min: 500, max: 200000 },
+      fund_betting: { min: 100, max: 500000 },
+      cable_tv: { min: 500, max: 50000 }
+    };
+    
     const limits = amountLimits[type];
     if (amount < limits.min || amount > limits.max) {
       return res.status(400).json({
@@ -978,43 +948,41 @@ router.post('/', authenticate, async (req, res) => {
     let purchaseResult;
     
     switch (type) {
-  case 'airtime':
-    purchaseResult = await processAirtimePurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'data':
-    purchaseResult = await processDataPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-
-    case 'data_easyaccess':
-  purchaseResult = await processEasyAccessDataPurchase({ 
-    ...serviceData, 
-    amount, 
-    userId: req.user.userId 
-  });
-  break;
-
-  case 'electricity':
-    purchaseResult = await processElectricityPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'cable_tv':
-    purchaseResult = await processCableTVPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'fund_betting':
-    purchaseResult = await processFundBettingPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'education':
-    purchaseResult = await processEducationPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'internet':
-    purchaseResult = await processInternetPurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  case 'recharge':
-  case 'print_recharge':
-    purchaseResult = await processPrintRechargePurchase({ ...serviceData, amount, userId: req.user.userId });
-    break;
-  default:
-    return res.status(400).json({ success: false, message: 'Unsupported service type' });
-}
+      case 'airtime':
+        purchaseResult = await processAirtimePurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'data':
+        purchaseResult = await processDataPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'data_easyaccess':  // ✅ ADDED
+        purchaseResult = await processEasyAccessDataPurchase({ 
+          ...serviceData, 
+          amount, 
+          userId: req.user.userId 
+        });
+        break;
+      case 'electricity':
+        purchaseResult = await processElectricityPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'cable_tv':
+        purchaseResult = await processCableTVPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'fund_betting':
+        purchaseResult = await processFundBettingPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'education':
+        purchaseResult = await processEducationPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'internet':
+        purchaseResult = await processInternetPurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      case 'recharge':
+      case 'print_recharge':
+        purchaseResult = await processPrintRechargePurchase({ ...serviceData, amount, userId: req.user.userId });
+        break;
+      default:
+        return res.status(400).json({ success: false, message: 'Unsupported service type' });
+    }
 
     if (purchaseResult.success) {
       const transactionResult = await wallet.debit(amount, purchaseResult.description, purchaseResult.reference);
@@ -1081,19 +1049,14 @@ async function processPrintRechargePurchase({ network, denomination, quantity, a
       throw new Error('Missing required fields');
     }
 
-    // For print recharge, ClubKonnect only accepts exact denominations: 100, 200, 500
-    // We cannot apply markup by reducing the value
     const validDenominations = [100, 200, 500, 1000, 1500, 2000];
     
     if (!validDenominations.includes(value)) {
       throw new Error(`Invalid denomination. Must be one of: ${validDenominations.join(', ')}`);
     }
 
-    // Calculate profit AFTER the purchase, not by reducing the ClubKonnect value
-    const providerCostPerCard = value; // Send exact value to ClubKonnect
+    const providerCostPerCard = value;
     const totalProviderCost = providerCostPerCard * quantity;
-    
-    // Your profit comes from the difference between what customer paid and what you pay ClubKonnect
     const profit = amount - totalProviderCost;
 
     const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
@@ -1101,12 +1064,10 @@ async function processPrintRechargePurchase({ network, denomination, quantity, a
 
     const response = await makeClubKonnectRequest('/APIEPINV1.asp', {
       MobileNetwork: networkCode,
-      Value: providerCostPerCard,  // Send exact denomination, not reduced value
+      Value: providerCostPerCard,
       Quantity: quantity,
       RequestID: requestId
     });
-
-
 
     if (response.TXN_EPIN && Array.isArray(response.TXN_EPIN)) {
       const pins = response.TXN_EPIN.map(epin => ({
@@ -1129,7 +1090,7 @@ async function processPrintRechargePurchase({ network, denomination, quantity, a
           denomination: value,
           type: cardType || 'airtime',
           pins: pins,
-          providerCost: totalProviderCost,  // ← CHANGE THIS
+          providerCost: totalProviderCost,
           customerPrice: amount,
           profit,
           serviceType: 'print_recharge',
@@ -1210,7 +1171,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
 
     const normalizedNetwork = network.toLowerCase();
     
-    // Fetch plan from MongoDB
     const DataPlan = require('../models/DataPlan');
     const selectedPlan = await DataPlan.findOne({ 
       network: normalizedNetwork, 
@@ -1222,7 +1182,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
       throw new Error('Invalid plan selected or plan not available');
     }
 
-    // ✅ NEW: Check if plan data is stale (older than 1 hour)
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const isStale = selectedPlan.lastUpdated < oneHourAgo;
 
@@ -1230,8 +1189,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
       console.log('⚠️  Plan data is stale, fetching fresh prices...');
       
       try {
-        // Fetch fresh plans from ClubConnect
-        const axios = require('axios');
         const freshPlansUrl = `https://www.nellobytesystems.com/APIDatabundlePlansV2.asp?UserID=${process.env.CLUBKONNECT_USER_ID}`;
         const response = await axios.get(freshPlansUrl, { timeout: 10000 });
         
@@ -1240,7 +1197,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
           plansData = JSON.parse(plansData);
         }
 
-        // Find the specific plan in fresh data
         const networkCodeMap = { 'mtn': '01', 'glo': '02', '9mobile': '03', 'airtel': '04' };
         const networkCode = networkCodeMap[normalizedNetwork];
         const freshNetworkPlans = plansData[networkCode];
@@ -1253,7 +1209,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
           if (freshPlan) {
             const freshProviderCost = parseFloat(freshPlan.plan_amount || freshPlan.amount || 0);
             
-            // Update MongoDB with fresh price
             if (freshProviderCost !== selectedPlan.providerCost) {
               console.log(`💰 Price changed: ₦${selectedPlan.providerCost} → ₦${freshProviderCost}`);
               
@@ -1269,7 +1224,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
               
               selectedPlan.providerCost = freshProviderCost;
             } else {
-              // Just update timestamp
               await DataPlan.updateOne(
                 { _id: selectedPlan._id },
                 { $set: { lastUpdated: new Date() } }
@@ -1279,16 +1233,12 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
         }
       } catch (fetchError) {
         console.error('⚠️  Could not fetch fresh prices, using cached:', fetchError.message);
-        // Continue with cached price (risk accepted)
       }
     }
 
-    // Calculate pricing dynamically with current provider cost
     const pricing = calculateCustomerPrice(selectedPlan.providerCost, 'data');
 
-    // ✅ CRITICAL: Validate amount matches current calculated price
     if (pricing.customerPrice !== amount) {
-      // Price changed! Return error with new price
       throw new Error(
         `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
       );
@@ -1297,7 +1247,6 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `DATA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Use providerCost for API call (what you pay ClubKonnect)
     const response = await makeClubKonnectRequest('/APIDatabundleV1.asp', {
       MobileNetwork: networkCode,
       DataPlan: planId,
@@ -1341,11 +1290,7 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
   }
 }
 
-
-/**
- * Process EasyAccess Data Purchase (Gift + CG)
- * Handles PIN validation, balance deduction, EasyAccess API call, and transaction recording
- */
+// ✅ COMPLETE EASYACCESS PURCHASE FUNCTION
 async function processEasyAccessDataPurchase({ network, phone, planId, plan, amount, userId }) {
   try {
     console.log('=== EASYACCESS DATA PURCHASE START ===');
@@ -1362,13 +1307,11 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
       throw new Error('Invalid phone number format');
     }
 
-    // ✅ STEP 1: Fetch fresh plan from EasyAccess to verify current price
     const EASYACCESS_BASE_URL = 'https://easyaccess.com.ng/api';
     const EASYACCESS_TOKEN = process.env.EASYACCESS_TOKEN || '3e17bad4c941d642424fc7a60320b622';
 
     console.log('📡 Fetching fresh plan data from EasyAccess...');
 
-    // Determine product types
     const productTypes = {
       mtn: ['mtn_gifting', 'mtn_cg'],
       glo: ['glo_gifting', 'glo_cg'],
@@ -1379,7 +1322,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     const types = productTypes[network.toLowerCase()] || [];
     let selectedPlan = null;
 
-    // Find the plan across all product types
     for (const productType of types) {
       try {
         const response = await axios.get(
@@ -1418,7 +1360,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
       throw new Error('Plan not found or no longer available');
     }
 
-    // ✅ STEP 2: Calculate pricing with current provider cost
     const providerCost = parseFloat(selectedPlan.price);
     const pricing = calculateCustomerPrice(providerCost, 'data');
 
@@ -1428,14 +1369,12 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
       profit: pricing.profit
     });
 
-    // ✅ STEP 3: Validate amount matches current calculated price
     if (pricing.customerPrice !== amount) {
       throw new Error(
         `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()}). Please refresh and try again.`
       );
     }
 
-    // ✅ STEP 4: Prepare EasyAccess API request
     const EASYACCESS_NETWORK_MAP = {
       'mtn': '01',
       'glo': '02',
@@ -1448,7 +1387,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
 
     console.log('📡 Calling EasyAccess data purchase API...');
 
-    // ✅ STEP 5: Call EasyAccess API
     const FormData = require('form-data');
     const formData = new FormData();
     formData.append('network', networkCode);
@@ -1465,7 +1403,7 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
           'cache-control': 'no-cache',
           ...formData.getHeaders()
         },
-        timeout: 60000 // EasyAccess can be slow
+        timeout: 60000
       }
     );
 
@@ -1482,7 +1420,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
 
     console.log('📥 EasyAccess Response:', purchaseData);
 
-    // ✅ STEP 6: Check if purchase was successful
     const isSuccess = purchaseData.success === 'true' || purchaseData.success === true;
 
     if (!isSuccess) {
@@ -1491,14 +1428,12 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
       throw new Error(errorMessage);
     }
 
-    // ✅ STEP 7: Extract transaction details
     const reference = purchaseData.reference_no || clientReference;
     const balanceAfter = purchaseData.balance_after || null;
 
     console.log('✅ EasyAccess purchase successful!');
     console.log('Reference:', reference);
 
-    // ✅ STEP 8: Return success response
     return {
       success: true,
       reference: reference,
@@ -1541,7 +1476,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     };
   }
 }
-
 
 async function processFundBettingPurchase({ provider, customerId, customerName, amount, userId }) {
   try {
@@ -1613,10 +1547,6 @@ async function processFundBettingPurchase({ provider, customerId, customerName, 
   }
 }
 
-// FIXED processEducationPurchase function
-// Replace the existing function in routes/purchase.js
-
-
 async function processEducationPurchase({ provider, examType, phone, amount, userId }) {
   try {
     if (!provider || !examType || !phone) {
@@ -1629,7 +1559,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
     console.log('Phone:', phone);
     console.log('Amount:', amount);
 
-    // ✅ STEP 1: FETCH FRESH PACKAGES FROM CLUBKONNECT
     let packages;
     if (provider === 'waec') {
       packages = await fetchWAECPackages();
@@ -1641,7 +1570,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
 
     console.log(`📦 Fetched ${packages.length} packages from ClubKonnect`);
 
-    // ✅ STEP 2: FIND THE SELECTED PACKAGE
     const selectedPackage = packages.find(pkg => 
       pkg.code === examType || pkg.id === examType
     );
@@ -1654,7 +1582,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
 
     console.log('✅ Selected Package:', selectedPackage);
 
-    // ✅ STEP 3: VALIDATE AMOUNT MATCHES CURRENT CLUBKONNECT PRICE
     if (selectedPackage.price !== amount) {
       console.error('❌ Price mismatch!');
       console.log('ClubKonnect price:', selectedPackage.price);
@@ -1665,21 +1592,20 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
       );
     }
 
-    // ✅ STEP 4: PREPARE API CALL
     const requestId = `EDU_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     let endpoint, params;
 
     if (provider === 'waec') {
       endpoint = '/APIWAECV1.asp';
       params = { 
-        ExamType: selectedPackage.code,  // Use ClubKonnect's code
+        ExamType: selectedPackage.code,
         PhoneNo: phone, 
         RequestID: requestId 
       };
     } else if (provider === 'jamb') {
       endpoint = '/APIJAMBV1.asp';
       params = { 
-        ExamType: selectedPackage.code,  // Use ClubKonnect's code
+        ExamType: selectedPackage.code,
         PhoneNo: phone, 
         RequestID: requestId 
       };
@@ -1687,12 +1613,10 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
 
     console.log('📡 API Call:', { endpoint, params });
 
-    // ✅ STEP 5: CALL CLUBKONNECT API
     const response = await makeClubKonnectRequest(endpoint, params);
 
     console.log('📥 ClubKonnect Response:', response);
 
-    // ✅ STEP 6: CHECK SUCCESS
     const isSuccess = 
       response.statuscode === '100' || 
       response.statuscode === '200' || 
@@ -1700,7 +1624,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
       response.status === 'ORDER_COMPLETED';
 
     if (!isSuccess) {
-      // Handle specific errors
       if (response.status === 'INVALID_EXAMTYPE') {
         throw new Error('Invalid exam type. Please contact support.');
       }
@@ -1714,7 +1637,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
       throw new Error(response.remark || response.status || 'Purchase failed');
     }
 
-    // ✅ STEP 7: EXTRACT PIN DETAILS
     const cardDetails = response.carddetails || '';
     
     console.log('✅ Purchase successful!');
@@ -1731,10 +1653,10 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
         examType: selectedPackage.code,
         serviceName: selectedPackage.name,
         phone,
-        cardDetails: cardDetails,  // PIN and Serial Number
+        cardDetails: cardDetails,
         providerCost: selectedPackage.price,
         customerPrice: selectedPackage.price,
-        profit: 0,  // No markup on education
+        profit: 0,
         serviceType: 'education',
         orderid: response.orderid,
         statuscode: response.statuscode,
@@ -1763,7 +1685,6 @@ async function processEducationPurchase({ provider, examType, phone, amount, use
     };
   }
 }
-// Add this updated function to your purchase.js file
 
 async function processInternetPurchase({ provider, plan, planType, customerNumber, amount, userId }) {
   try {
@@ -1775,13 +1696,8 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
       throw new Error('Only Smile internet is currently supported');
     }
 
-    // ✅ USE STATIC PLANS FROM routes/internet.js INSTEAD
     console.log('📡 Using static Smile plan prices...');
     
-    // Import the static plans (add this at top of file)
-    // const { SMILE_PLANS } = require('./internet');
-    
-    // For now, let's use a simplified approach - fetch from your own endpoint
     const selectedPlan = await findSmilePlan(plan);
     
     if (!selectedPlan) {
@@ -1790,7 +1706,6 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
 
     const clubKonnectPrice = selectedPlan.amount;
 
-    // ✅ Validate amount matches plan price
     if (clubKonnectPrice !== amount) {
       throw new Error(
         `PRICE_CHANGED: Plan price is ₦${clubKonnectPrice.toLocaleString()} but received ₦${amount.toLocaleString()}`
@@ -1808,7 +1723,6 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
     const planId = selectedPlan.id;
     const requestId = `NET_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // 🔥 PURCHASE FROM CLUBKONNECT
     const purchaseResponse = await makeClubKonnectRequest('/APISmileV1.asp', {
       MobileNetwork: networkCode,
       DataPlan: planId,
@@ -1871,18 +1785,12 @@ async function processInternetPurchase({ provider, plan, planType, customerNumbe
 }
 
 async function findSmilePlan(planName) {
-  // Static Smile plans - MUST MATCH routes/internet.js exactly
   const SMILE_PLANS = [
-    // FlexiDaily Plans
     { id: '624', name: '1GB FlexiDaily', amount: 450 },
     { id: '625', name: '2.5GB FlexiDaily', amount: 750 },
-    
-    // FlexiWeekly Plans
     { id: '626', name: '1GB FlexiWeekly', amount: 750 },
     { id: '627', name: '2GB FlexiWeekly', amount: 1550 },
     { id: '628', name: '6GB FlexiWeekly', amount: 2300 },
-    
-    // Bigga Plans (30 days validity) - Most Popular
     { id: '606', name: '1.5GB Bigga', amount: 1550 },
     { id: '607', name: '2GB Bigga', amount: 1850 },
     { id: '608', name: '3GB Bigga', amount: 2300 },
@@ -1898,23 +1806,15 @@ async function findSmilePlan(planName) {
     { id: '618', name: '75GB Bigga', amount: 23000 },
     { id: '619', name: '100GB Bigga', amount: 27500 },
     { id: '668', name: '130GB Bigga', amount: 30500 },
-    
-    // Unlimited Plans
     { id: '730', name: 'UnlimitedLite', amount: 18500 },
     { id: '729', name: 'UnlimitedEssential', amount: 27700 },
-    
-    // Freedom Plans (High Speed)
     { id: '726', name: 'Freedom 3Mbps', amount: 38500 },
     { id: '727', name: 'Freedom 6Mbps', amount: 46500 },
     { id: '728', name: 'Freedom BestEffort', amount: 61500 },
-    
-    // Jumbo Plans (Long validity)
     { id: '665', name: '90GB Jumbo', amount: 31000 },
     { id: '666', name: '160GB Jumbo', amount: 53000 },
     { id: '667', name: '200GB Jumbo', amount: 62000 },
     { id: '721', name: '400GB Jumbo', amount: 77000 },
-    
-    // 365 Plans (Annual)
     { id: '687', name: '15GB Annual', amount: 14000 },
     { id: '688', name: '35GB Annual', amount: 29000 },
     { id: '689', name: '70GB Annual', amount: 49500 },
@@ -1922,8 +1822,6 @@ async function findSmilePlan(planName) {
     { id: '604', name: '200GB Annual', amount: 107000 },
     { id: '673', name: '500GB Annual', amount: 154000 },
     { id: '674', name: '1TB Annual', amount: 185000 },
-    
-    // SmileVoice Plans
     { id: '747', name: 'SmileVoice 65min', amount: 900 },
     { id: '748', name: 'SmileVoice 135min', amount: 1850 },
     { id: '749', name: 'SmileVoice 430min', amount: 5700 },
@@ -1931,13 +1829,12 @@ async function findSmilePlan(planName) {
     { id: '751', name: 'SmileVoice 450min', amount: 7200 },
     { id: '752', name: 'SmileVoice 175min', amount: 3600 },
     { id: '753', name: 'SmileVoice 500min', amount: 9000 },
-    
-    // Mobile Plan
     { id: '758', name: 'Freedom Mobile Plan', amount: 5000 }
   ];
   
   return SMILE_PLANS.find(p => p.name === planName);
 }
+
 async function processCableTVPurchase({ operator, packageId, smartCardNumber, phone, amount, userId }) {
   const requestId = `TV_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
@@ -1954,7 +1851,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error('Invalid smart card number');
     }
 
-    // ✅ FETCH FRESH PRICE FROM CLUBKONNECT
     console.log('📡 Fetching fresh package price from ClubKonnect...');
     
     const url = `${CK_CONFIG.baseUrl}/APICableTVPackagesV2.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}`;
@@ -1976,7 +1872,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       }
     }
 
-    // Find operator data
     let operatorsData = null;
     if (data.TV_ID) {
       operatorsData = data.TV_ID;
@@ -1986,7 +1881,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error('Invalid response from ClubKonnect API');
     }
 
-    // Operator mapping
     const OPERATOR_KEY_MAPPING = {
       'dstv': ['DStv', 'DSTV'],
       'gotv': ['GOtv', 'GOTV'],
@@ -1994,7 +1888,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       'startime': ['Startimes', 'STARTIMES', 'StarTimes']
     };
 
-    // Find operator packages
     let operatorPackages = null;
     const possibleKeys = OPERATOR_KEY_MAPPING[operator.toLowerCase()];
     
@@ -2015,7 +1908,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error(`No products found for ${operator.toUpperCase()}`);
     }
 
-    // Find the specific package
     const packageInfo = products.find(p => p.PACKAGE_ID === packageId);
     
     if (!packageInfo) {
@@ -2024,7 +1916,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
 
     const clubKonnectPrice = parseFloat(packageInfo.PACKAGE_AMOUNT);
 
-    // ✅ Validate amount matches ClubKonnect price (no markup)
     if (clubKonnectPrice !== amount) {
       throw new Error(
         `Price mismatch: ClubKonnect price is ₦${clubKonnectPrice.toLocaleString()}, but received ₦${amount.toLocaleString()}`
@@ -2050,7 +1941,6 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
       throw new Error(`Unsupported cable operator: ${operator}`);
     }
 
-    // ✅ PURCHASE FROM CLUBKONNECT
     const purchaseResponse = await makeClubKonnectRequest('/APICableTVV1.asp', {
       CableTV: ckOperator,
       Package: packageId,
@@ -2078,7 +1968,7 @@ async function processCableTVPurchase({ operator, packageId, smartCardNumber, ph
           smartCardNumber,
           phone,
           providerCost: clubKonnectPrice,
-          customerPrice: clubKonnectPrice,  // No markup
+          customerPrice: clubKonnectPrice,
           profit: 0,
           serviceType: 'cable_tv',
           orderid: purchaseResponse.orderid,
@@ -2174,12 +2064,13 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
   }
 }
 
-// Initialize services on module load
+// ✅ FIXED: Initialize services with data_easyaccess
 (async () => {
   try {
     const services = [
       { type: 'airtime', name: 'Airtime Purchase', active: true },
       { type: 'data', name: 'Data Purchase', active: true },
+      { type: 'data_easyaccess', name: 'EasyAccess Data Purchase', active: true },  // ✅ ADDED
       { type: 'electricity', name: 'Electricity Payment', active: true },
       { type: 'cable_tv', name: 'Cable TV Subscription', active: true },
       { type: 'internet', name: 'Internet Subscription', active: true },
@@ -2205,12 +2096,14 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
           }
         });
         await service.save();
+        console.log(`✅ Created service config for: ${serviceInfo.type}`);
       }
     }
   } catch (error) {
     console.error('Service initialization error:', error);
   }
 })();
+
 router.get('/test-clubkonnect', async (req, res) => {
   const params = {
     UserID: process.env.CLUBKONNECT_USER_ID || 'CK101263696',
