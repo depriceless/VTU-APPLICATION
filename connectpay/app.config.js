@@ -12,6 +12,7 @@ export default {
       runtimeVersion: {
         policy: "appVersion",
       },
+      bundleIdentifier: "com.anonymous.connectpay",
     },
     android: {
       adaptiveIcon: {
@@ -21,6 +22,24 @@ export default {
       package: "com.anonymous.connectpay",
       usesCleartextTraffic: true,
       runtimeVersion: "1.0.0",
+      intentFilters: [
+        {
+          action: "VIEW",
+          autoVerify: true,
+          data: [
+            {
+              scheme: "connectpay",
+              host: "*",
+            },
+            {
+              scheme: "https",
+              host: "connectpay.app",
+              pathPrefix: "/reset-password",
+            },
+          ],
+          category: ["BROWSABLE", "DEFAULT"],
+        },
+      ],
     },
     web: {
       bundler: "metro",

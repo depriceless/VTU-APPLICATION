@@ -5,6 +5,9 @@ const rateLimit = require('express-rate-limit');
 
 const User = require('../models/User');
 const { authenticate } = require('../middleware/auth');
+const crypto = require('crypto');
+const sgMail = require('@sendgrid/mail');
+sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 const router = express.Router();
 
@@ -560,6 +563,168 @@ router.post('/logout', authenticate, (req, res) => {
     success: true,
     message: 'Logged out successfully'
   });
+});
+
+// @route   POST /api/auth/forgot-password
+// @desc    Request password reset
+// @access  Public
+router.post('/forgot-password', authLimiter, async (req, res) => {
+  try {
+    const { emailOrPhone } = req.body;
+
+    if (!emailOrPhone) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email or phone is required'
+      });
+    }
+
+    // Find user
+    const user = await User.findByEmailOrPhone(emailOrPhone);
+    
+    if (!user) {
+      // Don't reveal if user exists or not (security)
+      return res.status(200).json({
+        success: true,
+        message: 'If an account exists, a password reset link has been sent'
+      });
+    }
+
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    user.resetPasswordToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 minutes
+    await user.save();
+
+    // Create reset URL
+    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    // Email content
+    const message = {
+      to: user.email,
+      from: process.env.SENDGRID_FROM_EMAIL,
+      subject: 'Password Reset Request - ConnectPay',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #ff2b2b; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+            .button { display: inline-block; background-color: #ff2b2b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Password Reset Request</h1>
+            </div>
+            <div class="content">
+              <p>Hello ${user.name},</p>
+              <p>You requested to reset your password for your ConnectPay account.</p>
+              <p>Click the button below to reset your password:</p>
+              <p style="text-align: center;">
+                <a href="${resetUrl}" class="button">Reset Password</a>
+              </p>
+              <p>Or copy and paste this link into your browser:</p>
+              <p style="word-break: break-all; color: #ff2b2b;">${resetUrl}</p>
+              <p><strong>This link will expire in 30 minutes.</strong></p>
+              <p>If you didn't request this, please ignore this email and your password will remain unchanged.</p>
+            </div>
+            <div class="footer">
+              <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `
+    };
+
+    // Send email
+    await sgMail.send(message);
+
+    console.log(`✅ Password reset email sent to: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'If an account exists, a password reset link has been sent'
+    });
+
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    
+    // Handle SendGrid errors
+    if (error.response) {
+      console.error('SendGrid error:', error.response.body);
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Error sending password reset email. Please try again later.'
+    });
+  }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Reset password with token
+// @access  Public
+router.post('/reset-password', authLimiter, async (req, res) => {
+  try {
+    const { token, newPassword } = req.body;
+
+    if (!token || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Token and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 6 characters long'
+      });
+    }
+
+    // Hash the token to compare with database
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    // Find user with valid token
+    const user = await User.findOne({
+      resetPasswordToken: hashedToken,
+      resetPasswordExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid or expired reset token'
+      });
+    }
+
+    // Set new password (will be hashed by pre-save hook)
+    user.password = newPassword;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    console.log(`✅ Password reset successful for user: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Password reset successful. You can now login with your new password.'
+    });
+
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error resetting password. Please try again.'
+    });
+  }
 });
 
 module.exports = router;
