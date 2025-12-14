@@ -104,36 +104,73 @@ const makeClubKonnectRequest = async (endpoint, params) => {
 };
 
 // Service validation
+
 const validateServiceAvailability = async (serviceType) => {
   try {
+    console.log('🔍 Validating service:', serviceType);
+    
     let normalizedServiceType = serviceType.toLowerCase();
+    
     const serviceTypeMapping = {
       'fund_betting': 'fund_betting',
       'betting': 'fund_betting',
       'cable_tv': 'cable_tv',
       'print_recharge': 'print_recharge',
-      'data_easyaccess': 'data_easyaccess'  // ✅ ADDED
+      'data_easyaccess': 'data_easyaccess'
     };
     
     if (serviceTypeMapping[normalizedServiceType]) {
       normalizedServiceType = serviceTypeMapping[normalizedServiceType];
     }
     
+    console.log('🔍 Normalized service type:', normalizedServiceType);
+    
     const service = await ServiceConfig.findOne({ serviceType: normalizedServiceType });
     
-    if (!service || !service.isActive || service.maintenanceMode) {
+    console.log('🔍 Service found:', service ? 'Yes' : 'No');
+    if (service) {
+      console.log('🔍 Service details:', {
+        serviceType: service.serviceType,
+        isActive: service.isActive,
+        maintenanceMode: service.maintenanceMode
+      });
+    }
+    
+    if (!service) {
+      console.error('❌ Service not found in database:', normalizedServiceType);
       return {
         available: false,
-        reason: service?.maintenanceMessage || `${serviceType} service is currently unavailable`
+        reason: `${serviceType} service not found in database`
       };
     }
     
+    if (!service.isActive) {
+      console.error('❌ Service is not active:', normalizedServiceType);
+      return {
+        available: false,
+        reason: `${serviceType} service is not active`
+      };
+    }
+    
+    if (service.maintenanceMode) {
+      console.error('❌ Service is in maintenance mode:', normalizedServiceType);
+      return {
+        available: false,
+        reason: service.maintenanceMessage || `${serviceType} service is currently in maintenance`
+      };
+    }
+    
+    console.log('✅ Service validation passed:', normalizedServiceType);
     return { available: true };
+    
   } catch (error) {
-    return { available: false, reason: `${serviceType} service is currently unavailable` };
+    console.error('❌ Service validation error:', error);
+    return { 
+      available: false, 
+      reason: `Error checking ${serviceType} service: ${error.message}` 
+    };
   }
 };
-
 /**
  * Fetch WAEC packages from ClubKonnect
  */
