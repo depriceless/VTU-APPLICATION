@@ -165,5 +165,16 @@ router.get('/test', authenticate, (req, res) => {
 });
 
 console.log('✅ EasyAccess routes registered');
-
+router.get('/check-service/:type', authenticate, async (req, res) => {
+  try {
+    const service = await ServiceConfig.findOne({ serviceType: req.params.type });
+    res.json({
+      exists: !!service,
+      service: service || 'Not found',
+      all: await ServiceConfig.find()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 module.exports = router;

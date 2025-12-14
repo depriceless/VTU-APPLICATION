@@ -2064,13 +2064,17 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
   }
 }
 
-// ✅ FIXED: Initialize services with data_easyaccess
+// Add this to your purchase.js at the very bottom, replacing the existing initialization
+
+// ✅ UPDATED: Service Initialization with data_easyaccess
 (async () => {
   try {
+    console.log('🔧 Initializing service configurations...');
+    
     const services = [
       { type: 'airtime', name: 'Airtime Purchase', active: true },
       { type: 'data', name: 'Data Purchase', active: true },
-      { type: 'data_easyaccess', name: 'EasyAccess Data Purchase', active: true },  // ✅ ADDED
+      { type: 'data_easyaccess', name: 'EasyAccess Data Purchase', active: true },  // ✅ CRITICAL
       { type: 'electricity', name: 'Electricity Payment', active: true },
       { type: 'cable_tv', name: 'Cable TV Subscription', active: true },
       { type: 'internet', name: 'Internet Subscription', active: true },
@@ -2082,6 +2086,7 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
 
     for (const serviceInfo of services) {
       let service = await ServiceConfig.findOne({ serviceType: serviceInfo.type });
+      
       if (!service) {
         service = new ServiceConfig({
           serviceType: serviceInfo.type,
@@ -2097,10 +2102,20 @@ async function processElectricityPurchase({ provider, meterType, meterNumber, ph
         });
         await service.save();
         console.log(`✅ Created service config for: ${serviceInfo.type}`);
+      } else {
+        // ✅ UPDATE existing service to ensure it's active
+        if (!service.isActive || service.maintenanceMode) {
+          service.isActive = true;
+          service.maintenanceMode = false;
+          await service.save();
+          console.log(`✅ Updated service config for: ${serviceInfo.type}`);
+        }
       }
     }
+    
+    console.log('✅ All service configurations initialized');
   } catch (error) {
-    console.error('Service initialization error:', error);
+    console.error('❌ Service initialization error:', error);
   }
 })();
 
@@ -2133,6 +2148,19 @@ router.get('/test-clubkonnect', async (req, res) => {
     });
   } catch (error) {
     return res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/check-service/:type', authenticate, async (req, res) => {
+  try {
+    const service = await ServiceConfig.findOne({ serviceType: req.params.type });
+    res.json({
+      exists: !!service,
+      service: service || 'Not found',
+      all: await ServiceConfig.find()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
