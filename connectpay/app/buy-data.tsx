@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useContext } from 'react';
 import DataSuccessModal from './DataSuccessModal';
 import {
@@ -23,6 +22,16 @@ const API_CONFIG = {
   BASE_URL: Platform.OS === 'web' 
     ? `${process.env.EXPO_PUBLIC_API_URL_WEB}/api`
     : `${process.env.EXPO_PUBLIC_API_URL}/api`,
+  EASYACCESS_BASE_URL: 'https://easyaccess.com.ng/api',
+  EASYACCESS_TOKEN: '3e17bad4c941d642424fc7a60320b622', // Your EasyAccess token
+};
+
+// Network mapping for EasyAccess API
+const EASYACCESS_NETWORK_MAP = {
+  'mtn': '01',
+  'glo': '02',
+  'airtel': '03',
+  '9mobile': '04'
 };
 
 interface Contact {
@@ -61,26 +70,22 @@ interface DataPlan {
   validity: string;
   dataSize: string;
   network: string;
-  type?: 'regular' | 'sme' | 'gift';
+  type?: 'regular' | 'sme' | 'gift' | 'cg';
+  provider?: 'clubconnect' | 'easyaccess';
+  plan_id?: string; // EasyAccess plan ID
 }
 
-type PlanCategory = 'regular' | 'sme' | 'gift';
+type PlanCategory = 'regular' | 'sme' | 'gift' | 'cg';
 
 // Helper function to safely extract balance amount
 const getBalanceAmount = (balanceData: any): number => {
   if (!balanceData) return 0;
-  
-  // If it's already a number, return it directly
   if (typeof balanceData === 'number') {
     return parseFloat(balanceData.toString()) || 0;
   }
-  
-  // If it's a string, parse it
   if (typeof balanceData === 'string') {
     return parseFloat(balanceData) || 0;
   }
-  
-  // If it's an object, try different possible balance properties
   const amount = balanceData.total || 
                  balanceData.amount || 
                  balanceData.balance || 
@@ -88,7 +93,6 @@ const getBalanceAmount = (balanceData: any): number => {
                  balanceData.totalBalance || 
                  balanceData.mainBalance || 
                  0;
-  
   return parseFloat(amount) || 0;
 };
 
@@ -120,35 +124,14 @@ export default function BuyData() {
   const [isLoadingPlans, setIsLoadingPlans] = useState(false);
   const [showPlans, setShowPlans] = useState(false);
 
+  // Categorize plans by type
   const categorizePlans = (plans: DataPlan[]) => {
-    // Categorize by plan type (regular, SME, gift)
-    const regular = plans.filter(p => {
-      const name = p.name.toLowerCase();
-      const validity = p.validity.toLowerCase();
-      
-      // Check if it's SME or Gift first
-      const isSME = name.includes('sme') || name.includes('corporate');
-      const isGift = name.includes('gift') || name.includes('gifting');
-      
-      // Regular data should have validity periods and not be SME/Gift
-      return !isSME && !isGift;
-    });
-    
-    const sme = plans.filter(p => {
-      const name = p.name.toLowerCase();
-      return name.includes('sme') || name.includes('corporate');
-    });
-    
-    const gift = plans.filter(p => {
-      const name = p.name.toLowerCase();
-      return name.includes('gift') || name.includes('gifting');
-    });
+    const regular = plans.filter(p => p.type === 'regular');
+    const sme = plans.filter(p => p.type === 'sme');
+    const gift = plans.filter(p => p.type === 'gift');
+    const cg = plans.filter(p => p.type === 'cg');
 
-    return { 
-      regular, 
-      sme,
-      gift
-    };
+    return { regular, sme, gift, cg };
   };
 
   const categorizedPlans = categorizePlans(dataPlans);
@@ -185,7 +168,7 @@ export default function BuyData() {
 
   useEffect(() => {
     if (selectedNetwork) {
-      fetchDataPlans(selectedNetwork);
+      fetchAllDataPlans(selectedNetwork);
       setShowPlans(true);
     } else {
       setShowPlans(false);
@@ -200,7 +183,6 @@ export default function BuyData() {
     
     if (balance) {
       const balanceAmount = getBalanceAmount(balance);
-      console.log('Initial balance from context:', balanceAmount, 'Raw balance:', balance);
       setUserBalance({
         main: balanceAmount,
         bonus: 0,
@@ -234,23 +216,7 @@ export default function BuyData() {
     }
   }, [showPinEntry]);
 
-  // Debug logging for balance
-  useEffect(() => {
-    if (userBalance) {
-      console.log('=== DATA BALANCE DEBUG ===');
-      console.log('userBalance object:', JSON.stringify(userBalance, null, 2));
-      console.log('Extracted amount:', getBalanceAmount(userBalance));
-      console.log('Current balance:', currentBalance);
-      if (selectedPlan) {
-        console.log('Plan price:', selectedPlan.customerPrice);
-        console.log('Has enough?', hasEnoughBalance);
-      }
-      console.log('===================');
-    }
-  }, [userBalance, selectedPlan]);
-
   const handlePinAreaPress = () => {
-    console.log('PIN area pressed - attempting to focus input');
     setTimeout(() => {
       pinInputRef.current?.focus();
     }, 50);
@@ -262,15 +228,13 @@ export default function BuyData() {
 
   const getAuthToken = async () => {
     if (!token) {
-      console.log('No token available from AuthContext');
       throw new Error('Authentication required');
     }
     return token;
   };
 
+  // ClubConnect API request
   const makeApiRequest = async (endpoint: string, options: any = {}) => {
-    console.log(`API Request: ${endpoint}`);
-    
     try {
       const authToken = await getAuthToken();
       
@@ -330,48 +294,107 @@ export default function BuyData() {
         throw new Error('Network connection failed. Please check your internet connection.');
       }
 
-      if (error.message.includes('Authentication') || 
-          error.message.includes('Session expired') ||
-          error.responseData) {
-        throw error;
-      }
-
-      throw new Error(error.message || 'Request failed');
+      throw error;
     }
   };
 
-  const fetchDataPlans = async (network: string) => {
-    setIsLoadingPlans(true);
+  // EasyAccess API request
+  const makeEasyAccessRequest = async (endpoint: string, method: string = 'GET', postData: any = null) => {
+    try {
+      const requestConfig: any = {
+        method,
+        headers: {
+          'AuthorizationToken': API_CONFIG.EASYACCESS_TOKEN,
+          'cache-control': 'no-cache',
+        },
+      };
+
+      if (method === 'POST' && postData) {
+        const formData = new FormData();
+        Object.keys(postData).forEach(key => {
+          formData.append(key, postData[key]);
+        });
+        requestConfig.body = formData;
+      }
+
+      const fullUrl = `${API_CONFIG.EASYACCESS_BASE_URL}${endpoint}`;
+      const response = await fetch(fullUrl, requestConfig);
+
+      const responseText = await response.text();
+      
+      try {
+        return JSON.parse(responseText);
+      } catch {
+        // Some EasyAccess endpoints return plain text for success
+        return { success: true, data: responseText };
+      }
+
+    } catch (error: any) {
+      console.error('EasyAccess API Error:', error);
+      throw new Error(error.message || 'EasyAccess request failed');
+    }
+  };
+
+  // Fetch ClubConnect plans (SME + Regular)
+  const fetchClubConnectPlans = async (network: string) => {
     try {
       const timestamp = Date.now();
       const response = await makeApiRequest(`/data/plans/${network}?t=${timestamp}`);
       
-      console.log('Fetched plans:', response.plans?.slice(0, 2));
-      
       if (response.success) {
-        const plansWithPrice = (response.plans || []).map((plan: any) => ({
+        return (response.plans || []).map((plan: any) => ({
           ...plan,
           customerPrice: plan.customerPrice || plan.providerCost || plan.amount || 0,
-          amount: plan.providerCost || plan.amount || 0
+          amount: plan.providerCost || plan.amount || 0,
+          provider: 'clubconnect',
+          type: plan.name.toLowerCase().includes('sme') ? 'sme' : 'regular'
         }));
-        setDataPlans(plansWithPrice);
-      } else {
-        throw new Error(response.message || 'Failed to fetch data plans');
       }
+      return [];
     } catch (error: any) {
-      console.error('Error fetching data plans:', error);
-      Alert.alert('Error', 'Could not load data plans. Please try again.');
-      setDataPlans([]);
-    } finally {
-      setIsLoadingPlans(false);
+      console.error('Error fetching ClubConnect plans:', error);
+      return [];
     }
   };
 
+// Fetch EasyAccess plans (Gift + CG) from YOUR BACKEND
+const fetchEasyAccessPlans = async (network: string) => {
+  try {
+    console.log(`📡 Fetching EasyAccess plans from backend for ${network}...`);
+    
+    // ✅ Call YOUR backend instead of EasyAccess directly
+    const timestamp = Date.now();
+    const response = await makeApiRequest(`/easyaccess/plans/${network}?t=${timestamp}`);
+    
+    if (response.success) {
+      console.log(`✅ Got ${response.plans.length} EasyAccess plans from backend`);
+      
+      // Plans already have customerPrice calculated by backend
+      return response.plans.map((plan: any) => ({
+        id: plan.id,
+        planId: plan.planId,
+        plan_id: plan.planId,
+        name: plan.name,
+        dataSize: plan.dataSize,
+        customerPrice: plan.customerPrice,  // ✅ Already calculated by backend
+        amount: plan.providerCost,           // Provider cost
+        validity: plan.validity,
+        network: plan.network,
+        provider: 'easyaccess',
+        type: plan.type
+      }));
+    }
+    
+    return [];
+  } catch (error: any) {
+    console.error('Error fetching EasyAccess plans from backend:', error);
+    return [];
+  }
+};
+
   const checkPinStatus = async () => {
     try {
-      console.log('Checking PIN status...');
       const response = await makeApiRequest('/purchase/pin-status');
-      
       if (response.success) {
         setPinStatus(response);
       }
@@ -383,18 +406,12 @@ export default function BuyData() {
   const fetchUserBalance = async () => {
     setIsLoadingBalance(true);
     try {
-      console.log("Refreshing balance from AuthContext");
-      console.log("Raw balance object:", JSON.stringify(balance, null, 2));
-      
       if (refreshBalance) {
         await refreshBalance();
       }
       
       if (balance !== undefined && balance !== null) {
-        // Extract the actual balance amount more reliably
         const balanceAmount = getBalanceAmount(balance);
-        
-        console.log("Balance from context:", balanceAmount, "Raw balance:", balance);
         
         const realBalance: UserBalance = {
           main: balanceAmount,
@@ -406,15 +423,11 @@ export default function BuyData() {
 
         setUserBalance(realBalance);
         await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-        console.log("Balance updated from AuthContext:", realBalance);
       } else {
-        console.log("No balance from context, trying API...");
         const balanceData = await makeApiRequest("/balance");
         
         if (balanceData.success && balanceData.balance) {
           const balanceAmount = getBalanceAmount(balanceData.balance);
-          
-          console.log("Balance from API:", balanceAmount);
           
           const realBalance: UserBalance = {
             main: balanceAmount,
@@ -426,7 +439,6 @@ export default function BuyData() {
 
           setUserBalance(realBalance);
           await AsyncStorage.setItem("userBalance", JSON.stringify(realBalance));
-          console.log("Balance updated from API:", realBalance);
         }
       }
     } catch (error) {
@@ -435,9 +447,7 @@ export default function BuyData() {
       try {
         const cachedBalance = await AsyncStorage.getItem("userBalance");
         if (cachedBalance) {
-          const parsedBalance = JSON.parse(cachedBalance);
-          setUserBalance(parsedBalance);
-          console.log("Using cached balance:", parsedBalance);
+          setUserBalance(JSON.parse(cachedBalance));
         } else {
           setUserBalance(null);
         }
@@ -585,94 +595,141 @@ export default function BuyData() {
     setShowPinEntry(true);
   };
 
-  const validatePinAndPurchase = async () => {
-    console.log('=== DATA PAYMENT START ===');
-    
-    if (!isPinValid) {
-      setPinError('PIN must be exactly 4 digits');
-      return;
+  // Purchase via ClubConnect
+  const purchaseViaClubConnect = async () => {
+    const response = await makeApiRequest('/purchase', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'data',
+        network: selectedNetwork,
+        phone: phone,
+        planId: selectedPlan?.id,
+        plan: selectedPlan?.name,
+        amount: selectedPlan?.customerPrice,
+        pin: pin,
+      }),
+    });
+
+    return response;
+  };
+
+const purchaseViaEasyAccess = async () => {
+  if (!selectedPlan || !selectedPlan.planId) {
+    throw new Error('Invalid plan selected');
+  }
+
+  console.log('📡 Purchasing EasyAccess data via backend...');
+
+  // ✅ Call YOUR backend /purchase endpoint
+  // Backend will handle: PIN validation, balance deduction, EasyAccess API call, transaction recording
+  const response = await makeApiRequest('/purchase', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'data_easyaccess',  // New type for EasyAccess purchases
+      network: selectedNetwork,
+      phone: phone,
+      planId: selectedPlan.planId,
+      plan: selectedPlan.name,
+      amount: selectedPlan.customerPrice,
+      provider: 'easyaccess',
+      pin: pin,
+    }),
+  });
+
+  return response;
+};
+
+// ============================================================
+// UPDATED: Main purchase function
+// ============================================================
+
+const validatePinAndPurchase = async () => {
+  console.log('=== DATA PAYMENT START ===');
+  
+  if (!isPinValid) {
+    setPinError('PIN must be exactly 4 digits');
+    return;
+  }
+
+  setIsValidatingPin(true);
+  setIsProcessingPayment(true);
+  setPinError('');
+
+  try {
+    let response;
+
+    // Route to appropriate provider
+    if (selectedPlan?.provider === 'easyaccess') {
+      console.log('Purchasing via EasyAccess (through backend)');
+      response = await purchaseViaEasyAccess();
+    } else {
+      console.log('Purchasing via ClubConnect');
+      response = await purchaseViaClubConnect();
     }
 
-    setIsValidatingPin(true);
-    setIsProcessingPayment(true);
-    setPinError('');
+    if (response.success === true) {
+      console.log('Data payment successful!');
+      
+      await saveRecentNumber(phone);
+      
+      if (response.newBalance) {
+        const balanceAmount = getBalanceAmount(response.newBalance);
+        
+        const updatedBalance: UserBalance = {
+          main: balanceAmount,
+          bonus: 0,
+          total: balanceAmount,
+          amount: balanceAmount,
+          lastUpdated: Date.now(),
+        };
 
-    try {
-      const response = await makeApiRequest('/purchase', {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'data',
-          network: selectedNetwork,
-          phone: phone,
-          planId: selectedPlan?.id,
-          plan: selectedPlan?.name,
-          amount: selectedPlan?.customerPrice,
-          pin: pin,
-        }),
+        setUserBalance(updatedBalance);
+        await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
+      }
+
+      await AsyncStorage.removeItem('dataFormState');
+
+      const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
+      setSuccessData({
+        transaction: response.transaction || {},
+        networkName,
+        phone,
+        amount: response.transaction?.amount || selectedPlan?.customerPrice,
+        dataPlan: selectedPlan?.name,
+        newBalance: response.newBalance,
+        provider: selectedPlan?.provider
       });
 
-      if (response.success === true) {
-        console.log('Data payment successful!');
-        
-        await saveRecentNumber(phone);
-        
-        if (response.newBalance) {
-          const balanceAmount = getBalanceAmount(response.newBalance);
-          
-          const updatedBalance: UserBalance = {
-            main: balanceAmount,
-            bonus: 0,
-            total: balanceAmount,
-            amount: balanceAmount,
-            lastUpdated: Date.now(),
-          };
+      setShowPinEntry(false);
+      setTimeout(() => {
+        setShowSuccessModal(true);
+      }, 300);
 
-          setUserBalance(updatedBalance);
-          await AsyncStorage.setItem("userBalance", JSON.stringify(updatedBalance));
-        }
-
-        await AsyncStorage.removeItem('dataFormState');
-
-        const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork?.toUpperCase();
-        setSuccessData({
-          transaction: response.transaction || {},
-          networkName,
-          phone,
-          amount: response.transaction?.amount || selectedPlan?.customerPrice,
-          dataPlan: selectedPlan?.name,
-          newBalance: response.newBalance
-        });
-
-        setShowPinEntry(false);
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 300);
-
-      } else {
-        if (response.message && response.message.toLowerCase().includes('pin')) {
-          setPinError(response.message);
-        }
-        
-        Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
+    } else {
+      if (response.message && response.message.toLowerCase().includes('pin')) {
+        setPinError(response.message);
       }
-
-    } catch (error: any) {
-      console.error('Data payment error:', error);
       
-      if (error.message.includes('locked') || error.message.includes('attempts')) {
-        setPinError(error.message);
-      } else if (error.message.includes('PIN')) {
-        setPinError(error.message);
-      } else {
-        Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
-      }
-
-    } finally {
-      setIsValidatingPin(false);
-      setIsProcessingPayment(false);
-      console.log('=== DATA PAYMENT END ===');
+      Alert.alert('Transaction Failed', response.message || 'Payment could not be processed');
     }
-  };
+
+  } catch (error: any) {
+    console.error('Data payment error:', error);
+    
+    if (error.message.includes('locked') || error.message.includes('attempts')) {
+      setPinError(error.message);
+    } else if (error.message.includes('PIN')) {
+      setPinError(error.message);
+    } else {
+      Alert.alert('Payment Error', error.message || 'Unable to process payment. Please try again.');
+    }
+
+  } finally {
+    setIsValidatingPin(false);
+    setIsProcessingPayment(false);
+    console.log('=== DATA PAYMENT END ===');
+  }
+};
 
   const getNetworkSpecificValidation = (number: string): string => {
     if (!isPhoneValid) return 'Enter valid 11-digit number starting with 070, 080, 081, or 090';
@@ -814,9 +871,10 @@ export default function BuyData() {
                 <>
                   <View style={styles.categoryTabs}>
                     {[
-                      { key: 'regular', label: 'Regular Data' },
-                      { key: 'sme', label: 'SME Data' },
-                      { key: 'gift', label: 'Gift Data' }
+                      { key: 'regular', label: 'Regular' },
+                      { key: 'sme', label: 'SME' },
+                      { key: 'cg', label: 'CG' },
+                      { key: 'gift', label: 'Gifting' }
                     ].map(({ key, label }) => (
                       <TouchableOpacity
                         key={key}
@@ -873,15 +931,8 @@ export default function BuyData() {
                   ) : (
                     <View style={styles.emptyState}>
                       <Text style={styles.emptyStateText}>
-                        {selectedCategory === 'gift' 
-                          ? '🎁 Gift data plans coming soon!' 
-                          : `No ${selectedCategory} plans available`}
+                        No {selectedCategory} plans available for this network
                       </Text>
-                      {selectedCategory === 'gift' && (
-                        <Text style={styles.emptyStateSubtext}>
-                          We're working on adding gift data options for this network
-                        </Text>
-                      )}
                     </View>
                   )}
                 </>
@@ -907,7 +958,7 @@ export default function BuyData() {
         </ScrollView>
       )}
 
-      {/* STEP 2: REVIEW */}
+      {/* STEP 2: REVIEW - Same as original */}
       {currentStep === 2 && (
         <ScrollView
           style={styles.scrollContent}
@@ -1010,6 +1061,15 @@ export default function BuyData() {
                   <Text style={styles.summaryLabel}>Validity</Text>
                   <Text style={styles.summaryValue}>{selectedPlan.validity}</Text>
                 </View>
+
+                {selectedPlan.provider === 'easyaccess' && (
+                  <View style={styles.summaryItem}>
+                    <Text style={styles.summaryLabel}>Type</Text>
+                    <Text style={styles.summaryValue}>
+                      {selectedPlan.type === 'gift' ? '🎁 Gifting Data' : '⚡ CG Data'}
+                    </Text>
+                  </View>
+                )}
               </>
             )}
 
@@ -1053,7 +1113,7 @@ export default function BuyData() {
         </ScrollView>
       )}
 
-      {/* PIN Entry Modal - Bottom Sheet */}
+      {/* PIN Entry Modal - Same as original */}
       <Modal 
         visible={showPinEntry && pinStatus?.isPinSet && !pinStatus?.isLocked} 
         animationType="slide"
@@ -1075,7 +1135,6 @@ export default function BuyData() {
             activeOpacity={1}
             onPress={(e) => e.stopPropagation()}
           >
-            {/* Drag Handle */}
             <View style={styles.dragHandle} />
 
             <Text style={styles.pinTitle}>Enter Transaction PIN</Text>
@@ -1089,7 +1148,6 @@ export default function BuyData() {
               </View>
             )}
 
-            {/* PIN Input Area - Pressable */}
             <TouchableOpacity 
               style={styles.pinInputArea}
               activeOpacity={0.6}
@@ -1111,14 +1169,12 @@ export default function BuyData() {
                 Tap here to enter PIN
               </Text>
               
-              {/* Actual Input - Transparent overlay */}
               <TextInput
                 ref={pinInputRef}
                 style={styles.overlayPinInput}
                 value={pin}
                 onChangeText={(text) => {
                   const cleaned = text.replace(/\D/g, '').substring(0, 4);
-                  console.log('PIN changed:', cleaned);
                   setPin(cleaned);
                   setPinError('');
                 }}
@@ -1135,7 +1191,6 @@ export default function BuyData() {
               <Text style={styles.pinErrorText}>{pinError}</Text>
             )}
 
-            {/* Confirm Payment Button */}
             <TouchableOpacity
               style={[
                 styles.primaryButton,
@@ -1159,7 +1214,6 @@ export default function BuyData() {
               )}
             </TouchableOpacity>
 
-            {/* Cancel PIN Entry */}
             <TouchableOpacity
               style={styles.secondaryButton}
               onPress={() => {
@@ -1176,7 +1230,7 @@ export default function BuyData() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Contacts Modal */}
+      {/* Contacts Modal - Same as original */}
       <Modal visible={showContactsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -1212,7 +1266,7 @@ export default function BuyData() {
         </View>
       </Modal>
 
-      {/* Recent Numbers Modal */}
+      {/* Recent Numbers Modal - Same as original */}
       <Modal visible={showRecentsModal} animationType="slide">
         <View style={styles.modalContainer}>
           <View style={styles.modalHeader}>
@@ -1445,6 +1499,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    position: 'relative',
   },
   categoryTabActive: {
     backgroundColor: '#fff',
@@ -1462,6 +1517,23 @@ const styles = StyleSheet.create({
   },
   categoryTabTextActive: {
     color: '#ff3b30',
+    fontWeight: '700',
+  },
+  planBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#ff3b30',
+    borderRadius: 6,
+    minWidth: 14,
+    height: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  planBadgeText: {
+    color: '#fff',
+    fontSize: 8,
     fontWeight: '700',
   },
   plansScrollView: {
@@ -1503,6 +1575,19 @@ const styles = StyleSheet.create({
   planValidity: {
     fontSize: 11,
     color: '#999',
+  },
+  providerBadge: {
+    marginTop: 4,
+    backgroundColor: '#e3f2fd',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  providerBadgeText: {
+    fontSize: 9,
+    color: '#1976d2',
+    fontWeight: '600',
   },
   planPriceContainer: {
     alignItems: 'flex-end',
@@ -1546,12 +1631,6 @@ const styles = StyleSheet.create({
   emptyStateText: {
     color: '#999',
     fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  emptyStateSubtext: {
-    color: '#bbb',
-    fontSize: 12,
     textAlign: 'center',
   },
   primaryButton: {

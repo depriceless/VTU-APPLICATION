@@ -507,6 +507,128 @@ router.get('/education/packages', authenticate, async (req, res) => {
   }
 });
 
+// ============================================================
+// EASYACCESS DATA PLANS ENDPOINT
+// Add this in the GET ROUTES section of routes/purchase.js
+// ============================================================
+
+/**
+ * GET /api/purchase/easyaccess/plans/:network
+ * Fetch EasyAccess plans (Gift + CG) with pricing applied
+ */
+router.get('/easyaccess/plans/:network', authenticate, async (req, res) => {
+  try {
+    const { network } = req.params;
+    
+    console.log(`📡 Fetching EasyAccess plans for ${network}...`);
+    
+    // Network mapping for EasyAccess API
+    const EASYACCESS_NETWORK_MAP = {
+      'mtn': '01',
+      'glo': '02',
+      'airtel': '03',
+      '9mobile': '04'
+    };
+
+    const networkCode = EASYACCESS_NETWORK_MAP[network.toLowerCase()];
+    
+    if (!networkCode) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid network'
+      });
+    }
+
+    const EASYACCESS_BASE_URL = 'https://easyaccess.com.ng/api';
+    const EASYACCESS_TOKEN = process.env.EASYACCESS_TOKEN || '3e17bad4c941d642424fc7a60320b622';
+
+    // Determine which product types to fetch based on network
+    const productTypes = {
+      mtn: ['mtn_gifting', 'mtn_cg'],
+      glo: ['glo_gifting', 'glo_cg'],
+      airtel: ['airtel_gifting', 'airtel_cg'],
+      '9mobile': ['9mobile_gifting']
+    };
+
+    const types = productTypes[network.toLowerCase()] || [];
+    const allPlans = [];
+
+    // Fetch plans for each product type
+    for (const productType of types) {
+      try {
+        const response = await axios.get(
+          `${EASYACCESS_BASE_URL}/get_plans.php?product_type=${productType}`,
+          {
+            headers: {
+              'AuthorizationToken': EASYACCESS_TOKEN,
+              'cache-control': 'no-cache'
+            },
+            timeout: 30000
+          }
+        );
+
+        let data = response.data;
+        
+        if (typeof data === 'string') {
+          try {
+            data = JSON.parse(data);
+          } catch (e) {
+            console.error(`Failed to parse ${productType} response`);
+            continue;
+          }
+        }
+
+        // EasyAccess returns plans under network name key (e.g., "MTN", "GLO")
+        const networkPlans = data[network.toUpperCase()];
+        
+        if (networkPlans && Array.isArray(networkPlans)) {
+          networkPlans.forEach((plan) => {
+            const providerCost = parseFloat(plan.price);
+            
+            // ✅ APPLY YOUR TIERED PRICING
+            const pricing = calculateCustomerPrice(providerCost, 'data');
+            
+            allPlans.push({
+              id: `ea_${plan.plan_id}`,
+              planId: plan.plan_id,
+              name: plan.name,
+              dataSize: plan.name.split(' ')[0], // Extract data size from name
+              providerCost: pricing.providerCost,
+              customerPrice: pricing.customerPrice,
+              profit: pricing.profit,
+              amount: pricing.providerCost,
+              validity: plan.validity || '30 days',
+              network: network.toLowerCase(),
+              provider: 'easyaccess',
+              type: productType.includes('gifting') ? 'gift' : 'cg',
+              active: true
+            });
+          });
+        }
+      } catch (error) {
+        console.error(`Error fetching ${productType}:`, error.message);
+        // Continue with other product types
+      }
+    }
+
+    console.log(`✅ Loaded ${allPlans.length} EasyAccess plans with pricing applied`);
+
+    res.json({
+      success: true,
+      plans: allPlans,
+      count: allPlans.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching EasyAccess plans:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch EasyAccess plans',
+      error: error.message
+    });
+  }
+});
+
 router.get('/test-connection', authenticate, async (req, res) => {
   try {
     const response = await makeClubKonnectRequest('/APIWalletBalanceV1.asp', {});
@@ -896,6 +1018,7 @@ router.post('/', authenticate, async (req, res) => {
    const amountLimits = {
   airtime: { min: 50, max: 200000 },
   data: { min: 50, max: 500000 },
+   data_easyaccess: { min: 50, max: 500000 },
   electricity: { min: 100, max: 100000 },
   education: { min: 500, max: 1000000 },
   print_recharge: { min: 100, max: 50000 },
@@ -976,6 +1099,15 @@ router.post('/', authenticate, async (req, res) => {
   case 'data':
     purchaseResult = await processDataPurchase({ ...serviceData, amount, userId: req.user.userId });
     break;
+
+    case 'data_easyaccess':
+  purchaseResult = await processEasyAccessDataPurchase({ 
+    ...serviceData, 
+    amount, 
+    userId: req.user.userId 
+  });
+  break;
+
   case 'electricity':
     purchaseResult = await processElectricityPurchase({ ...serviceData, amount, userId: req.user.userId });
     break;
@@ -1323,6 +1455,208 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     };
   }
 }
+
+
+/**
+ * Process EasyAccess Data Purchase (Gift + CG)
+ * Handles PIN validation, balance deduction, EasyAccess API call, and transaction recording
+ */
+async function processEasyAccessDataPurchase({ network, phone, planId, plan, amount, userId }) {
+  try {
+    console.log('=== EASYACCESS DATA PURCHASE START ===');
+    console.log('Network:', network);
+    console.log('Phone:', phone);
+    console.log('Plan ID:', planId);
+    console.log('Amount:', amount);
+
+    if (!network || !phone || !planId) {
+      throw new Error('Missing required fields: network, phone, planId');
+    }
+
+    if (!/^0[789][01]\d{8}$/.test(phone)) {
+      throw new Error('Invalid phone number format');
+    }
+
+    // ✅ STEP 1: Fetch fresh plan from EasyAccess to verify current price
+    const EASYACCESS_BASE_URL = 'https://easyaccess.com.ng/api';
+    const EASYACCESS_TOKEN = process.env.EASYACCESS_TOKEN || '3e17bad4c941d642424fc7a60320b622';
+
+    console.log('📡 Fetching fresh plan data from EasyAccess...');
+
+    // Determine product types
+    const productTypes = {
+      mtn: ['mtn_gifting', 'mtn_cg'],
+      glo: ['glo_gifting', 'glo_cg'],
+      airtel: ['airtel_gifting', 'airtel_cg'],
+      '9mobile': ['9mobile_gifting']
+    };
+
+    const types = productTypes[network.toLowerCase()] || [];
+    let selectedPlan = null;
+
+    // Find the plan across all product types
+    for (const productType of types) {
+      try {
+        const response = await axios.get(
+          `${EASYACCESS_BASE_URL}/get_plans.php?product_type=${productType}`,
+          {
+            headers: {
+              'AuthorizationToken': EASYACCESS_TOKEN,
+              'cache-control': 'no-cache'
+            },
+            timeout: 30000
+          }
+        );
+
+        let data = response.data;
+        
+        if (typeof data === 'string') {
+          data = JSON.parse(data);
+        }
+
+        const networkPlans = data[network.toUpperCase()];
+        
+        if (networkPlans && Array.isArray(networkPlans)) {
+          selectedPlan = networkPlans.find(p => p.plan_id === planId);
+          
+          if (selectedPlan) {
+            console.log('✅ Found plan:', selectedPlan.name);
+            break;
+          }
+        }
+      } catch (error) {
+        console.error(`Error fetching ${productType}:`, error.message);
+      }
+    }
+
+    if (!selectedPlan) {
+      throw new Error('Plan not found or no longer available');
+    }
+
+    // ✅ STEP 2: Calculate pricing with current provider cost
+    const providerCost = parseFloat(selectedPlan.price);
+    const pricing = calculateCustomerPrice(providerCost, 'data');
+
+    console.log('💰 Pricing:', {
+      providerCost: pricing.providerCost,
+      customerPrice: pricing.customerPrice,
+      profit: pricing.profit
+    });
+
+    // ✅ STEP 3: Validate amount matches current calculated price
+    if (pricing.customerPrice !== amount) {
+      throw new Error(
+        `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()}). Please refresh and try again.`
+      );
+    }
+
+    // ✅ STEP 4: Prepare EasyAccess API request
+    const EASYACCESS_NETWORK_MAP = {
+      'mtn': '01',
+      'glo': '02',
+      'airtel': '03',
+      '9mobile': '04'
+    };
+
+    const networkCode = EASYACCESS_NETWORK_MAP[network.toLowerCase()];
+    const clientReference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    console.log('📡 Calling EasyAccess data purchase API...');
+
+    // ✅ STEP 5: Call EasyAccess API
+    const FormData = require('form-data');
+    const formData = new FormData();
+    formData.append('network', networkCode);
+    formData.append('mobileno', phone);
+    formData.append('dataplan', planId);
+    formData.append('client_reference', clientReference);
+
+    const purchaseResponse = await axios.post(
+      `${EASYACCESS_BASE_URL}/data.php`,
+      formData,
+      {
+        headers: {
+          'AuthorizationToken': EASYACCESS_TOKEN,
+          'cache-control': 'no-cache',
+          ...formData.getHeaders()
+        },
+        timeout: 60000 // EasyAccess can be slow
+      }
+    );
+
+    let purchaseData = purchaseResponse.data;
+    
+    if (typeof purchaseData === 'string') {
+      try {
+        purchaseData = JSON.parse(purchaseData);
+      } catch (e) {
+        console.error('Failed to parse EasyAccess response:', purchaseData);
+        throw new Error('Invalid response from provider');
+      }
+    }
+
+    console.log('📥 EasyAccess Response:', purchaseData);
+
+    // ✅ STEP 6: Check if purchase was successful
+    const isSuccess = purchaseData.success === 'true' || purchaseData.success === true;
+
+    if (!isSuccess) {
+      const errorMessage = purchaseData.message || 'Purchase failed';
+      console.error('❌ EasyAccess purchase failed:', errorMessage);
+      throw new Error(errorMessage);
+    }
+
+    // ✅ STEP 7: Extract transaction details
+    const reference = purchaseData.reference_no || clientReference;
+    const balanceAfter = purchaseData.balance_after || null;
+
+    console.log('✅ EasyAccess purchase successful!');
+    console.log('Reference:', reference);
+
+    // ✅ STEP 8: Return success response
+    return {
+      success: true,
+      reference: reference,
+      description: `Data purchase - ${network.toUpperCase()} ${selectedPlan.name} - ${phone} (EasyAccess)`,
+      successMessage: 'Data purchase successful',
+      transactionData: {
+        network: network.toUpperCase(),
+        phone,
+        plan: selectedPlan.name,
+        planId: planId,
+        providerCost: pricing.providerCost,
+        customerPrice: pricing.customerPrice,
+        profit: pricing.profit,
+        serviceType: 'data',
+        provider: 'easyaccess',
+        reference: reference,
+        clientReference: clientReference,
+        balanceAfter: balanceAfter,
+        apiResponse: purchaseData
+      }
+    };
+
+  } catch (error) {
+    console.error('=== EASYACCESS PURCHASE ERROR ===');
+    console.error('Error:', error.message);
+    
+    const reference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return {
+      success: false,
+      reference,
+      errorMessage: error.message,
+      transactionData: { 
+        network: network?.toUpperCase(), 
+        phone, 
+        plan, 
+        planId,
+        provider: 'easyaccess',
+        serviceType: 'data' 
+      }
+    };
+  }
+}
+
 
 async function processFundBettingPurchase({ provider, customerId, customerName, amount, userId }) {
   try {
