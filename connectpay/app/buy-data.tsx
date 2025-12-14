@@ -392,6 +392,32 @@ const fetchEasyAccessPlans = async (network: string) => {
   }
 };
 
+// Add this function after fetchEasyAccessPlans in your BuyData.tsx
+
+// Fetch all plans from both providers
+const fetchAllDataPlans = async (network: string) => {
+  setIsLoadingPlans(true);
+  try {
+    // Fetch from both providers in parallel
+    const [clubConnectPlans, easyAccessPlans] = await Promise.all([
+      fetchClubConnectPlans(network),
+      fetchEasyAccessPlans(network)
+    ]);
+
+    // Combine all plans
+    const allPlans = [...clubConnectPlans, ...easyAccessPlans];
+    setDataPlans(allPlans);
+
+    console.log(`Loaded ${clubConnectPlans.length} ClubConnect plans and ${easyAccessPlans.length} EasyAccess plans`);
+  } catch (error: any) {
+    console.error('Error fetching data plans:', error);
+    Alert.alert('Error', 'Could not load data plans. Please try again.');
+    setDataPlans([]);
+  } finally {
+    setIsLoadingPlans(false);
+  }
+};
+
   const checkPinStatus = async () => {
     try {
       const response = await makeApiRequest('/purchase/pin-status');

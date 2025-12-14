@@ -406,7 +406,17 @@ try {
   console.error('Stack:', err.stack);
 }
 
-// ============================================
+try {
+  const easyaccessRoutes = require('./routes/easyaccess');
+  app.use('/api/easyaccess', easyaccessRoutes);
+  console.log('✅ EasyAccess routes registered at /api/easyaccess');
+  console.log('   Expected endpoints:');
+  console.log('   - GET /api/easyaccess/plans/:network');
+} catch (err) {
+  console.error('❌ EasyAccess routes error:', err.message);
+  console.error('Stack:', err.stack);
+}
+
 // DATA ROUTES
 // ============================================
 if (dataRoutes) {
