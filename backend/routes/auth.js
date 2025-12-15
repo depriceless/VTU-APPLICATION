@@ -566,7 +566,7 @@ router.post('/logout', authenticate, (req, res) => {
 });
 
 // @route   POST /api/auth/forgot-password
-// @desc    Request password reset
+// @desc    Request password reset with deep link support
 // @access  Public
 router.post('/forgot-password', authLimiter, async (req, res) => {
   try {
@@ -596,10 +596,17 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     user.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 minutes
     await user.save();
 
-    // Create reset URL
-    const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+    // Create deep link URL that will work with your app
+    // This format: connectpay://reset-password?token=xxx
+    const deepLinkUrl = `connectpay://reset-password?token=${resetToken}`;
+    
+    // Alternative universal link (if you have a web domain)
+    const universalLinkUrl = `https://connectpay.app/reset-password?token=${resetToken}`;
+    
+    // Web fallback
+    const webResetUrl = `${process.env.FRONTEND_URL || 'https://vtu-application.onrender.com'}/reset-password?token=${resetToken}`;
 
-    // Email content
+    // Enhanced email content
     const message = {
       to: user.email,
       from: process.env.SENDGRID_FROM_EMAIL,
@@ -608,34 +615,341 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
         <!DOCTYPE html>
         <html>
         <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #ff2b2b; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-            .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
-            .button { display: inline-block; background-color: #ff2b2b; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+              line-height: 1.6; 
+              color: #333;
+              background-color: #f5f5f5;
+            }
+            .container { 
+              max-width: 600px; 
+              margin: 20px auto; 
+              background-color: #ffffff;
+              border-radius: 12px;
+              overflow: hidden;
+              box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            }
+            .header { 
+              background: linear-gradient(135deg, #ff2b2b 0%, #ff4444 100%);
+              color: white; 
+              padding: 40px 30px; 
+              text-align: center;
+            }
+            .header h1 {
+              margin: 0;
+              font-size: 28px;
+              font-weight: 600;
+              margin-bottom: 10px;
+            }
+            .header p {
+              margin: 0;
+              font-size: 14px;
+              opacity: 0.9;
+            }
+            .content { 
+              padding: 40px 30px;
+            }
+            .greeting {
+              font-size: 18px;
+              font-weight: 600;
+              margin-bottom: 20px;
+              color: #333;
+            }
+            .message {
+              font-size: 15px;
+              color: #666;
+              margin-bottom: 25px;
+              line-height: 1.8;
+            }
+            .method-box {
+              background: #f8f9fa;
+              border-radius: 10px;
+              padding: 25px;
+              margin: 25px 0;
+              border: 1px solid #e9ecef;
+            }
+            .method-title {
+              font-size: 16px;
+              font-weight: 600;
+              color: #333;
+              margin-bottom: 15px;
+              display: flex;
+              align-items: center;
+            }
+            .method-icon {
+              font-size: 24px;
+              margin-right: 10px;
+            }
+            .method-steps {
+              margin: 15px 0;
+              padding-left: 10px;
+            }
+            .method-steps ol {
+              margin: 0;
+              padding-left: 20px;
+              color: #666;
+            }
+            .method-steps li {
+              margin-bottom: 8px;
+              font-size: 14px;
+            }
+            .button-container {
+              text-align: center;
+              margin: 20px 0;
+            }
+            .button { 
+              display: inline-block;
+              background: linear-gradient(135deg, #ff2b2b 0%, #ff4444 100%);
+              color: #ffffff !important;
+              padding: 16px 40px;
+              text-decoration: none;
+              border-radius: 8px;
+              font-weight: 600;
+              font-size: 16px;
+              box-shadow: 0 4px 15px rgba(255, 43, 43, 0.3);
+              transition: all 0.3s ease;
+              border: none;
+              cursor: pointer;
+            }
+            .button:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(255, 43, 43, 0.4);
+            }
+            .divider {
+              text-align: center;
+              margin: 30px 0;
+              position: relative;
+            }
+            .divider::before {
+              content: '';
+              position: absolute;
+              top: 50%;
+              left: 0;
+              right: 0;
+              height: 1px;
+              background: #dee2e6;
+            }
+            .divider span {
+              background: white;
+              padding: 0 15px;
+              position: relative;
+              color: #6c757d;
+              font-size: 13px;
+              font-weight: 600;
+            }
+            .code-section {
+              background: linear-gradient(135deg, #fff5f5 0%, #ffe5e5 100%);
+              border: 2px dashed #ff2b2b;
+              border-radius: 10px;
+              padding: 25px;
+              margin: 20px 0;
+              text-align: center;
+            }
+            .code-label {
+              font-size: 12px;
+              color: #666;
+              margin-bottom: 12px;
+              font-weight: 600;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .code { 
+              font-family: 'Courier New', Courier, monospace;
+              font-size: 22px;
+              color: #ff2b2b;
+              font-weight: bold;
+              letter-spacing: 3px;
+              word-break: break-all;
+              user-select: all;
+              padding: 10px;
+              background: white;
+              border-radius: 6px;
+              display: inline-block;
+            }
+            .copy-hint {
+              font-size: 12px;
+              color: #999;
+              margin-top: 10px;
+              font-style: italic;
+            }
+            .warning {
+              background: #fff3cd;
+              border-left: 4px solid #ffc107;
+              padding: 20px;
+              margin: 25px 0;
+              border-radius: 6px;
+            }
+            .warning-content {
+              display: flex;
+              align-items: flex-start;
+            }
+            .warning-icon {
+              font-size: 24px;
+              margin-right: 12px;
+              flex-shrink: 0;
+            }
+            .warning-text {
+              font-size: 14px;
+              color: #856404;
+              line-height: 1.6;
+            }
+            .footer { 
+              text-align: center;
+              padding: 30px 20px;
+              background: #f8f9fa;
+              border-top: 1px solid #dee2e6;
+            }
+            .footer-logo {
+              font-size: 20px;
+              font-weight: 700;
+              color: #ff2b2b;
+              margin-bottom: 10px;
+            }
+            .footer p {
+              margin: 5px 0;
+              font-size: 13px;
+              color: #6c757d;
+            }
+            .help-section {
+              background: #e3f2fd;
+              padding: 20px;
+              border-radius: 8px;
+              margin: 25px 0;
+              border-left: 4px solid #2196f3;
+            }
+            .help-section h4 {
+              margin: 0 0 10px 0;
+              font-size: 15px;
+              color: #1976d2;
+            }
+            .help-section p {
+              margin: 0;
+              font-size: 14px;
+              color: #666;
+            }
+            @media only screen and (max-width: 600px) {
+              .container {
+                margin: 0;
+                border-radius: 0;
+              }
+              .header {
+                padding: 30px 20px;
+              }
+              .header h1 {
+                font-size: 24px;
+              }
+              .content {
+                padding: 30px 20px;
+              }
+              .method-box {
+                padding: 20px 15px;
+              }
+              .button {
+                padding: 14px 30px;
+                font-size: 15px;
+                width: 100%;
+              }
+              .code {
+                font-size: 18px;
+                letter-spacing: 2px;
+              }
+            }
           </style>
         </head>
         <body>
           <div class="container">
+            <!-- Header -->
             <div class="header">
-              <h1>Password Reset Request</h1>
+              <h1>🔐 Password Reset Request</h1>
+              <p>Secure password reset for your ConnectPay account</p>
             </div>
+            
             <div class="content">
-              <p>Hello ${user.name},</p>
-              <p>You requested to reset your password for your ConnectPay account.</p>
-              <p>Click the button below to reset your password:</p>
-              <p style="text-align: center;">
-                <a href="${resetUrl}" class="button">Reset Password</a>
+              <p class="greeting">Hello ${user.name},</p>
+              
+              <p class="message">
+                We received a request to reset your ConnectPay account password. 
+                Choose any of the methods below to reset your password securely.
               </p>
-              <p>Or copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; color: #ff2b2b;">${resetUrl}</p>
-              <p><strong>This link will expire in 30 minutes.</strong></p>
-              <p>If you didn't request this, please ignore this email and your password will remain unchanged.</p>
+
+              <!-- Method 1: Mobile App Button -->
+              <div class="method-box">
+                <div class="method-title">
+                  <span class="method-icon">📱</span>
+                  <span>Method 1: Open in Mobile App (Recommended)</span>
+                </div>
+                <div class="method-steps">
+                  <ol>
+                    <li>Click the button below</li>
+                    <li>Your ConnectPay app will open automatically</li>
+                    <li>Enter your new password and confirm</li>
+                  </ol>
+                </div>
+                <div class="button-container">
+                  <a href="${deepLinkUrl}" class="button">🚀 Open ConnectPay App</a>
+                </div>
+                <p style="text-align: center; font-size: 12px; color: #999; margin-top: 10px;">
+                  Works best on mobile devices with the app installed
+                </p>
+              </div>
+
+              <div class="divider"><span>OR</span></div>
+
+              <!-- Method 2: Manual Code -->
+              <div class="method-box">
+                <div class="method-title">
+                  <span class="method-icon">🔢</span>
+                  <span>Method 2: Use Reset Code</span>
+                </div>
+                <div class="method-steps">
+                  <ol>
+                    <li>Open the ConnectPay app on your device</li>
+                    <li>Navigate to "Reset Password" screen</li>
+                    <li>Copy and paste the code below</li>
+                  </ol>
+                </div>
+                <div class="code-section">
+                  <div class="code-label">Your Password Reset Code</div>
+                  <div class="code">${resetToken}</div>
+                  <p class="copy-hint">Tap to select and copy</p>
+                </div>
+              </div>
+
+              <!-- Security Warning -->
+              <div class="warning">
+                <div class="warning-content">
+                  <span class="warning-icon">⚠️</span>
+                  <div class="warning-text">
+                    <strong>Security Notice:</strong><br>
+                    • This reset code expires in <strong>30 minutes</strong><br>
+                    • If you didn't request this, ignore this email<br>
+                    • Never share this code with anyone<br>
+                    • Our team will never ask for this code
+                  </div>
+                </div>
+              </div>
+
+              <!-- Help Section -->
+              <div class="help-section">
+                <h4>💬 Need Help?</h4>
+                <p>
+                  If you're having trouble resetting your password or didn't request this change, 
+                  please contact our support team immediately.
+                </p>
+              </div>
             </div>
+            
+            <!-- Footer -->
             <div class="footer">
+              <div class="footer-logo">ConnectPay</div>
+              <p><strong>Secure Digital Payments</strong></p>
               <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
+              <p style="margin-top: 15px; font-size: 12px;">
+                This is an automated security email. Please do not reply.
+              </p>
             </div>
           </div>
         </body>
@@ -647,14 +961,15 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     await sgMail.send(message);
 
     console.log(`✅ Password reset email sent to: ${user.email}`);
+    console.log(`🔗 Deep link generated: ${deepLinkUrl}`);
 
     res.status(200).json({
       success: true,
-      message: 'If an account exists, a password reset link has been sent'
+      message: 'A password reset link has been sent to your email. Please check your inbox.'
     });
 
   } catch (error) {
-    console.error('Forgot password error:', error);
+    console.error('❌ Forgot password error:', error);
     
     // Handle SendGrid errors
     if (error.response) {
@@ -668,14 +983,20 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
   }
 });
 
+
 // @route   POST /api/auth/reset-password
 // @desc    Reset password with token
 // @access  Public
 router.post('/reset-password', authLimiter, async (req, res) => {
   try {
+    console.log('🔄 Reset password request received');
+    console.log('📥 Request body:', { token: req.body.token ? 'present' : 'missing', newPassword: req.body.newPassword ? 'present' : 'missing' });
+    
     const { token, newPassword } = req.body;
 
+    // Validation
     if (!token || !newPassword) {
+      console.log('❌ Missing token or password');
       return res.status(400).json({
         success: false,
         message: 'Token and new password are required'
@@ -683,6 +1004,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     }
 
     if (newPassword.length < 6) {
+      console.log('❌ Password too short');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters long'
@@ -690,7 +1012,8 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     }
 
     // Hash the token to compare with database
-    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+    const hashedToken = crypto.createHash('sha256').update(token.trim()).digest('hex');
+    console.log('🔐 Hashed token for lookup');
 
     // Find user with valid token
     const user = await User.findOne({
@@ -699,11 +1022,14 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     });
 
     if (!user) {
+      console.log('❌ No user found with valid token');
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired reset token'
+        message: 'Invalid or expired reset token. Please request a new password reset link.'
       });
     }
+
+    console.log('✅ Valid token found for user:', user.email);
 
     // Set new password (will be hashed by pre-save hook)
     user.password = newPassword;
@@ -713,18 +1039,62 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     console.log(`✅ Password reset successful for user: ${user.email}`);
 
+    // Optionally send confirmation email
+    try {
+      const confirmationMessage = {
+        to: user.email,
+        from: process.env.SENDGRID_FROM_EMAIL,
+        subject: 'Password Changed Successfully - ConnectPay',
+        html: `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <style>
+              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+              .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+              .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <h1>✓ Password Changed</h1>
+              </div>
+              <div class="content">
+                <p>Hello ${user.name},</p>
+                <p>Your password has been successfully changed.</p>
+                <p>If you did not make this change, please contact our support team immediately.</p>
+                <p>Time: ${new Date().toLocaleString()}</p>
+              </div>
+              <div class="footer">
+                <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+      };
+      
+      await sgMail.send(confirmationMessage);
+      console.log('✅ Confirmation email sent');
+    } catch (emailError) {
+      console.error('⚠️ Failed to send confirmation email:', emailError);
+      // Don't fail the request if email fails
+    }
+
     res.status(200).json({
       success: true,
       message: 'Password reset successful. You can now login with your new password.'
     });
 
   } catch (error) {
-    console.error('Reset password error:', error);
+    console.error('❌ Reset password error:', error);
     res.status(500).json({
       success: false,
       message: 'Error resetting password. Please try again.'
     });
   }
 });
-
 module.exports = router;

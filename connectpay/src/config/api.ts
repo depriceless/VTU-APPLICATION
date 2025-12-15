@@ -44,16 +44,20 @@ interface ApiConfig {
 
 const API_CONFIG: ApiConfig = {
   development: {
-    android: 'http://172.17.23.7:5002/api',
-    ios: 'http://172.17.23.7:5002/api',
+    // IMPORTANT: Update with YOUR computer's IP address
+    android: 'http://10.130.49.7:5002/api',  // Changed to port 5002
+    ios: 'http://10.130.49.7:5002/api',      // Changed to port 5002
+    web: 'http://localhost:5002/api',        // Changed to port 5002
   },
   production: {
     android: 'https://vtu-application.onrender.com/api',
     ios: 'https://vtu-application.onrender.com/api',
+    web: 'https://vtu-application.onrender.com/api',
   }
 };
 
-const isDevelopment = __DEV__;
+
+const isDevelopment = false; // Always use production
 
 const getBaseURL = (): string => {
   const env = isDevelopment ? 'development' : 'production';

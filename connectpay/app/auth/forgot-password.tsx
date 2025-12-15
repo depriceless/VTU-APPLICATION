@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, SafeAreaView, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter, Stack } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+const API_BASE_URL_ROOT = 'https://vtu-application.onrender.com';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -13,14 +13,14 @@ export default function ForgotPasswordScreen() {
       Alert.alert('Error', 'Email or phone number is required.');
       return;
     }
+    
 
     setLoading(true);
 
     try {
-      // Get your backend URL from storage or use default
-      const backendUrl = await AsyncStorage.getItem('backendUrl') || 'http://localhost:5000';
+      console.log('🔄 Sending password reset request to:', `${API_BASE_URL_ROOT}/api/auth/forgot-password`);
       
-      const response = await fetch(`${backendUrl}/api/auth/forgot-password`, {
+      const response = await fetch(`${API_BASE_URL_ROOT}/api/auth/forgot-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -31,6 +31,7 @@ export default function ForgotPasswordScreen() {
       });
 
       const data = await response.json();
+      console.log('📥 Password reset response:', data);
 
       if (response.ok && data.success) {
         Alert.alert(
@@ -47,7 +48,7 @@ export default function ForgotPasswordScreen() {
         Alert.alert('Error', data.message || 'Failed to send reset link. Please try again.');
       }
     } catch (error) {
-      console.error('Forgot password error:', error);
+      console.error('❌ Forgot password error:', error);
       Alert.alert(
         'Error',
         'Unable to connect to server. Please check your internet connection and try again.'
