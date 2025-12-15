@@ -396,9 +396,6 @@ router.post('/verify-pin', authenticate, async (req, res) => {
 // @route   GET /api/auth/profile
 // @desc    Get user profile
 // @access  Private
-// Backend - Complete Profile Routes
-
-// GET route for fetching user profile
 router.get('/profile', authenticate, async (req, res) => {
   try {
     console.log('=== GET PROFILE ROUTE DEBUG ===');
@@ -447,7 +444,9 @@ router.get('/profile', authenticate, async (req, res) => {
   }
 });
 
-// PUT route for updating user profile
+// @route   PUT /api/auth/profile
+// @desc    Update user profile
+// @access  Private
 router.put('/profile', authenticate, async (req, res) => {
   try {
     console.log('=== PUT PROFILE ROUTE DEBUG ===');
@@ -566,7 +565,7 @@ router.post('/logout', authenticate, (req, res) => {
 });
 
 // @route   POST /api/auth/forgot-password
-// @desc    Request password reset with working deep link
+// @desc    Request password reset - Simple working version
 // @access  Public
 router.post('/forgot-password', authLimiter, async (req, res) => {
   try {
@@ -596,10 +595,10 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
     user.resetPasswordExpires = Date.now() + 30 * 60 * 1000; // 30 minutes
     await user.save();
 
-    // Create deep link URL - simplified format
+    // Deep link for mobile app
     const deepLinkUrl = `connectpay://reset-password?token=${resetToken}`;
 
-    // Simplified email content with working button
+    // Simple, clean email template
     const message = {
       to: user.email,
       from: process.env.SENDGRID_FROM_EMAIL,
@@ -608,69 +607,16 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <style>
-            body { 
-              font-family: Arial, sans-serif; 
-              line-height: 1.6; 
-              color: #333;
-              margin: 0;
-              padding: 0;
-            }
-            .container { 
-              max-width: 600px; 
-              margin: 0 auto; 
-              padding: 20px; 
-            }
-            .header { 
-              background-color: #ff3b30; 
-              color: white; 
-              padding: 20px; 
-              text-align: center; 
-              border-radius: 5px 5px 0 0; 
-            }
-            .content { 
-              background-color: #f9f9f9; 
-              padding: 30px; 
-              border-radius: 0 0 5px 5px; 
-            }
-            .button { 
-              display: inline-block; 
-              background-color: #ff3b30; 
-              color: white; 
-              padding: 15px 30px; 
-              text-decoration: none; 
-              border-radius: 5px; 
-              margin: 20px 0;
-              font-weight: bold;
-            }
-            .code-box { 
-              background: #fff; 
-              padding: 15px; 
-              border: 2px dashed #ff3b30; 
-              border-radius: 5px; 
-              margin: 20px 0; 
-              text-align: center;
-            }
-            .code { 
-              font-family: monospace; 
-              font-size: 18px; 
-              color: #ff3b30; 
-              font-weight: bold; 
-              letter-spacing: 2px; 
-            }
-            .footer { 
-              text-align: center; 
-              margin-top: 20px; 
-              font-size: 12px; 
-              color: #666; 
-            }
-            .warning {
-              background: #fff3cd;
-              border-left: 4px solid #ffc107;
-              padding: 15px;
-              margin: 20px 0;
-            }
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { background-color: #ff3b30; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+            .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
+            .button { display: inline-block; background-color: #ff3b30; color: white !important; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
+            .code-box { background: #fff; padding: 15px; border: 2px dashed #ff3b30; border-radius: 5px; margin: 20px 0; text-align: center; }
+            .code { font-family: monospace; font-size: 16px; color: #ff3b30; font-weight: bold; letter-spacing: 2px; }
+            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
+            .warning { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
           </style>
         </head>
         <body>
@@ -682,18 +628,15 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
               <p>Hello <strong>${user.name}</strong>,</p>
               <p>You requested to reset your password for your ConnectPay account.</p>
               
-              <h3>Method 1: Click the button</h3>
+              <p><strong>Method 1: Click the button below</strong></p>
               <p style="text-align: center;">
-                <a href="${deepLinkUrl}" class="button" style="color: white;">Open ConnectPay App</a>
-              </p>
-              <p style="text-align: center; font-size: 13px; color: #666;">
-                (This will open the app on your device)
+                <a href="${deepLinkUrl}" class="button">Open ConnectPay App</a>
               </p>
 
               <p style="margin-top: 30px;"><strong>OR</strong></p>
 
-              <h3>Method 2: Copy this code</h3>
-              <p>Open the ConnectPay app and enter this reset code:</p>
+              <p><strong>Method 2: Copy this reset code</strong></p>
+              <p>Open the ConnectPay app and enter this code:</p>
               <div class="code-box">
                 <div class="code">${resetToken}</div>
               </div>
@@ -706,37 +649,29 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
                   • Never share this code with anyone
                 </p>
               </div>
-
-              <p>If you're having trouble, you can also copy and paste this link into your browser:</p>
-              <p style="word-break: break-all; font-size: 12px; color: #666;">
-                ${deepLinkUrl}
-              </p>
             </div>
             <div class="footer">
               <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
-              <p>This is an automated message, please do not reply.</p>
             </div>
           </div>
         </body>
         </html>
       `,
-      // Add plain text version for email clients that don't support HTML
+      // Plain text version
       text: `
 Hello ${user.name},
 
 You requested to reset your password for your ConnectPay account.
 
-To reset your password, use one of these methods:
-
-Method 1: Open this link on your mobile device:
+Method 1: Open this link on your phone:
 ${deepLinkUrl}
 
-Method 2: Copy this reset code and enter it in the ConnectPay app:
+Method 2: Use this reset code in the ConnectPay app:
 ${resetToken}
 
-This code expires in 30 minutes.
+⚠️ This code expires in 30 minutes.
 
-If you didn't request this password reset, please ignore this email.
+If you didn't request this, please ignore this email.
 
 © ${new Date().getFullYear()} ConnectPay. All rights reserved.
       `
@@ -768,20 +703,15 @@ If you didn't request this password reset, please ignore this email.
   }
 });
 
-
 // @route   POST /api/auth/reset-password
 // @desc    Reset password with token
 // @access  Public
 router.post('/reset-password', authLimiter, async (req, res) => {
   try {
     console.log('🔄 Reset password request received');
-    console.log('📥 Request body:', { token: req.body.token ? 'present' : 'missing', newPassword: req.body.newPassword ? 'present' : 'missing' });
-    
     const { token, newPassword } = req.body;
 
-    // Validation
     if (!token || !newPassword) {
-      console.log('❌ Missing token or password');
       return res.status(400).json({
         success: false,
         message: 'Token and new password are required'
@@ -789,7 +719,6 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     }
 
     if (newPassword.length < 6) {
-      console.log('❌ Password too short');
       return res.status(400).json({
         success: false,
         message: 'Password must be at least 6 characters long'
@@ -798,7 +727,6 @@ router.post('/reset-password', authLimiter, async (req, res) => {
 
     // Hash the token to compare with database
     const hashedToken = crypto.createHash('sha256').update(token.trim()).digest('hex');
-    console.log('🔐 Hashed token for lookup');
 
     // Find user with valid token
     const user = await User.findOne({
@@ -810,7 +738,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
       console.log('❌ No user found with valid token');
       return res.status(400).json({
         success: false,
-        message: 'Invalid or expired reset token. Please request a new password reset link.'
+        message: 'Invalid or expired reset token'
       });
     }
 
@@ -823,51 +751,6 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     await user.save();
 
     console.log(`✅ Password reset successful for user: ${user.email}`);
-
-    // Optionally send confirmation email
-    try {
-      const confirmationMessage = {
-        to: user.email,
-        from: process.env.SENDGRID_FROM_EMAIL,
-        subject: 'Password Changed Successfully - ConnectPay',
-        html: `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
-              .content { background-color: #f9f9f9; padding: 30px; border-radius: 0 0 5px 5px; }
-              .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <div class="header">
-                <h1>✓ Password Changed</h1>
-              </div>
-              <div class="content">
-                <p>Hello ${user.name},</p>
-                <p>Your password has been successfully changed.</p>
-                <p>If you did not make this change, please contact our support team immediately.</p>
-                <p>Time: ${new Date().toLocaleString()}</p>
-              </div>
-              <div class="footer">
-                <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
-              </div>
-            </div>
-          </body>
-          </html>
-        `
-      };
-      
-      await sgMail.send(confirmationMessage);
-      console.log('✅ Confirmation email sent');
-    } catch (emailError) {
-      console.error('⚠️ Failed to send confirmation email:', emailError);
-      // Don't fail the request if email fails
-    }
 
     res.status(200).json({
       success: true,
@@ -882,4 +765,5 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     });
   }
 });
+
 module.exports = router;
