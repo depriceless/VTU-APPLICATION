@@ -4,10 +4,7 @@ import {
   View,
   Text,
   StyleSheet,
-  TouchableOpacity,
   ScrollView,
-  Alert,
-  Share,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -124,59 +121,6 @@ export default function TransactionDetailsComponent({ transaction, userInfo }: T
     }
   };
 
-  // ✅ Handle receipt sharing
-  const handleShareReceipt = async () => {
-    const receiptText = generateReceiptText();
-    
-    try {
-      await Share.share({
-        message: receiptText,
-        title: 'Transaction Receipt',
-      });
-    } catch (error) {
-      console.error('Share error:', error);
-      Alert.alert('Share Error', 'Unable to share receipt. Please try again.');
-    }
-  };
-
-  // ✅ Generate receipt text for sharing
-  const generateReceiptText = () => {
-    const { date, time } = formatDateTime(transaction.createdAt);
-    const amount = transaction.type === 'credit' || transaction.type === 'transfer_in' 
-      ? `+₦${transaction.amount.toLocaleString()}`
-      : `-₦${transaction.amount.toLocaleString()}`;
-
-    return `
-🧾 TRANSACTION RECEIPT
-━━━━━━━━━━━━━━━━━━━━━━━━━
-
-💳 Transaction Details:
-Reference: ${transaction.reference}
-Type: ${transaction.type.toUpperCase().replace('_', ' ')}
-Category: ${transaction.category.toUpperCase()}
-Amount: ${amount}
-Status: ${transaction.status.toUpperCase()}
-
-📅 Date & Time:
-${date} at ${time}
-
-👤 Account Information:
-Name: ${userInfo?.name || 'N/A'}
-Email: ${userInfo?.email || 'N/A'}
-
-${transaction.description ? `📝 Description: ${transaction.description}` : ''}
-
-${transaction.previousBalance !== undefined ? `💰 Previous Balance: ₦${transaction.previousBalance.toLocaleString()}` : ''}
-${transaction.newBalance !== undefined ? `💰 New Balance: ₦${transaction.newBalance.toLocaleString()}` : ''}
-
-${transaction.gateway?.provider ? `🌐 Payment Gateway: ${transaction.gateway.provider.toUpperCase()}` : ''}
-${transaction.gateway?.gatewayReference ? `🔗 Gateway Ref: ${transaction.gateway.gatewayReference}` : ''}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━
-Thank you for using our service!
-    `.trim();
-  };
-
   const { date, time } = formatDateTime(transaction.createdAt);
 
   return (
@@ -186,18 +130,6 @@ Thank you for using our service!
         contentContainerStyle={{ paddingBottom: 40 }} 
         showsVerticalScrollIndicator={false}
       >
-        {/* Share Button Section */}
-        <View style={styles.shareSection}>
-          <TouchableOpacity 
-            style={styles.shareButton} 
-            onPress={handleShareReceipt}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="share-outline" size={20} color="#ff2b2b" />
-            <Text style={styles.shareButtonText}>Share Receipt</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Transaction Status Card */}
         <View style={styles.statusCard}>
           <View style={[styles.statusIcon, { backgroundColor: `${getTransactionColor()}15` }]}>
@@ -288,28 +220,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     flex: 1,
   },
-  shareSection: {
-    marginHorizontal: 16,
-    marginTop: 20,
-    marginBottom: 10,
-  },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    borderColor: '#ff2b2b',
-    borderRadius: 10,
-    backgroundColor: '#fff',
-  },
-  shareButtonText: {
-    color: '#ff2b2b',
-    fontSize: 14,
-    fontWeight: '600',
-  },
   
   // Status Card
   statusCard: {
@@ -318,7 +228,8 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: 'center',
     marginHorizontal: 16,
-    marginVertical: 10,
+    marginTop: 20,
+    marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,

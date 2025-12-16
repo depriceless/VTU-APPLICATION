@@ -120,7 +120,7 @@ export default function BuyAirtime() {
 
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const amountNum = parseInt(amount) || 0;
-  const isAmountValid = amountNum >= 50 && amountNum <= 100000;
+const isAmountValid = amount !== '' && amountNum >= 50 && amountNum <= 100000;
   const currentBalance = getBalanceAmount(userBalance);
   const hasEnoughBalance = currentBalance > 0 ? amountNum <= currentBalance : true;
   const canProceed = isPhoneValid && isAmountValid && selectedNetwork && hasEnoughBalance;
@@ -744,9 +744,13 @@ export default function BuyAirtime() {
               value={amount}
               onChangeText={setAmount}
             />
-            {amount !== '' && !isAmountValid && (
-              <Text style={styles.validationError}>Amount must be between ₦50 and ₦100,000</Text>
-            )}
+         {/* NEW CODE - Shows specific messages */}
+{amount !== '' && amountNum > 0 && amountNum < 50 && (
+  <Text style={styles.validationError}>Minimum amount is ₦50</Text>
+)}
+{amount !== '' && amountNum > 100000 && (
+  <Text style={styles.validationError}>Maximum amount is ₦100,000</Text>
+)}
             {amount !== '' && isAmountValid && !hasEnoughBalance && userBalance && currentBalance > 0 && (
               <Text style={styles.validationError}>
                 Insufficient balance. Available: ₦{currentBalance.toLocaleString('en-US', {

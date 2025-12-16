@@ -28,12 +28,12 @@ export default function Profile() {
   useEffect(() => {
     fetchUserProfile();
   }, [token]);
-
-  const fetchUserProfile = async () => {
+  
+ const fetchUserProfile = async () => {
     try {
       setLoading(true);
       if (!token) {
-        Alert.alert('Error', 'No authentication token found');
+        // Don't show alert, just return silently
         return;
       }
 
@@ -220,16 +220,16 @@ export default function Profile() {
             <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
 
-          {/* Logout Option */}
+          {/* Logout Option - ✅ UPDATED COLOR */}
           <TouchableOpacity 
             style={styles.optionItem} 
             onPress={handleLogout}
           >
             <View style={styles.optionLeft}>
-              <View style={[styles.optionIconContainer, { backgroundColor: '#dc354510' }]}>
-                <Ionicons name="log-out-outline" size={20} color="#dc3545" />
+              <View style={[styles.optionIconContainer, { backgroundColor: '#ff2b2b10' }]}>
+                <Ionicons name="log-out-outline" size={20} color="#ff2b2b" />
               </View>
-              <Text style={[styles.optionText, { color: '#dc3545' }]}>Logout</Text>
+              <Text style={[styles.optionText, { color: '#ff2b2b' }]}>Logout</Text>
             </View>
             <Ionicons name="chevron-forward-outline" size={20} color={colors.textSecondary} />
           </TouchableOpacity>
@@ -246,7 +246,7 @@ export default function Profile() {
         <View style={styles.confirmationOverlay}>
           <View style={[styles.confirmationModal, { backgroundColor: colors.cardBg }]}>
             <View style={styles.logoutIconContainer}>
-              <Ionicons name="log-out-outline" size={48} color="#dc3545" />
+              <Ionicons name="log-out-outline" size={48} color="#ff2b2b" />
             </View>
             
             <Text style={[styles.confirmationTitle, { color: colors.text }]}>Logout</Text>
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
-  // Logout Modal
+  // Logout Modal - ✅ UPDATED COLORS
   confirmationOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -386,7 +386,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#dc354510',
+    backgroundColor: '#ff2b2b10', // ✅ Changed from #dc354510
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
@@ -420,7 +420,7 @@ const styles = StyleSheet.create({
   },
   logoutConfirmButton: {
     flex: 1,
-    backgroundColor: '#dc3545',
+    backgroundColor: '#ff2b2b', // ✅ Changed from #dc3545
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',

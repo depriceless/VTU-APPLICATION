@@ -7,17 +7,35 @@ export default {
     scheme: "connectpay",
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
+    
+    // ✅ FIXED: Proper icon configuration (1024x1024 PNG required)
+    icon: "./assets/images/icon.png", // Must be 1024x1024px
+    
+    // ✅ FIXED: Splash screen with red background
+    splash: {
+      image: "./assets/images/splash.png", // Must be at least 2048x2048px
+      resizeMode: "contain",
+      backgroundColor: "#ff3b30" // Red background color
+    },
+    
     ios: {
       supportsTablet: true,
       runtimeVersion: {
         policy: "appVersion",
       },
       bundleIdentifier: "com.anonymous.connectpay",
+      // ✅ iOS-specific icon (optional, uses main icon if not specified)
+      icon: "./assets/images/icon.png"
     },
+    
     android: {
+      // ✅ FIXED: Android adaptive icon with red background
       adaptiveIcon: {
-        backgroundColor: "#ffffff",
+        foregroundImage: "./assets/images/adaptive-icon.png", // Must be 1024x1024px
+        backgroundColor: "#ff3b30", // Red background
+        monochromeImage: "./assets/images/adaptive-icon.png" // Optional: for themed icons
       },
+      softwareKeyboardLayoutMode: "resize",
       edgeToEdgeEnabled: true,
       package: "com.anonymous.connectpay",
       usesCleartextTraffic: true,
@@ -41,21 +59,17 @@ export default {
         },
       ],
     },
+    
     web: {
       bundler: "metro",
       output: "static",
+      // ✅ Web favicon
+      favicon: "./assets/images/favicon.png"
     },
+    
     plugins: [
       "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/logo.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
-        }
-      ],
+      "expo-splash-screen",
       "expo-asset",
       "expo-secure-store",
       [
@@ -65,12 +79,15 @@ export default {
         }
       ]
     ],
+    
     experiments: {
       typedRoutes: true,
     },
+    
     updates: {
       url: "https://u.expo.dev/f853cd0a-cdb5-4197-855e-4a1207a7f5c9",
     },
+    
     extra: {
       EXPO_PUBLIC_API_URL:
         process.env.EXPO_PUBLIC_API_URL || "https://vtu-application.onrender.com",
@@ -83,3 +100,4 @@ export default {
     },
   },
 };
+

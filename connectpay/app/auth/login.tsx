@@ -18,9 +18,8 @@ import apiClient from '../../src/config/api';
 import { AuthContext } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
-import * as SecureStore from 'expo-secure-store'; // ✅ FIXED: Use SecureStore
+import * as SecureStore from 'expo-secure-store';
 
-// ✅ ADDED: Storage helper (same as AuthContext)
 const storage = {
   async getItem(key) {
     if (Platform.OS === 'web') {
@@ -56,7 +55,7 @@ export default function LoginScreen() {
 
   const [emailOrPhone, setEmailOrPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(false); // ✅ For Sign In button only
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -68,7 +67,7 @@ export default function LoginScreen() {
   // Biometric states
   const [isBiometricSupported, setIsBiometricSupported] = useState(false);
   const [hasBiometricCredentials, setHasBiometricCredentials] = useState(false);
-  const [isBiometricLoading, setIsBiometricLoading] = useState(false);
+  const [isBiometricLoading, setIsBiometricLoading] = useState(false); // ✅ For Biometric button only
 
   useEffect(() => {
     setTimeout(() => {
@@ -78,7 +77,6 @@ export default function LoginScreen() {
     checkBiometricSupport();
   }, []);
 
-  // ✅ FIXED: Check biometric support
   const checkBiometricSupport = async () => {
     try {
       const compatible = await LocalAuthentication.hasHardwareAsync();
@@ -87,7 +85,7 @@ export default function LoginScreen() {
       if (compatible) {
         const enrolled = await LocalAuthentication.isEnrolledAsync();
         if (enrolled) {
-          const savedCredentials = await storage.getItem('biometric_credentials'); // ✅ FIXED
+          const savedCredentials = await storage.getItem('biometric_credentials');
           setHasBiometricCredentials(!!savedCredentials);
         }
       }
@@ -96,11 +94,10 @@ export default function LoginScreen() {
     }
   };
 
-  // ✅ FIXED: Save credentials for biometric login
   const saveBiometricCredentials = async (emailOrPhone, password) => {
     try {
       const credentials = JSON.stringify({ emailOrPhone, password });
-      await storage.setItem('biometric_credentials', credentials); // ✅ FIXED
+      await storage.setItem('biometric_credentials', credentials);
       setHasBiometricCredentials(true);
       Alert.alert('Success', 'Biometric login enabled!');
     } catch (error) {
@@ -109,13 +106,13 @@ export default function LoginScreen() {
     }
   };
 
-  // ✅ FIXED: Biometric authentication
+  // ✅ FIXED: Biometric authentication - only sets isBiometricLoading
   const handleBiometricAuth = async () => {
     if (!isBiometricSupported || isBiometricLoading || loading) {
       return;
     }
 
-    setIsBiometricLoading(true);
+    setIsBiometricLoading(true); // ✅ Only biometric loading
     
     try {
       const result = await LocalAuthentication.authenticateAsync({
@@ -125,10 +122,10 @@ export default function LoginScreen() {
       });
 
       if (result.success) {
-        const savedCredentials = await storage.getItem('biometric_credentials'); // ✅ FIXED
+        const savedCredentials = await storage.getItem('biometric_credentials');
         if (savedCredentials) {
           const { emailOrPhone, password } = JSON.parse(savedCredentials);
-          await handleLoginWithCredentials(emailOrPhone, password);
+          await handleLoginWithCredentials(emailOrPhone, password, true); // ✅ Pass flag for biometric
         }
       } else {
         if (result.error !== 'user_cancel') {
@@ -139,7 +136,7 @@ export default function LoginScreen() {
       console.error('Biometric auth error:', error);
       Alert.alert('Error', 'Biometric authentication failed.');
     } finally {
-      setIsBiometricLoading(false);
+      setIsBiometricLoading(false); // ✅ Only biometric loading
     }
   };
 
@@ -214,231 +211,206 @@ export default function LoginScreen() {
     setPasswordError(error);
   };
 
-  // ✅ FIXED: Main login handler with better error handling
-const handleLogin = async () => {
-  if (loading) return;
+  // ✅ FIXED: Main login handler - only sets loading (not isBiometricLoading)
+  const handleLogin = async () => {
+    if (loading || isBiometricLoading) return;
 
-  setErrorMessage('');
-  setSuccessMessage('');
+    setErrorMessage('');
+    setSuccessMessage('');
 
-  const emailValidationError = validateEmailOrPhone(emailOrPhone);
-  const passwordValidationError = validatePassword(password);
+    const emailValidationError = validateEmailOrPhone(emailOrPhone);
+    const passwordValidationError = validatePassword(password);
 
-  setEmailError(emailValidationError);
-  setPasswordError(passwordValidationError);
+    setEmailError(emailValidationError);
+    setPasswordError(passwordValidationError);
 
-  if (emailValidationError || passwordValidationError) {
-    return;
-  }
+    if (emailValidationError || passwordValidationError) {
+      return;
+    }
 
-  if (!emailOrPhone.trim() || !password.trim()) {
-    setErrorMessage('Phone/Email and Password are required.');
-    return;
-  }
+    if (!emailOrPhone.trim() || !password.trim()) {
+      setErrorMessage('Phone/Email and Password are required.');
+      return;
+    }
 
-  setLoading(true);
+    setLoading(true); // ✅ Only sign in loading
 
-  try {
-    console.log('🔄 Attempting login...');
+    try {
+      console.log('🔄 Attempting login...');
 
-    const response = await apiClient.post('/auth/login', {
-      emailOrPhone: emailOrPhone.trim(),
-      password: password.trim(),
-    });
+      const response = await apiClient.post('/auth/login', {
+        emailOrPhone: emailOrPhone.trim(),
+        password: password.trim(),
+      });
 
-    console.log('✅ Login response received:', response.status);
+      console.log('✅ Login response received:', response.status);
 
-    if (response.status === 200 || response.status === 201) {
-      const token = response.data.token || response.data.data?.token;
-      
-      if (token) {
-        console.log('✅ Login successful, token received');
-        console.log('🔑 Token length:', token.length);
+      if (response.status === 200 || response.status === 201) {
+        const token = response.data.token || response.data.data?.token;
         
-        // Save to SecureStore
-        await storage.setItem('userToken', token);
-        console.log('💾 Token saved to SecureStore as "userToken"');
-        
-        // Verify token was saved
-        const verifyToken = await storage.getItem('userToken');
-        console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED SAVED ✅' : 'SAVE FAILED ❌');
-        
-        if (!verifyToken) {
-          throw new Error('Token save verification failed');
-        }
-        
-        // Update context
-        await login(token);
-        console.log('✅ Context login completed');
-        
-        // Offer biometric setup if applicable
-        if (!hasBiometricCredentials && isBiometricSupported) {
+        if (token) {
+          console.log('✅ Login successful, token received');
+          
+          await storage.setItem('userToken', token);
+          console.log('💾 Token saved to SecureStore');
+          
+          const verifyToken = await storage.getItem('userToken');
+          console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED ✅' : 'FAILED ❌');
+          
+          if (!verifyToken) {
+            throw new Error('Token save verification failed');
+          }
+          
+          await login(token);
+          console.log('✅ Context login completed');
+          
+          if (!hasBiometricCredentials && isBiometricSupported) {
+            setTimeout(() => {
+              enableBiometricLogin();
+            }, 1000);
+          }
+          
+          setSuccessMessage('Login successful! Redirecting...');
+          
           setTimeout(() => {
-            enableBiometricLogin();
-          }, 1000);
+            console.log('🚀 Navigating to dashboard');
+            router.replace('/dashboard');
+          }, 800);
+        } else {
+          console.log('❌ No token in response');
+          setErrorMessage('Login failed. No authentication token received.');
         }
-        
-        setSuccessMessage('Login successful! Redirecting...');
-        
-        setTimeout(() => {
-          console.log('🚀 Navigating to dashboard');
-          router.replace('/dashboard');
-        }, 800);
-      } else {
-        console.log('❌ No token in response');
-        setErrorMessage('Login failed. No authentication token received.');
       }
-    }
 
-  } catch (error) {
-    console.error('❌ Login error:', error);
+    } catch (error) {
+      console.error('❌ Login error:', error);
 
-    // ✅ FIXED: Better error handling order
-    if (error.response) {
-      // Server responded with an error
-      const status = error.response.status;
-      const message = error.response.data?.message;
-      
-      console.log('📋 Server error status:', status);
-      console.log('📋 Server error message:', message);
-      
-      if (status === 401 || status === 400) {
-        // Show the actual error message from server
-        setErrorMessage(message || 'Invalid email/phone or password.');
-      } else if (status === 422) {
-        setErrorMessage(message || 'Invalid input data provided.');
-      } else if (status === 429) {
-        setErrorMessage('Too many login attempts. Please try again later.');
-      } else if (status >= 500) {
-        setErrorMessage('Server error. Please try again later.');
-      } else {
-        setErrorMessage(message || 'Login failed. Please try again.');
-      }
-    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      // Timeout error
-      setErrorMessage('Request timed out. Please check your internet connection.');
-    } else if (error.request) {
-      // No response from server
-      console.error('❌ No response received from server');
-      setErrorMessage('Cannot reach the server. Please check your internet connection.');
-    } else {
-      // Something else went wrong
-      console.error('❌ Error details:', error.message);
-      // ✅ FIXED: Show the actual error message instead of generic one
-      setErrorMessage(error.message || 'An unexpected error occurred. Please try again.');
-    }
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-// ✅ FIXED: Biometric login handler with same error handling
-const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue) => {
-  if (loading) return;
-
-  setErrorMessage('');
-  setSuccessMessage('');
-
-  const emailValidationError = validateEmailOrPhone(emailOrPhoneValue);
-  const passwordValidationError = validatePassword(passwordValue);
-
-  setEmailError(emailValidationError);
-  setPasswordError(passwordValidationError);
-
-  if (emailValidationError || passwordValidationError) {
-    return;
-  }
-
-  if (!emailOrPhoneValue.trim() || !passwordValue.trim()) {
-    setErrorMessage('Phone/Email and Password are required.');
-    return;
-  }
-
-  setLoading(true);
-
-  try {
-    console.log('🔄 Attempting biometric login...');
-
-    const response = await apiClient.post('/auth/login', {
-      emailOrPhone: emailOrPhoneValue.trim(),
-      password: passwordValue.trim(),
-    });
-
-    console.log('✅ Biometric login response received:', response.status);
-
-    if (response.status === 200 || response.status === 201) {
-      const token = response.data.token || response.data.data?.token;
-      
-      if (token) {
-        console.log('✅ Biometric login successful');
+      if (error.response) {
+        const status = error.response.status;
+        const message = error.response.data?.message;
         
-        // Save to SecureStore
-        await storage.setItem('userToken', token);
-        console.log('💾 Token saved to SecureStore');
-        
-        // Verify
-        const verifyToken = await storage.getItem('userToken');
-        console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED ✅' : 'FAILED ❌');
-        
-        if (!verifyToken) {
-          throw new Error('Token save verification failed');
+        if (status === 401 || status === 400) {
+          setErrorMessage(message || 'Invalid email/phone or password.');
+        } else if (status === 422) {
+          setErrorMessage(message || 'Invalid input data provided.');
+        } else if (status === 429) {
+          setErrorMessage('Too many login attempts. Please try again later.');
+        } else if (status >= 500) {
+          setErrorMessage('Server error. Please try again later.');
+        } else {
+          setErrorMessage(message || 'Login failed. Please try again.');
         }
-        
-        // Update context
-        await login(token);
-        console.log('✅ Context updated');
-        
-        // Update UI state
-        setEmailOrPhone(emailOrPhoneValue);
-        setPassword(passwordValue);
-        
-        setSuccessMessage('Login successful! Redirecting...');
-        setTimeout(() => {
-          console.log('🚀 Navigating to dashboard');
-          router.replace('/dashboard');
-        }, 800);
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        setErrorMessage('Request timed out. Please check your internet connection.');
+      } else if (error.request) {
+        setErrorMessage('Cannot reach the server. Please check your internet connection.');
       } else {
-        console.log('❌ No token in response');
-        setErrorMessage('Login failed. No authentication token received.');
+        setErrorMessage(error.message || 'An unexpected error occurred. Please try again.');
       }
+    } finally {
+      setLoading(false); // ✅ Only sign in loading
+    }
+  };
+
+  // ✅ FIXED: Biometric login handler - uses isBiometricLoading when called from biometric
+  const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue, isBiometric = false) => {
+    if (loading || isBiometricLoading) return;
+
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    const emailValidationError = validateEmailOrPhone(emailOrPhoneValue);
+    const passwordValidationError = validatePassword(passwordValue);
+
+    if (emailValidationError || passwordValidationError) {
+      return;
     }
 
-  } catch (error) {
-    console.error('❌ Biometric login error:', error);
-
-    // ✅ FIXED: Same improved error handling
-    if (error.response) {
-      const status = error.response.status;
-      const message = error.response.data?.message;
-      
-      console.log('📋 Server error status:', status);
-      console.log('📋 Server error message:', message);
-      
-      if (status === 401 || status === 400) {
-        setErrorMessage(message || 'Invalid email/phone or password.');
-      } else if (status === 422) {
-        setErrorMessage(message || 'Invalid input data provided.');
-      } else if (status === 429) {
-        setErrorMessage('Too many login attempts. Please try again later.');
-      } else if (status >= 500) {
-        setErrorMessage('Server error. Please try again later.');
-      } else {
-        setErrorMessage(message || 'Login failed. Please try again.');
-      }
-    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-      setErrorMessage('Request timed out. Please check your internet connection.');
-    } else if (error.request) {
-      console.error('❌ No response received from server');
-      setErrorMessage('Cannot reach the server. Please check your internet connection.');
-    } else {
-      console.error('❌ Error details:', error.message);
-      setErrorMessage(error.message || 'An unexpected error occurred. Please try again.');
+    if (!emailOrPhoneValue.trim() || !passwordValue.trim()) {
+      setErrorMessage('Phone/Email and Password are required.');
+      return;
     }
-  } finally {
-    setLoading(false);
-  }
-};
+
+    // ✅ Already loading from biometric button, don't set loading again
+    if (!isBiometric) {
+      setLoading(true);
+    }
+
+    try {
+      console.log('🔄 Attempting biometric login...');
+
+      const response = await apiClient.post('/auth/login', {
+        emailOrPhone: emailOrPhoneValue.trim(),
+        password: passwordValue.trim(),
+      });
+
+      console.log('✅ Biometric login response received:', response.status);
+
+      if (response.status === 200 || response.status === 201) {
+        const token = response.data.token || response.data.data?.token;
+        
+        if (token) {
+          console.log('✅ Biometric login successful');
+          
+          await storage.setItem('userToken', token);
+          console.log('💾 Token saved to SecureStore');
+          
+          const verifyToken = await storage.getItem('userToken');
+          console.log('🔍 Token verification:', verifyToken ? 'CONFIRMED ✅' : 'FAILED ❌');
+          
+          if (!verifyToken) {
+            throw new Error('Token save verification failed');
+          }
+          
+          await login(token);
+          console.log('✅ Context updated');
+          
+          setEmailOrPhone(emailOrPhoneValue);
+          setPassword(passwordValue);
+          
+          setSuccessMessage('Login successful! Redirecting...');
+          setTimeout(() => {
+            console.log('🚀 Navigating to dashboard');
+            router.replace('/dashboard');
+          }, 800);
+        } else {
+          console.log('❌ No token in response');
+          setErrorMessage('Login failed. No authentication token received.');
+        }
+      }
+
+    } catch (error) {
+      console.error('❌ Biometric login error:', error);
+
+      if (error.response) {
+        const status = error.response.status;
+        const message = error.response.data?.message;
+        
+        if (status === 401 || status === 400) {
+          setErrorMessage(message || 'Invalid email/phone or password.');
+        } else if (status === 422) {
+          setErrorMessage(message || 'Invalid input data provided.');
+        } else if (status === 429) {
+          setErrorMessage('Too many login attempts. Please try again later.');
+        } else if (status >= 500) {
+          setErrorMessage('Server error. Please try again later.');
+        } else {
+          setErrorMessage(message || 'Login failed. Please try again.');
+        }
+      } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        setErrorMessage('Request timed out. Please check your internet connection.');
+      } else if (error.request) {
+        setErrorMessage('Cannot reach the server. Please check your internet connection.');
+      } else {
+        setErrorMessage(error.message || 'An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      if (!isBiometric) {
+        setLoading(false);
+      }
+      // ✅ isBiometricLoading is already handled in handleBiometricAuth
+    }
+  };
 
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
@@ -563,10 +535,11 @@ const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue) => {
           </View>
 
           <View style={styles.actionSection}>
+            {/* ✅ Sign In Button - only shows loading when signing in */}
             <TouchableOpacity
-              style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+              style={[styles.loginButton, (loading || isBiometricLoading) && styles.loginButtonDisabled]}
               onPress={handleLogin}
-              disabled={loading}
+              disabled={loading || isBiometricLoading}
               accessibilityLabel="Login button"
             >
               {loading ? (
@@ -581,6 +554,7 @@ const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue) => {
               )}
             </TouchableOpacity>
 
+            {/* ✅ Biometric Button - only shows loading when authenticating biometrically */}
             {isBiometricSupported && hasBiometricCredentials && (
               <View style={styles.biometricSection}>
                 <TouchableOpacity
@@ -589,13 +563,16 @@ const handleLoginWithCredentials = async (emailOrPhoneValue, passwordValue) => {
                   disabled={isBiometricLoading || loading}
                 >
                   {isBiometricLoading ? (
-                    <ActivityIndicator color="#ff2b2b" size="small" />
+                    <View style={styles.loadingContainer}>
+                      <ActivityIndicator color="#ff2b2b" size="small" />
+                      <Text style={[styles.biometricText, styles.loadingText]}>
+                        Authenticating...
+                      </Text>
+                    </View>
                   ) : (
                     <>
                       <Ionicons name="finger-print" size={20} color="#ff2b2b" />
-                      <Text style={styles.biometricText}>
-                        {isBiometricLoading ? 'Authenticating...' : 'Login with Biometric'}
-                      </Text>
+                      <Text style={styles.biometricText}>Sign in with Biometric</Text>
                     </>
                   )}
                 </TouchableOpacity>

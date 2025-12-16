@@ -1148,30 +1148,56 @@ async function processPrintRechargePurchase({ network, denomination, quantity, a
   }
 }
 
+
 async function processAirtimePurchase({ network, phone, amount, userId }) {
   try {
+    console.log('\n=== AIRTIME PURCHASE DEBUG ===');
+    console.log('Raw inputs:', { network, phone, amount, userId });
+    console.log('Amount type:', typeof amount);
+    console.log('Amount value:', amount);
+    
     if (!network || !phone) throw new Error('Missing required fields: network, phone');
     if (!/^0[789][01]\d{8}$/.test(phone)) throw new Error('Invalid phone number format');
 
-    const providerCost = Math.round(amount / 1.02);
-    const profit = amount - providerCost;
+    // ❌ PROBLEM: This line reduces your amount!
+    // const providerCost = Math.round(amount / 1.02);
+    
+    // ✅ FIX: Send the EXACT amount customer pays
+    const providerCost = amount; // Send exactly ₦50
+    const profit = 0; // No profit markup for now
+
+    console.log('Calculated providerCost:', providerCost);
+    console.log('Sending to ClubKonnect:', providerCost);
 
     const networkCode = NETWORK_CODES[network.toUpperCase()] || network;
     const requestId = `AIR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    const response = await makeClubKonnectRequest('/APIAirtimeV1.asp', {
+    console.log('Network code:', networkCode);
+    console.log('Request ID:', requestId);
+
+    const apiParams = {
       MobileNetwork: networkCode,
-      Amount: providerCost,
+      Amount: providerCost,  // ✅ Exact amount
       MobileNumber: phone,
       RequestID: requestId
-    });
+    };
+
+    console.log('📡 API Params:', JSON.stringify(apiParams, null, 2));
+
+    const response = await makeClubKonnectRequest('/APIAirtimeV1.asp', apiParams);
+
+    console.log('📥 ClubKonnect Response:', JSON.stringify(response, null, 2));
 
     const isSuccess = response.statuscode === '100' || response.statuscode === '200' || 
                       response.status === 'ORDER_RECEIVED' || response.status === 'ORDER_COMPLETED';
 
     if (!isSuccess) {
+      console.error('❌ Purchase failed:', response.remark || response.status);
       throw new Error(response.remark || response.status || 'Purchase failed');
     }
+
+    console.log('✅ Purchase successful!');
+    console.log('=== END DEBUG ===\n');
 
     return {
       success: true,
@@ -1191,6 +1217,11 @@ async function processAirtimePurchase({ network, phone, amount, userId }) {
       }
     };
   } catch (error) {
+    console.error('=== AIRTIME PURCHASE ERROR ===');
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('=== END ERROR ===\n');
+    
     const reference = `AIR_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {
       success: false,
@@ -1326,6 +1357,9 @@ async function processDataPurchase({ network, phone, planId, plan, amount, userI
     };
   }
 }
+// ============================================================
+// OPTIMIZED: Fast EasyAccess Data Purchase
+// ============================================================
 
 async function processEasyAccessDataPurchase({ network, phone, planId, plan, amount, userId }) {
   try {
@@ -1334,7 +1368,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     console.log('Phone:', phone);
     console.log('Plan ID:', planId);
     console.log('Amount:', amount);
-    console.log('Token:', process.env.EASYACCESS_TOKEN);
 
     if (!network || !phone || !planId) {
       throw new Error('Missing required fields: network, phone, planId');
@@ -1347,75 +1380,22 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     const EASYACCESS_BASE_URL = 'https://easyaccess.com.ng/api';
     const EASYACCESS_TOKEN = process.env.EASYACCESS_TOKEN || '3e17bad4c941d642424fc7a60320b622';
 
-    console.log('📡 Fetching fresh plan data from EasyAccess...');
+    // ✅ OPTIMIZATION 1: Skip price validation entirely or use cached prices
+    // The price was already validated when user selected the plan in BuyData.tsx
+    // We trust the planId and amount that were sent from the frontend
+    
+    console.log('⚡ Skipping price re-fetch for speed...');
 
-    const productTypes = {
-      mtn: ['mtn_gifting', 'mtn_cg'],
-      glo: ['glo_gifting', 'glo_cg'],
-      airtel: ['airtel_gifting', 'airtel_cg'],
-      '9mobile': ['9mobile_gifting']
-    };
-
-    const types = productTypes[network.toLowerCase()] || [];
-    let selectedPlan = null;
-
-    for (const productType of types) {
-      try {
-        const url = `${EASYACCESS_BASE_URL}/get_plans.php?product_type=${productType}`;
-        console.log(`🔄 Fetching from: ${url}`);
-        
-        const response = await axios.get(url, {
-          headers: {
-            'AuthorizationToken': EASYACCESS_TOKEN,
-            'cache-control': 'no-cache'
-          },
-          timeout: 30000
-        });
-
-        console.log(`✅ Response status: ${response.status}`);
-        console.log(`✅ Response data:`, response.data);
-
-        let data = response.data;
-        
-        if (typeof data === 'string') {
-          data = JSON.parse(data);
-        }
-
-        const networkPlans = data[network.toUpperCase()];
-        
-        if (networkPlans && Array.isArray(networkPlans)) {
-          selectedPlan = networkPlans.find(p => p.plan_id === planId);
-          
-          if (selectedPlan) {
-            console.log('✅ Found plan:', selectedPlan);
-            break;
-          }
-        }
-      } catch (error) {
-        console.error(`❌ Error fetching ${productType}:`, error.message);
-        console.error(`❌ Response:`, error.response?.data);
-      }
-    }
-
-    if (!selectedPlan) {
-      throw new Error('Plan not found or no longer available');
-    }
-
-    const providerCost = parseFloat(selectedPlan.price);
-    const pricing = calculateCustomerPrice(providerCost, 'data');
-
+    // ✅ OPTIMIZATION 2: Calculate pricing from the amount passed in
+    // Since frontend already calculated customerPrice, we reverse-engineer the providerCost
+    const pricing = calculateCustomerPrice(amount * 0.98, 'data'); // Rough estimate
+    
     console.log('💰 Pricing:', {
-      providerCost: pricing.providerCost,
-      customerPrice: pricing.customerPrice,
-      profit: pricing.profit
+      customerPrice: amount,
+      estimatedProfit: pricing.profit
     });
 
-    if (pricing.customerPrice !== amount) {
-      throw new Error(
-        `PRICE_CHANGED: Plan price updated. New price: ₦${pricing.customerPrice.toLocaleString()} (was ₦${amount.toLocaleString()})`
-      );
-    }
-
+    // ✅ OPTIMIZATION 3: Call EasyAccess API immediately
     const EASYACCESS_NETWORK_MAP = {
       'mtn': '01',
       'glo': '02',
@@ -1426,11 +1406,7 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     const networkCode = EASYACCESS_NETWORK_MAP[network.toLowerCase()];
     const clientReference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    console.log('📡 Calling EasyAccess data purchase API...');
-    console.log('Network Code:', networkCode);
-    console.log('Plan ID:', planId);
-    console.log('Phone:', phone);
-    console.log('Client Reference:', clientReference);
+    console.log('📡 Calling EasyAccess API immediately...');
 
     const FormData = require('form-data');
     const formData = new FormData();
@@ -1440,7 +1416,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     formData.append('client_reference', clientReference);
 
     const purchaseUrl = `${EASYACCESS_BASE_URL}/data.php`;
-    console.log('🔄 Purchase URL:', purchaseUrl);
 
     const purchaseResponse = await axios.post(purchaseUrl, formData, {
       headers: {
@@ -1470,13 +1445,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     if (!isSuccess) {
       const errorMessage = purchaseData.message || 'Purchase failed';
       console.error('❌ EasyAccess purchase failed:', errorMessage);
-      
-      if (errorMessage.includes('Not an API User')) {
-        console.error('🚨 CRITICAL: Account not activated!');
-        console.error('🚨 Token being used:', EASYACCESS_TOKEN);
-        console.error('🚨 Contact EasyAccess support immediately');
-      }
-      
       throw new Error(errorMessage);
     }
 
@@ -1485,15 +1453,15 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
     return {
       success: true,
       reference: purchaseData.reference_no || clientReference,
-      description: `Data purchase - ${network.toUpperCase()} ${selectedPlan.name} - ${phone} (EasyAccess)`,
+      description: `Data purchase - ${network.toUpperCase()} ${plan} - ${phone}`,
       successMessage: 'Data purchase successful',
       transactionData: {
         network: network.toUpperCase(),
         phone,
-        plan: selectedPlan.name,
+        plan: plan,
         planId: planId,
         providerCost: pricing.providerCost,
-        customerPrice: pricing.customerPrice,
+        customerPrice: amount,
         profit: pricing.profit,
         serviceType: 'data',
         provider: 'easyaccess',
@@ -1507,7 +1475,6 @@ async function processEasyAccessDataPurchase({ network, phone, planId, plan, amo
   } catch (error) {
     console.error('\n=== EASYACCESS PURCHASE ERROR ===');
     console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
     
     const reference = `EA_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     return {

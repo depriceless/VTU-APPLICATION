@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 import { useEffect } from 'react';
 import * as Linking from 'expo-linking';
-import { Alert } from 'react-native';
+import { Alert, KeyboardAvoidingView, Platform } from 'react-native';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthProvider } from '../contexts/AuthContext';
@@ -137,28 +137,35 @@ export default function RootLayout() {
     <ThemeProvider>
       <AuthProvider>
         <NavigationThemeProvider value={colorScheme === 'dark' ? customDarkTheme : customLightTheme}>
-          <Stack
-            screenOptions={{
-              headerStyle: {
-                backgroundColor: '#ff3b30',
-              },
-              headerTintColor: '#fff',
-              headerTitleStyle: {
-                color: '#fff',
-              },
-            }}
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ flex: 1 }}
+            keyboardVerticalOffset={0}
+            enabled={Platform.OS === 'ios'}
           >
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/index" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/pin-setup" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/forgot-password" options={{ headerShown: false }} />
-            <Stack.Screen name="auth/reset-password" options={{ headerShown: false }} />
-            <Stack.Screen name="dashboard" options={{ headerShown: false }} />
-            <Stack.Screen name="+not-found" />
-          </Stack>
-          <StatusBar style="auto" />
+            <Stack
+              screenOptions={{
+                headerStyle: {
+                  backgroundColor: '#ff3b30',
+                },
+                headerTintColor: '#fff',
+                headerTitleStyle: {
+                  color: '#fff',
+                },
+              }}
+            >
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/index" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/pin-setup" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/forgot-password" options={{ headerShown: false }} />
+              <Stack.Screen name="auth/reset-password" options={{ headerShown: false }} />
+              <Stack.Screen name="dashboard" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            <StatusBar style="auto" />
+          </KeyboardAvoidingView>
         </NavigationThemeProvider>
       </AuthProvider>
     </ThemeProvider>
