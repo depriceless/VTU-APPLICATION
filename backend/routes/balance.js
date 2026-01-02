@@ -1,29 +1,43 @@
 const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
-const Wallet = require('../models/Wallet'); // ✅ Use Wallet, not Balance
+const Wallet = require('../models/Wallet');
 
 // GET user wallet balance
 router.get('/', authenticate, async (req, res) => {
   try {
-    const wallet = await Wallet.findOne({ userId: req.user.userId }); // ✅ Changed from Balance
-
+    console.log('💰 === BALANCE ROUTE HIT ===');
+    console.log('💰 User ID:', req.user.userId);
+    
+    const wallet = await Wallet.findOne({ userId: req.user.userId });
+    
+    console.log('💰 Wallet found:', wallet ? 'YES' : 'NO');
+    
     if (!wallet) {
+      console.log('❌ No wallet found for user:', req.user.userId);
       return res.status(404).json({ success: false, message: 'Wallet not found' });
     }
 
     const balanceAmount = parseFloat(wallet.balance || 0);
+    
+    console.log('💰 Raw wallet.balance:', wallet.balance);
+    console.log('💰 Parsed balance:', balanceAmount);
 
-    res.status(200).json({
+    const response = {
       success: true,
       balance: {
         amount: isNaN(balanceAmount) ? 0 : balanceAmount,
         currency: wallet.currency || 'NGN',
         lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
       },
-    });
+    };
+    
+    console.log('💰 Sending response:', JSON.stringify(response, null, 2));
+    
+    res.status(200).json(response);
   } catch (error) {
-    console.error('Balance fetch error:', error);
+    console.error('❌ Balance fetch error:', error);
+    console.error('❌ Error stack:', error.stack);
     res.status(500).json({ success: false, message: 'Server error fetching balance' });
   }
 });
@@ -37,7 +51,7 @@ router.put('/', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Amount must be a number' });
     }
 
-    const wallet = await Wallet.findOne({ userId: req.user.userId }); // ✅ Changed from Balance
+    const wallet = await Wallet.findOne({ userId: req.user.userId });
 
     if (!wallet) {
       return res.status(404).json({ success: false, message: 'Wallet not found' });

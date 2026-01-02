@@ -120,7 +120,7 @@ export default function BuyAirtime() {
 
   const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
   const amountNum = parseInt(amount) || 0;
-const isAmountValid = amount !== '' && amountNum >= 50 && amountNum <= 100000;
+  const isAmountValid = amount !== '' && amountNum >= 50 && amountNum <= 100000;
   const currentBalance = getBalanceAmount(userBalance);
   const hasEnoughBalance = currentBalance > 0 ? amountNum <= currentBalance : true;
   const canProceed = isPhoneValid && isAmountValid && selectedNetwork && hasEnoughBalance;
