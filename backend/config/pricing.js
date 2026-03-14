@@ -1,172 +1,76 @@
-// config/pricing.js - Tiered Pricing Configuration
+// config/pricing.js - Tiered Pricing + Round Up to nearest ₦5
 
 const PRICING_CONFIG = {
-  // Data Plans - Tiered markup based on provider cost
   data: {
     type: 'tiered',
     tiers: [
-      { maxCost: 300, markup: 3, description: 'Very small plans (up to ₦300)' },     // ₦3 for plans ≤ ₦300
-      { maxCost: 700, markup: 15, description: 'Small plans (₦301-₦700)' },          // ₦15 for plans ₦301-₦700
-      { maxCost: 1500, markup: 30, description: 'Medium plans (₦701-₦1500)' },       // ₦30 for plans ₦701-₦1500
-      { maxCost: 3000, markup: 40, description: 'Medium-large plans (₦1501-₦3000)' }, // ₦40 for plans ₦1501-₦3000
-      { maxCost: Infinity, markup: 50, description: 'Large plans (above ₦3000)' }    // ₦50 for plans > ₦3000
-    ],
-    description: 'Tiered pricing based on plan cost'
+      { maxCost: 300,      markup: 5   },
+      { maxCost: 500,      markup: 10  },
+      { maxCost: 1000,     markup: 15  },
+      { maxCost: 2000,     markup: 20  },
+      { maxCost: 5000,     markup: 30  },
+      { maxCost: 10000,    markup: 100 },
+      { maxCost: 20000,    markup: 150 },
+      { maxCost: 50000,    markup: 200 },
+      { maxCost: 100000,   markup: 300 },
+      { maxCost: Infinity, markup: 500 },
+    ]
   },
-
-  // Airtime - Percentage markup
-  airtime: {
-    type: 'percentage',
-    markup: 2,
-    minProfit: 10,
-    description: '2% markup on airtime'
-  },
-
-  // Electricity - Percentage markup
   electricity: {
-    type: 'percentage',
-    markup: 2,
-    minProfit: 50,
-    description: '2% markup on electricity'
+    type: 'tiered',
+    tiers: [
+      { maxCost: 1000,     markup: 50  },
+      { maxCost: 5000,     markup: 100 },
+      { maxCost: Infinity, markup: 150 },
+    ]
   },
-
-  // Cable TV - Fixed markup per package
-  cable_tv: {
-    type: 'fixed',
-    markup: 0,
-    description: 'Fixed ₦100 profit per cable subscription'
-  },
-
-  // Betting - Percentage markup
-  fund_betting: {
-    type: 'percentage',
-    markup: 2.5,
-    minProfit: 20,
-    description: '2.5% markup on betting deposits'
-  },
-
-  // Education - Fixed markup
-  education: {
-    type: 'fixed',
-    markup: 150,
-    description: 'Fixed ₦150 profit per education payment'
-  },
-
-  // Print Recharge - Percentage markup
-  print_recharge: {
-    type: 'percentage',
-    markup: 3,
-    minProfit: 20,
-    description: '3% markup on recharge cards'
-  },
-
-  // Internet (Smile) - Fixed markup
-  internet: {
-    type: 'fixed',
-    markup: 100,
-    description: 'Fixed ₦100 profit per internet bundle'
+  cabletv: {
+    type: 'flat',
+    markup: 50,
   }
 };
 
-/**
- * Calculate customer price from provider cost
- * @param {number} providerCost - What ClubKonnect charges you
- * @param {string} serviceType - Type of service (data, airtime, etc.)
- * @returns {object} - { providerCost, customerPrice, profit }
- */
-function calculateCustomerPrice(providerCost, serviceType) {
+// Round up to nearest N
+const roundUpTo = (value, nearest) => Math.ceil(value / nearest) * nearest;
+
+// ✅ Returns { providerCost, customerPrice, profit }
+const calculateCustomerPrice = (providerCost, serviceType = 'data') => {
+  const cost = parseFloat(providerCost) || 0;
+  if (cost <= 0) return { providerCost: 0, customerPrice: 0, profit: 0 };
+
   const config = PRICING_CONFIG[serviceType];
-  
-  if (!config) {
-    throw new Error(`No pricing config found for service: ${serviceType}`);
-  }
+  if (!config) return { providerCost: cost, customerPrice: cost, profit: 0 };
 
-  let profit = 0;
-  let customerPrice = 0;
+  let markup = 0;
 
-  if (config.type === 'fixed') {
-    // Fixed markup: just add the fixed amount
-    profit = config.markup;
-    customerPrice = providerCost + profit;
-    
-  } else if (config.type === 'percentage') {
-    // Percentage markup: calculate percentage and ensure minimum
-    const percentageProfit = (providerCost * config.markup) / 100;
-    profit = Math.max(percentageProfit, config.minProfit || 0);
-    customerPrice = providerCost + profit;
-    
+  if (config.type === 'flat') {
+    markup = config.markup;
   } else if (config.type === 'tiered') {
-    // Tiered markup: find the appropriate tier
-    const tier = config.tiers.find(t => providerCost <= t.maxCost);
-    if (tier) {
-      profit = tier.markup;
-      customerPrice = providerCost + profit;
-    } else {
-      throw new Error(`No tier found for cost: ${providerCost}`);
-    }
+    const tier = config.tiers.find(t => cost <= t.maxCost);
+    markup = tier ? tier.markup : 500;
   }
 
-  // Round to nearest Naira
-  customerPrice = Math.round(customerPrice);
-  profit = Math.round(profit);
+  // Round up to nearest ₦5 so prices look clean
+  const rawPrice = cost + markup;
+  const customerPrice = roundUpTo(rawPrice, 5);
+  const profit = customerPrice - cost;
 
   return {
-    providerCost: Math.round(providerCost),
+    providerCost: cost,
     customerPrice,
-    profit,
-    markupType: config.type,
-    markupValue: config.type === 'tiered' ? 'tiered' : config.markup
+    profit
   };
-}
-
-/**
- * Get pricing info for a service
- * @param {string} serviceType - Type of service
- * @returns {object} - Pricing configuration
- */
-function getPricingConfig(serviceType) {
-  return PRICING_CONFIG[serviceType] || null;
-}
-
-/**
- * Calculate profit from a transaction
- * @param {number} customerPrice - What customer paid
- * @param {number} providerCost - What you paid ClubKonnect
- * @returns {number} - Your profit
- */
-function calculateProfit(customerPrice, providerCost) {
-  return Math.round(customerPrice - providerCost);
-}
-
-/**
- * Validate customer is paying correct price
- * @param {number} customerAmount - Amount customer is trying to pay
- * @param {number} providerCost - ClubKonnect's price
- * @param {string} serviceType - Service type
- * @returns {object} - { valid, expectedPrice, message }
- */
-function validateCustomerPrice(customerAmount, providerCost, serviceType) {
-  const pricing = calculateCustomerPrice(providerCost, serviceType);
-  
-  if (customerAmount === pricing.customerPrice) {
-    return {
-      valid: true,
-      expectedPrice: pricing.customerPrice,
-      profit: pricing.profit
-    };
-  }
-
-  return {
-    valid: false,
-    expectedPrice: pricing.customerPrice,
-    message: `Invalid amount. Expected: ₦${pricing.customerPrice.toLocaleString()}, Got: ₦${customerAmount.toLocaleString()}`
-  };
-}
-
-module.exports = {
-  PRICING_CONFIG,
-  calculateCustomerPrice,
-  getPricingConfig,
-  calculateProfit,
-  validateCustomerPrice
 };
+
+// Full tier examples:
+// ₦485    + ₦10  = ₦495    profit: ₦10
+// ₦970    + ₦15  = ₦985    profit: ₦15
+// ₦1,455  + ₦20  = ₦1,475  profit: ₦20
+// ₦4,850  + ₦30  = ₦4,880  profit: ₦30
+// ₦7,275  + ₦100 = ₦7,375  profit: ₦100
+// ₦17,460 + ₦150 = ₦17,610 profit: ₦150
+// ₦30,000 + ₦200 = ₦30,200 profit: ₦200
+// ₦75,000 + ₦300 = ₦75,300 profit: ₦300
+// ₦100,000+ ₦500 = ₦100,500 profit: ₦500
+
+module.exports = { calculateCustomerPrice, PRICING_CONFIG };

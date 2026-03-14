@@ -1,0 +1,357 @@
+.dashboardContent {
+  padding: 0 24px 16px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.headerSection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  cursor: pointer;
+  width: fit-content;
+  transition: opacity 0.2s ease;
+}
+.headerSection:hover { opacity: 0.8; }
+.headerSlash { font-size: 18px; font-weight: 400; color: #9ca3af; margin: 0 -2px; }
+.headerTitle { font-size: 20px; font-weight: 700; color: #dc2626; margin: 0; }
+
+/* ── Auto Funding Section ──────────────────────────────────────────────── */
+.fundingSection {
+  background: linear-gradient(135deg, #f5f5f5 0%, #ececec 60%, #e5e5e5 100%);
+  border-radius: 16px;
+  padding: 6px 10px;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #e0e0e0;
+}
+
+/* Decorative circles */
+.fundingSection::before {
+  content: '';
+  position: absolute;
+  top: -50px;
+  right: -50px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.12);
+  pointer-events: none;
+}
+.fundingSection::after {
+  content: '';
+  position: absolute;
+  bottom: -40px;
+  left: 20px;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: rgba(220, 38, 38, 0.06);
+  pointer-events: none;
+}
+
+.fundingHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.fundingTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: #9ca3af;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+}
+
+.fundingAccountCard {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  transition: all 0.2s;
+}
+.fundingAccountCard:hover {
+  border-color: #dc2626;
+  box-shadow: 0 2px 8px rgba(220,38,38,0.1);
+}
+
+.accountNumberRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2px;
+}
+.accountNumber {
+  font-size: 14px;
+  font-weight: 800;
+  color: #1f2937;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.copyButton {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  cursor: pointer;
+  padding: 3px 7px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  border-radius: 6px;
+  transition: all 0.2s;
+  color: #dc2626;
+  font-size: 10px;
+  font-weight: 700;
+}
+.copyButton:hover {
+  background: #fee2e2;
+  transform: scale(1.04);
+}
+.accountBank {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  letter-spacing: 0.3px;
+}
+
+.accountNames {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  padding: 4px 8px;
+  border-radius: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+.accountNamesLabel {
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.accountNamesText {
+  font-size: 11px;
+  font-weight: 700;
+  color: #dc2626;
+}
+.loadingAccount {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px;
+}
+
+/* ── Balance Cards ──────────────────────────────────────────────────────── */
+.balanceCardsRow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.balanceCard {
+  border-radius: 16px;
+  padding: 10px 14px;
+  border: none;
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.18);
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 60%, #991b1b 100%);
+  position: relative;
+  overflow: hidden;
+}
+.balanceCard::before {
+  content: '';
+  position: absolute;
+  top: -24px;
+  right: -24px;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+.balanceCard::after {
+  content: '';
+  position: absolute;
+  bottom: -32px;
+  right: 48px;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  pointer-events: none;
+}
+
+.bonusCard {
+  background: linear-gradient(135deg, #059669 0%, #047857 60%, #065f46 100%);
+  box-shadow: 0 4px 20px rgba(5, 150, 105, 0.22);
+}
+
+.balanceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.balanceTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.75);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+.balanceIconRed  { color: rgba(255,255,255,0.9); }
+.balanceIconGreen { color: rgba(255,255,255,0.9); }
+
+.fundBtn, .withdrawBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+  height: 28px;
+  transition: all 0.2s ease;
+  letter-spacing: 0.3px;
+}
+.fundBtn {
+  background: #ffffff;
+  color: #dc2626;
+  border: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.withdrawBtn {
+  background: rgba(255, 255, 255, 0.22);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+}
+.fundBtn:hover {
+  background: #f3f3f3;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+.withdrawBtn:hover {
+  background: rgba(255, 255, 255, 0.32);
+  transform: translateY(-1px);
+}
+
+.balanceAmountWrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.balanceAmount {
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: -0.5px;
+  color: #ffffff;
+  line-height: 1;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.2);
+}
+.bonusAmount { color: #ffffff; }
+
+.eyeButton {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  cursor: pointer;
+  padding: 5px;
+  display: flex;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.8);
+  transition: all 0.2s;
+  border-radius: 6px;
+}
+.eyeButton:hover {
+  background: rgba(255,255,255,0.25);
+  color: #ffffff;
+}
+.balanceFooter {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* ── Quick Actions ──────────────────────────────────────────────────────── */
+.quickActionsHeader { margin-bottom: 16px; }
+.quickActionsHeader h2 { font-size: 18px; font-weight: 800; color: #1f2937; margin: 0 0 4px; }
+.quickActionsHeader p { font-size: 13px; color: #6b7280; font-weight: 600; margin: 0; }
+.quickActionsGrid { display: flex; flex-direction: column; gap: 12px; margin-bottom: 30px; max-width: 350px; }
+.actionCard {
+  border: none;
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,.12);
+  height: 80px;
+}
+.actionCard:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.18); }
+.actionLabel {
+  font-size: 15px;
+  font-weight: 800;
+  color: white;
+  text-align: left;
+  line-height: 1.3;
+}
+
+/* ── Transactions ──────────────────────────────────────────────────────── */
+.recentTransactionsSection { margin-top: 30px; }
+.sectionHeaderRow { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.sectionHeaderRow h2 { font-size: 18px; font-weight: 700; color: #1f2937; margin: 0; white-space: nowrap; }
+.viewAllBtn { display: flex; align-items: center; gap: 4px; background: none; border: none; color: #dc2626; font-size: 14px; font-weight: 600; cursor: pointer; padding: 6px 12px; border-radius: 6px; transition: background 0.2s; }
+.viewAllBtn:hover { background: #fef2f2; }
+.emptyTransactions { background: white; border-radius: 12px; padding: 48px 24px; text-align: center; border: 1px solid #e5e7eb; }
+.emptyText { font-size: 16px; font-weight: 600; color: #4b5563; margin: 12px 0 4px; }
+.emptySubtext { font-size: 13px; color: #9ca3af; margin: 0; }
+.transactionsList { display: flex; flex-direction: column; gap: 8px; }
+.transactionItem { background: white; border-radius: 12px; padding: 16px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; border: 1px solid #e5e7eb; transition: all 0.2s ease; }
+.transactionItem:hover { transform: translateX(4px); box-shadow: 0 2px 8px rgba(0,0,0,.08); border-color: #dc2626; }
+.transactionLeft { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; }
+.transactionIcon { width: 44px; height: 44px; border-radius: 22px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.transactionInfo { flex: 1; min-width: 0; }
+.transactionTitle { font-size: 14px; font-weight: 600; color: #1f2937; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transactionDate { font-size: 12px; color: #6b7280; font-weight: 500; }
+.transactionRight { text-align: right; flex-shrink: 0; }
+.transactionAmount { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.transactionStatus { font-size: 11px; font-weight: 600; text-transform: capitalize; }
+
+/* Error alert */
+.apiError { background: #fee2e2; border: 1px solid #fca5a5; border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+/* Loading */
+.loadingWrapper { display: flex; justify-content: center; align-items: center; min-height: 400px; flex-direction: column; gap: 16px; }
+.spinner { width: 48px; height: 48px; border: 4px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .dashboardContent { padding: 0 12px 16px; }
+  .bonusCard { display: none; }
+  .quickActionsGrid { gap: 10px; }
+  .actionCard { padding: 16px 20px; gap: 16px; height: 90px; }
+  .actionLabel { font-size: 15px; font-weight: 800; }
+  .balanceAmount { font-size: 22px; font-weight: 900; text-shadow: 0 1px 8px rgba(0,0,0,0.2); }
+  .accountNumber { font-size: 18px; letter-spacing: 1.5px; }
+}
+@media (max-width: 480px) {
+  .actionCard { padding: 14px; gap: 10px; height: 85px; }
+  .actionLabel { font-size: 14px; font-weight: 800; }
+}

@@ -25,10 +25,7 @@ export default function TwoFactorAuthPage() {
   useEffect(() => {
     const fetchUserProfile = async () => {
       try {
-        console.log('🔍 Fetching user profile for 2FA page...');
         const response = await apiClient.get('/auth/profile');
-        
-        console.log('📥 Profile response:', response.data);
 
         if (response.data?.success) {
           setTransactionPinStatus(response.data.user.isPinSetup ? 'Set' : 'Not-Set');
@@ -36,7 +33,6 @@ export default function TwoFactorAuthPage() {
           showAlert('error', response.data?.message || 'Failed to fetch user profile');
         }
       } catch (error) {
-        console.error('❌ Error fetching profile:', error);
         showAlert('error', 'Failed to load profile. Please try again.');
       } finally {
         setIsLoading(false);
@@ -76,14 +72,11 @@ export default function TwoFactorAuthPage() {
     try {
       setIsProcessing(true);
 
-      console.log('🔐 Creating transaction PIN...');
       const response = await apiClient.post('/auth/setup-pin', {
         pin: newPin,
         confirmPin: confirmPin,
         recoveryWord: recoveryWord
       });
-
-      console.log('📥 Setup PIN response:', response.data);
 
       if (response.data?.success) {
         setTransactionPinStatus('Set');
@@ -95,8 +88,6 @@ export default function TwoFactorAuthPage() {
         showAlert('error', response.data?.message || 'Failed to create PIN');
       }
     } catch (error) {
-      console.error('❌ PIN setup error:', error);
-      
       if (error.response?.data?.message) {
         showAlert('error', error.response.data.message);
       } else if (error.message) {
@@ -118,12 +109,9 @@ export default function TwoFactorAuthPage() {
     try {
       setIsProcessing(true);
 
-      console.log('🔐 Verifying PIN for 2FA...');
       const response = await apiClient.post('/auth/verify-pin', {
         pin: transactionPin
       });
-
-      console.log('📥 Verify PIN response:', response.data);
 
       if (response.data?.success) {
         setIs2FAEnabled(!is2FAEnabled);
@@ -133,8 +121,6 @@ export default function TwoFactorAuthPage() {
         showAlert('error', response.data?.message || 'Invalid PIN');
       }
     } catch (error) {
-      console.error('❌ 2FA enable error:', error);
-      
       if (error.response?.data?.message) {
         showAlert('error', error.response.data.message);
       } else if (error.message) {
@@ -683,7 +669,7 @@ export default function TwoFactorAuthPage() {
 
           .text-input {
             padding: 12px 42px 12px 40px;
-            font-size: 16px; /* Better for mobile number input */
+            font-size: 16px;
           }
 
           .input-icon {

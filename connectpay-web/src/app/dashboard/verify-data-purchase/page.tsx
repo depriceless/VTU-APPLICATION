@@ -25,54 +25,37 @@ export default function VerifyDataPurchasePage(){
     setResult(null);
 
     try {
-      console.log('🔍 Verifying reference:', cleanReference);
       const response = await apiClient.get(`/purchase/verify-data/${cleanReference}`);
-      
-      console.log('✅ API Response:', response.data);
       
       if (response.data?.success) {
         const data = response.data.data || response.data.transaction;
         
-        // Extract phone and network from description if N/A
         let phone = data.phone;
         let network = data.network;
         let description = data.description;
         
         if (description) {
-          // Remove (EasyAccess) or (ClubKonnect) from description
           description = description.replace(/\s*\((EasyAccess|ClubKonnect)\)/gi, '');
           
-          // Extract phone if N/A
           if (phone === 'N/A') {
             const phoneMatch = description.match(/(\d{11})/);
             if (phoneMatch) phone = phoneMatch[1];
           }
           
-          // Extract network if N/A
           if (network === 'N/A') {
             const networkMatch = description.match(/(MTN|GLO|AIRTEL|9MOBILE)/i);
             if (networkMatch) network = networkMatch[1].toUpperCase();
           }
         }
         
-        setResult({
-          ...data,
-          phone,
-          network,
-          description
-        });
+        setResult({ ...data, phone, network, description });
       } else {
         setError(response.data?.message || 'Transaction not found');
       }
     } catch (err: any) {
-      console.error('❌ Verification error:', err);
-      console.error('Error response:', err.response?.data);
-      
       if (err.response) {
-        const errorMsg = err.response.data?.message || err.response.statusText;
+        const errorMsg  = err.response.data?.message || err.response.statusText;
         const statusCode = err.response.status;
-        
-        console.log(`Status: ${statusCode}, Message: ${errorMsg}`);
         
         if (statusCode === 404) {
           setError(`Transaction not found. This reference "${cleanReference}" does not exist in your records or is not a data transaction.`);

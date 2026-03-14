@@ -2,47 +2,32 @@ const express = require('express');
 const router = express.Router();
 const { authenticate } = require('../middleware/auth');
 const Wallet = require('../models/Wallet');
+const { logger } = require('../utils/logger');
 
 // GET user wallet balance
 router.get('/', authenticate, async (req, res) => {
   try {
-    console.log('💰 === BALANCE ROUTE HIT ===');
-    console.log('💰 User ID:', req.user.userId);
-    
     const wallet = await Wallet.findOne({ userId: req.user.userId });
-    
-    console.log('💰 Wallet found:', wallet ? 'YES' : 'NO');
-    
+
     if (!wallet) {
-      console.log('❌ No wallet found for user:', req.user.userId);
       return res.status(404).json({ success: false, message: 'Wallet not found' });
     }
 
-    const balanceAmount = parseFloat(wallet.balance || 0);
-    
-    console.log('💰 Raw wallet.balance:', wallet.balance);
-    console.log('💰 Parsed balance:', balanceAmount);
+    const amount = parseFloat(wallet.balance || 0);
 
-    const response = {
+    res.status(200).json({
       success: true,
-      balance: {
-        amount: isNaN(balanceAmount) ? 0 : balanceAmount,
-        currency: wallet.currency || 'NGN',
-        lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
-      },
-    };
-    
-    console.log('💰 Sending response:', JSON.stringify(response, null, 2));
-    
-    res.status(200).json(response);
+      balance: isNaN(amount) ? 0 : amount,   // flat number — AuthContext reads this directly
+      currency: wallet.currency || 'NGN',
+      lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
+    });
   } catch (error) {
-    console.error('❌ Balance fetch error:', error);
-    console.error('❌ Error stack:', error.stack);
+    logger.error('Balance fetch error', error);
     res.status(500).json({ success: false, message: 'Server error fetching balance' });
   }
 });
 
-// PUT route to update wallet balance
+// PUT route to update wallet balance (admin/internal use)
 router.put('/', authenticate, async (req, res) => {
   try {
     const { amount, operation } = req.body;
@@ -57,21 +42,15 @@ router.put('/', authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Wallet not found' });
     }
 
-    let currentBalance = parseFloat(wallet.balance || 0);
+    const current = parseFloat(wallet.balance || 0);
     let newBalance;
 
     switch (operation) {
-      case 'add':
-        newBalance = currentBalance + amount;
-        break;
-      case 'subtract':
-        newBalance = currentBalance - amount;
-        break;
-      case 'set':
-        newBalance = amount;
-        break;
+      case 'add':      newBalance = current + amount; break;
+      case 'subtract': newBalance = current - amount; break;
+      case 'set':      newBalance = amount;           break;
       default:
-        return res.status(400).json({ success: false, message: 'Invalid operation. Use add, subtract, set' });
+        return res.status(400).json({ success: false, message: 'Invalid operation. Use add, subtract, or set' });
     }
 
     if (newBalance < 0) {
@@ -84,14 +63,12 @@ router.put('/', authenticate, async (req, res) => {
     res.status(200).json({
       success: true,
       message: `Balance ${operation}ed successfully`,
-      balance: {
-        amount: parseFloat(wallet.balance).toFixed(2),
-        currency: wallet.currency || 'NGN',
-        lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
-      },
+      balance: parseFloat(wallet.balance),
+      currency: wallet.currency || 'NGN',
+      lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Balance update error:', error);
+    logger.error('Balance update error', error);
     res.status(500).json({ success: false, message: 'Server error updating balance' });
   }
 });

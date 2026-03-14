@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ChevronDown, X, RefreshCw } from 'lucide-react';
 import apiClient from '@/lib/api';
 import { EducationSuccessModal } from '@/components/SuccessModal/page';
+import { logger } from '@/lib/logger';
 
 interface ExamCard {
   id: string;
@@ -68,101 +69,99 @@ export default function BuyEducation() {
       const response = await apiClient.get('/balance');
       if (response.data?.success && response.data.balance) {
         setBalance(extractBalance(response.data.balance));
+        logger.success('Balance refreshed');
       }
     } catch (error: any) {
-      console.error('Error fetching balance:', error);
+      logger.error('Error fetching balance');
     } finally {
       setIsLoadingBalance(false);
     }
   };
 
-  // In fetchEducationPackages function, REMOVE the MARKUP constant and addition
+  const fetchEducationPackages = async () => {
+    setIsLoadingPackages(true);
+    try {
+      logger.info('Fetching education packages');
+      const response = await apiClient.get('/purchase/education/packages');
+      
+      if (response.data?.success && response.data.data) {
+        const transformedCards: ExamCard[] = [];
+        const packagesData = response.data.data;
 
-const fetchEducationPackages = async () => {
-  setIsLoadingPackages(true);
-  try {
-    const response = await apiClient.get('/purchase/education/packages');
-    
-    if (response.data?.success && response.data.data) {
-      const transformedCards: ExamCard[] = [];
-      const packagesData = response.data.data;
-
-      // ❌ REMOVE THIS LINE - Backend already includes markup
-      // const MARKUP = 50;
-
-      // Process WAEC packages
-      if (packagesData.waec && Array.isArray(packagesData.waec)) {
-        packagesData.waec.forEach((pkg: any) => {
-          transformedCards.push({
-            id: pkg.id || pkg.code,
-            name: pkg.name,
-            code: pkg.code,
-            price: pkg.price, // ✅ FIXED: Use price as-is (backend already added ₦50)
-            description: pkg.description || pkg.name,
-            examBody: 'waec',
-            validity: pkg.validity || '1 year',
-            category: 'secondary'
+        // Process WAEC packages
+        if (packagesData.waec && Array.isArray(packagesData.waec)) {
+          packagesData.waec.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description || pkg.name,
+              examBody: 'waec',
+              validity: pkg.validity || '1 year',
+              category: 'secondary'
+            });
           });
-        });
-      }
+        }
 
-      // Process NECO packages
-      if (packagesData.neco && Array.isArray(packagesData.neco)) {
-        packagesData.neco.forEach((pkg: any) => {
-          transformedCards.push({
-            id: pkg.id || pkg.code,
-            name: pkg.name,
-            code: pkg.code,
-            price: pkg.price, // ✅ FIXED: Use price as-is
-            description: pkg.description || pkg.name,
-            examBody: 'neco',
-            validity: pkg.validity || '1 year',
-            category: 'secondary'
+        // Process NECO packages
+        if (packagesData.neco && Array.isArray(packagesData.neco)) {
+          packagesData.neco.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description || pkg.name,
+              examBody: 'neco',
+              validity: pkg.validity || '1 year',
+              category: 'secondary'
+            });
           });
-        });
-      }
+        }
 
-      // Process NABTEB packages
-      if (packagesData.nabteb && Array.isArray(packagesData.nabteb)) {
-        packagesData.nabteb.forEach((pkg: any) => {
-          transformedCards.push({
-            id: pkg.id || pkg.code,
-            name: pkg.name,
-            code: pkg.code,
-            price: pkg.price, // ✅ FIXED: Use price as-is
-            description: pkg.description || pkg.name,
-            examBody: 'nabteb',
-            validity: pkg.validity || '1 year',
-            category: 'secondary'
+        // Process NABTEB packages
+        if (packagesData.nabteb && Array.isArray(packagesData.nabteb)) {
+          packagesData.nabteb.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description || pkg.name,
+              examBody: 'nabteb',
+              validity: pkg.validity || '1 year',
+              category: 'secondary'
+            });
           });
-        });
-      }
+        }
 
-      // Process NBAIS packages
-      if (packagesData.nbais && Array.isArray(packagesData.nbais)) {
-        packagesData.nbais.forEach((pkg: any) => {
-          transformedCards.push({
-            id: pkg.id || pkg.code,
-            name: pkg.name,
-            code: pkg.code,
-            price: pkg.price, // ✅ FIXED: Use price as-is
-            description: pkg.description || pkg.name,
-            examBody: 'nbais',
-            validity: pkg.validity || '1 year',
-            category: 'secondary'
+        // Process NBAIS packages
+        if (packagesData.nbais && Array.isArray(packagesData.nbais)) {
+          packagesData.nbais.forEach((pkg: any) => {
+            transformedCards.push({
+              id: pkg.id || pkg.code,
+              name: pkg.name,
+              code: pkg.code,
+              price: pkg.price,
+              description: pkg.description || pkg.name,
+              examBody: 'nbais',
+              validity: pkg.validity || '1 year',
+              category: 'secondary'
+            });
           });
-        });
-      }
+        }
 
-      setExamCards(transformedCards);
+        setExamCards(transformedCards);
+        logger.success(`Loaded ${transformedCards.length} education packages`);
+      }
+    } catch (error: any) {
+      logger.error('Error fetching education packages');
+      alert('Failed to load education packages. Please refresh the page.');
+    } finally {
+      setIsLoadingPackages(false);
     }
-  } catch (error: any) {
-    console.error('Error fetching packages:', error);
-    alert('Failed to load education packages. Please refresh the page.');
-  } finally {
-    setIsLoadingPackages(false);
-  }
-};
+  };
 
   useEffect(() => {
     fetchBalance().finally(() => setIsLoading(false));
@@ -217,7 +216,10 @@ const fetchEducationPackages = async () => {
     setPinError('');
 
     try {
-      const response = await apiClient.post('/purchase', {
+      logger.info('Education purchase attempt started');
+      
+      // Log the exact request payload for debugging
+      const requestPayload = {
         type: 'education',
         provider: selectedExam?.examBody,
         examType: selectedExam?.code,
@@ -225,7 +227,13 @@ const fetchEducationPackages = async () => {
         amount: totalAmount,
         quantity: quantityNum,
         pin: pin,
-      });
+      };
+      
+      console.log('📤 Request Payload:', requestPayload);
+
+      const response = await apiClient.post('/purchase', requestPayload);
+
+      logger.info('Purchase response received');
 
       if (response.data?.success) {
         setSuccessData({
@@ -253,11 +261,13 @@ const fetchEducationPackages = async () => {
 
         setShowPinModal(false);
         setTimeout(() => setShowSuccessModal(true), 200);
+        
+        logger.success('Education purchase completed');
       } else {
         setPinError(response.data?.message || 'Transaction failed. Please try again.');
       }
     } catch (error: any) {
-      console.error('Payment error:', error);
+      logger.error('Purchase failed');
       setPinError(error.message || 'Unable to process payment. Please try again.');
     } finally {
       setIsProcessing(false);
@@ -519,19 +529,18 @@ const fetchEducationPackages = async () => {
         </div>
       )}
 
-     {/* Success Modal - Using reusable component */}
-<EducationSuccessModal
-  isOpen={showSuccessModal}
-  onClose={handleCloseSuccessModal}
-  onBuyMore={handleBuyMore}
-  examName={successData?.examName}
-  quantity={successData?.quantity}
-  phone={phone}
-  amount={successData?.amount}
-  pins={successData?.pins}
-  reference={successData?.transaction?.reference}
-  newBalance={successData?.newBalance}
-/>
+      <EducationSuccessModal
+        isOpen={showSuccessModal}
+        onClose={handleCloseSuccessModal}
+        onBuyMore={handleBuyMore}
+        examName={successData?.examName}
+        quantity={successData?.quantity}
+        phone={phone}
+        amount={successData?.amount}
+        pins={successData?.pins}
+        reference={successData?.transaction?.reference}
+        newBalance={successData?.newBalance}
+      />
 
       <style jsx>{`
         .page-container { padding: 16px 24px; max-width: 1200px; margin: 0 auto; }
@@ -570,28 +579,9 @@ const fetchEducationPackages = async () => {
         .quantity-container { display: flex; align-items: center; gap: 12px; }
         .quantity-btn { width: 40px; height: 40px; border-radius: 50%; background: #dc2626; color: white; border: none; font-size: 18px; font-weight: 600; cursor: pointer; }
         .quantity-btn:disabled { background: #d1d5db; cursor: not-allowed; }
-       .quantity-input { 
-  width: 60px; 
-  height: 40px; 
-  text-align: center; 
-  border: 2px solid #d1d5db;  // ✅ Thicker border
-  border-radius: 6px; 
-  font-size: 16px; 
-  font-weight: 600;
-  color: #1f2937;  // ✅ ADDED: Dark text
-  background: white;  // ✅ ADDED: White background
-  outline: none;
-}
-  .quantity-input:focus {
-  border-color: #dc2626;
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1);
-}
-
-.quantity-input::-webkit-inner-spin-button,
-.quantity-input::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
+        .quantity-input { width: 60px; height: 40px; text-align: center; border: 2px solid #d1d5db; border-radius: 6px; font-size: 16px; font-weight: 600; color: #1f2937; background: white; outline: none; }
+        .quantity-input:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
+        .quantity-input::-webkit-inner-spin-button, .quantity-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         .text-input { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #d1d5db; border-radius: 6px; color: #1f2937; font-weight: 500; }
         .text-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
         .input-help { font-size: 12px; color: #999; margin-top: 6px; }

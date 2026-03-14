@@ -1,5 +1,35 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const { logger } = require('../utils/logger');
+
+// ── KYC encryption helpers ───────────────────────────────────────────────────
+// Encrypts sensitive government IDs (BVN, NIN) at rest using AES-256-GCM.
+// Requires KYC_ENCRYPTION_KEY in .env — a 32-byte hex string:
+//   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+const ALGO = 'aes-256-gcm';
+
+function encryptKyc(plaintext) {
+  if (!plaintext) return plaintext;
+  const key = Buffer.from(process.env.KYC_ENCRYPTION_KEY, 'hex');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv(ALGO, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptKyc(ciphertext) {
+  if (!ciphertext || !ciphertext.includes(':')) return ciphertext;
+  const [ivHex, tagHex, dataHex] = ciphertext.split(':');
+  const key = Buffer.from(process.env.KYC_ENCRYPTION_KEY, 'hex');
+  const decipher = crypto.createDecipheriv(ALGO, key, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  return decipher.update(Buffer.from(dataHex, 'hex')) + decipher.final('utf8');
+}
+
+// ── Schema ───────────────────────────────────────────────────────────────────
 
 const userSchema = new mongoose.Schema({
   name: {
@@ -36,31 +66,31 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: [true, 'Password is required'],
-    minlength: [6, 'Password must be at least 6 characters'],
+    minlength: [8, 'Password must be at least 8 characters'],
     select: false
   },
-pin:{
-  type: String,
-  select: false,
-  validate: {
-    validator: function(v) {
-      if (!v) return true; // Allow empty/undefined
-      if (v.startsWith('$2')) return true; // Allow hashed PINs
-      return /^\d{4}$/.test(v); // Validate unhashed PINs
-    },
-    message: 'PIN must be exactly 4 digits'
-  }
-},
+  pin: {
+    type: String,
+    select: false,
+    validate: {
+      validator: function(v) {
+        if (!v) return true;
+        if (v.startsWith('$2')) return true; // Already hashed
+        return /^\d{4}$/.test(v);
+      },
+      message: 'PIN must be exactly 4 digits'
+    }
+  },
   isPinSetup: { type: Boolean, default: false },
   isEmailVerified: { type: Boolean, default: false },
   isPhoneVerified: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },
   lastLogin: { type: Date },
 
-  resetPasswordToken: String,
-  resetPasswordExpires: Date,
-  emailVerificationToken: String,
-  emailVerificationExpires: Date,
+  resetPasswordToken: { type: String, select: false },
+  resetPasswordExpires: { type: Date, select: false },
+  emailVerificationToken: { type: String, select: false },
+  emailVerificationExpires: { type: Date, select: false },
 
   avatar: { type: String, default: null },
   dateOfBirth: { type: Date },
@@ -87,6 +117,7 @@ pin:{
   accountType: { type: String, enum: ['basic', 'premium', 'business'], default: 'basic' },
   kycLevel: { type: Number, min: 0, max: 3, default: 0 },
   kycData: {
+    // BVN and NIN stored encrypted — use getKycData() to decrypt
     bvn: String,
     nin: String,
     idType: { type: String, enum: ['national_id', 'drivers_license', 'voters_card', 'passport'] },
@@ -95,22 +126,14 @@ pin:{
     verificationStatus: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' }
   },
 
-
   status: {
-  type: String,
-  enum: ['active', 'deactivated', 'suspended'],
-  default: 'active'
-},
-deactivatedAt: {
-  type: Date,
-  default: null
-},
-deactivationReason: {
-  type: String,
-  default: null
-},
+    type: String,
+    enum: ['active', 'deactivated', 'suspended'],
+    default: 'active'
+  },
+  deactivatedAt: { type: Date, default: null },
+  deactivationReason: { type: String, default: null },
 
-  // ADD THESE NEW FIELDS HERE - INSIDE THE SCHEMA DEFINITION
   suspendedAt: { type: Date },
   suspensionReason: { type: String },
   suspensionExpiresAt: { type: Date },
@@ -121,44 +144,52 @@ deactivationReason: {
   lastLoginIP: { type: String },
   registrationIP: { type: String },
   failedLoginAttempts: { type: Number, default: 0 },
-  lockedUntil: { type: Date }
+  lockedUntil: { type: Date },
+
+  // PIN attempt tracking (persisted across server restarts)
+  pinAttempts:    { type: Number, default: 0 },
+  pinLockedUntil: { type: Date }
 
 }, {
   timestamps: true,
-  toJSON: { 
+  toJSON: {
     virtuals: true,
     transform: function(doc, ret) {
       delete ret.password;
       delete ret.pin;
       delete ret.resetPasswordToken;
+      delete ret.resetPasswordExpires;
       delete ret.emailVerificationToken;
+      delete ret.emailVerificationExpires;
       delete ret.__v;
-      
-      // Add computed status fields for admin interface
+      // Strip raw KYC values — never expose encrypted strings to API consumers
+      if (ret.kycData) {
+        delete ret.kycData.bvn;
+        delete ret.kycData.nin;
+      }
       ret.status = doc.getStatus ? doc.getStatus() : 'unknown';
-      
       return ret;
     }
   },
   toObject: { virtuals: true }
 });
 
-// Indexes
+// ── Indexes ──────────────────────────────────────────────────────────────────
+
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
 userSchema.index({ phone: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ kycLevel: 1 });
 userSchema.index({ accountType: 1 });
-
-// ADD THESE NEW INDEXES
 userSchema.index({ suspendedAt: 1 });
 userSchema.index({ isActive: 1, suspendedAt: 1 });
 userSchema.index({ deletedAt: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ lastLogin: -1 });
 
-// Virtuals
+// ── Virtuals ─────────────────────────────────────────────────────────────────
+
 userSchema.virtual('displayName').get(function() { return this.name || this.username; });
 userSchema.virtual('accountAge').get(function() {
   if (!this.createdAt) return 0;
@@ -167,7 +198,6 @@ userSchema.virtual('accountAge').get(function() {
 userSchema.virtual('wallet', { ref: 'Wallet', localField: '_id', foreignField: 'userId', justOne: true });
 userSchema.virtual('transactions', { ref: 'Transaction', localField: '_id', foreignField: 'userId' });
 
-// ADD THESE NEW VIRTUALS
 userSchema.virtual('isSuspended').get(function() {
   if (!this.suspendedAt) return false;
   if (this.suspensionType === 'permanent') return true;
@@ -183,6 +213,8 @@ userSchema.virtual('suspensionStatus').get(function() {
   }
   return 'suspended';
 });
+
+// ── Pre-save hooks ───────────────────────────────────────────────────────────
 
 // Hash password
 userSchema.pre('save', async function(next) {
@@ -200,9 +232,22 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-// ADD THIS PRE-SAVE MIDDLEWARE FOR SUSPENSION EXPIRY
+// Encrypt BVN and NIN before saving
 userSchema.pre('save', function(next) {
-  // Auto-activate if suspension has expired
+  if (!process.env.KYC_ENCRYPTION_KEY) return next();
+  if (this.kycData) {
+    if (this.isModified('kycData.bvn') && this.kycData.bvn && !this.kycData.bvn.includes(':')) {
+      this.kycData.bvn = encryptKyc(this.kycData.bvn);
+    }
+    if (this.isModified('kycData.nin') && this.kycData.nin && !this.kycData.nin.includes(':')) {
+      this.kycData.nin = encryptKyc(this.kycData.nin);
+    }
+  }
+  next();
+});
+
+// Auto-activate if suspension has expired
+userSchema.pre('save', function(next) {
   if (this.suspendedAt && this.suspensionExpiresAt && this.suspensionExpiresAt <= new Date()) {
     this.isActive = true;
     this.suspendedAt = undefined;
@@ -213,14 +258,15 @@ userSchema.pre('save', function(next) {
   next();
 });
 
-// Auto-create wallet after user is saved
+// ── Post-save hooks ──────────────────────────────────────────────────────────
+
 userSchema.post('save', async function(doc, next) {
   try {
     const Wallet = mongoose.model('Wallet');
     const existingWallet = await Wallet.findOne({ userId: doc._id });
     if (!existingWallet) {
       await Wallet.createForUser(doc._id);
-      console.log('Wallet automatically created for user:', doc._id);
+      logger.info('Wallet automatically created for new user');
     }
     next();
   } catch (err) {
@@ -228,41 +274,58 @@ userSchema.post('save', async function(doc, next) {
   }
 });
 
-// Instance methods
+// ── Instance methods ─────────────────────────────────────────────────────────
+
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
+
 userSchema.methods.comparePin = async function(candidatePin) {
   if (!this.pin) return false;
   return await bcrypt.compare(candidatePin, this.pin);
 };
 
-userSchema.methods.updateLastLogin = function() {
+userSchema.methods.updateLastLogin = function(ip = null) {
   this.lastLogin = new Date();
+  if (ip) this.lastLoginIP = ip;
   return this.save();
 };
+
+// Decrypt KYC data for authorised use (admin/KYC verification only)
+userSchema.methods.getKycData = function() {
+  if (!this.kycData) return null;
+  return {
+    ...this.kycData.toObject(),
+    bvn: this.kycData.bvn ? decryptKyc(this.kycData.bvn) : null,
+    nin: this.kycData.nin ? decryptKyc(this.kycData.nin) : null,
+  };
+};
+
 userSchema.methods.getWallet = async function() {
   const Wallet = mongoose.model('Wallet');
   return await Wallet.findByUserId(this._id);
 };
+
 userSchema.methods.createWallet = async function() {
   const Wallet = mongoose.model('Wallet');
   return await Wallet.createForUser(this._id);
 };
+
 userSchema.methods.getTransactions = async function(options = {}) {
   const Transaction = mongoose.model('Transaction');
   return await Transaction.getUserTransactions(this._id, options);
 };
+
 userSchema.methods.canTransact = function(amount) {
   const limits = { 0: 50000, 1: 200000, 2: 1000000, 3: 10000000 };
   return amount <= limits[this.kycLevel];
 };
+
 userSchema.methods.getTransactionLimit = function() {
   const limits = { 0: 50000, 1: 200000, 2: 1000000, 3: 10000000 };
   return limits[this.kycLevel] || 50000;
 };
 
-// ADD THESE NEW INSTANCE METHODS
 userSchema.methods.suspend = function(reason, expiresAt = null, suspendedBy = null) {
   this.isActive = false;
   this.suspendedAt = new Date();
@@ -292,7 +355,7 @@ userSchema.methods.softDelete = function(deletedBy = null) {
 
 userSchema.methods.getStatus = function() {
   if (this.deletedAt) return 'deleted';
-  if (this.suspendedAt && (this.suspensionType === 'permanent' || 
+  if (this.suspendedAt && (this.suspensionType === 'permanent' ||
       (this.suspensionExpiresAt && this.suspensionExpiresAt > new Date()))) {
     return 'suspended';
   }
@@ -301,23 +364,26 @@ userSchema.methods.getStatus = function() {
   return 'inactive';
 };
 
-// Static methods
+// ── Static methods ───────────────────────────────────────────────────────────
+
 userSchema.statics.findByEmailOrPhone = function(emailOrPhone) {
   const emailRegex = /^\S+@\S+\.\S+$/;
   const phoneRegex = /^\d+$/;
-  if (emailRegex.test(emailOrPhone)) return this.findOne({ email: emailOrPhone.toLowerCase() });
-  if (phoneRegex.test(emailOrPhone.replace(/[\s\-\(\)]/g, ''))) {
-    const cleanPhone = emailOrPhone.replace(/[\s\-\(\)]/g, '');
-    return this.findOne({ phone: cleanPhone });
+  if (emailRegex.test(emailOrPhone)) {
+    return this.findOne({ email: emailOrPhone.toLowerCase() });
   }
-  return null;
+  const clean = emailOrPhone.replace(/[\s\-\(\)]/g, '');
+  if (phoneRegex.test(clean)) {
+    return this.findOne({ phone: clean });
+  }
+  return Promise.resolve(null);
 };
+
 userSchema.statics.findActiveUsers = function() { return this.find({ isActive: true }); };
 userSchema.statics.findByKycLevel = function(level) { return this.find({ kycLevel: level }); };
 
-// ADD THESE NEW STATIC METHODS
 userSchema.statics.findSuspended = function() {
-  return this.find({ 
+  return this.find({
     suspendedAt: { $exists: true },
     $or: [
       { suspensionType: 'permanent' },
@@ -327,7 +393,7 @@ userSchema.statics.findSuspended = function() {
 };
 
 userSchema.statics.findExpiredSuspensions = function() {
-  return this.find({ 
+  return this.find({
     suspendedAt: { $exists: true },
     suspensionType: 'temporary',
     suspensionExpiresAt: { $lte: new Date() },
@@ -336,9 +402,24 @@ userSchema.statics.findExpiredSuspensions = function() {
 };
 
 userSchema.statics.autoUnsuspendExpired = async function() {
-  const expiredUsers = await this.findExpiredSuspensions();
-  const updatePromises = expiredUsers.map(user => user.unsuspend());
-  return Promise.all(updatePromises);
+  return this.updateMany(
+    {
+      suspendedAt: { $exists: true },
+      suspensionType: 'temporary',
+      suspensionExpiresAt: { $lte: new Date() },
+      isActive: false
+    },
+    {
+      $set: { isActive: true },
+      $unset: {
+        suspendedAt: '',
+        suspensionReason: '',
+        suspensionExpiresAt: '',
+        suspensionType: '',
+        suspendedBy: ''
+      }
+    }
+  );
 };
 
 module.exports = mongoose.model('User', userSchema);

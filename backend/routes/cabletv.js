@@ -1,350 +1,324 @@
-// routes/cabletv.js - FIXED VERSION (Only ClubKonnect prices)
+// routes/cabletv.js - EasyAccess Version
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
 const { authenticate } = require('../middleware/auth');
 
-// ClubKonnect Configuration
-const CK_CONFIG = {
-  userId: process.env.CLUBKONNECT_USER_ID,
-  apiKey: process.env.CLUBKONNECT_API_KEY,
-  baseUrl: process.env.CLUBKONNECT_BASE_URL || 'https://www.nellobytesystems.com'
+// ── EasyAccess Configuration ──────────────────────────────────────────────────
+const EA_CONFIG = {
+  token: process.env.EASYACCESS_TOKEN || '3e17bad4c941d642424fc7a60320b622',
+  baseUrl: 'https://easyaccess.com.ng/api/live/v1'
 };
 
-// Operator info
-const OPERATOR_INFO = {
-  dstv: { 
-    name: 'DStv', 
-    logo: '📺', 
-    color: '#FFA500',
-    description: 'Digital Satellite Television',
-    smartCardLength: 10
-  },
-  gotv: { 
-    name: 'GOtv', 
-    logo: '📡', 
-    color: '#00A651',
-    description: 'Digital Terrestrial Television',
-    smartCardLength: 10
-  },
-  startimes: { 
-    name: 'StarTimes', 
-    logo: '🛰️', 
-    color: '#FF0000',
-    description: 'Digital Television Service',
-    smartCardLength: 11
-  }
-};
-
-// Operator mapping for ClubKonnect
-const OPERATOR_MAPPING = {
-  'dstv': 'dstv',
-  'gotv': 'gotv',
-  'startime': 'startimes',
-  'startimes': 'startimes'
-};
-
-// Helper function to make ClubKonnect requests
-const makeClubKonnectRequest = async (endpoint, params) => {
-  try {
-    const queryParams = new URLSearchParams({
-      UserID: CK_CONFIG.userId,
-      APIKey: CK_CONFIG.apiKey,
-      ...params
-    });
-    
-    const url = `${CK_CONFIG.baseUrl}${endpoint}?${queryParams}`;
-    console.log('ClubKonnect Request:', url.replace(CK_CONFIG.apiKey, '***'));
-    
-    const response = await axios.get(url, { timeout: 30000 });
-    
-    let data = response.data;
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        console.error('Failed to parse response:', data);
-        throw new Error('Invalid API response format');
-      }
-    }
-    
-    console.log('ClubKonnect Response:', data);
-    return data;
-    
-  } catch (error) {
-    console.error('ClubKonnect API Error:', error.message);
-    throw error;
-  }
-};
-
-// ========== SMART CARD VALIDATION ENDPOINT ==========
-router.post('/validate-smartcard', authenticate, async (req, res) => {
-  try {
-    const { smartCardNumber, operator } = req.body;
-    
-    console.log('Validating smart card:', {
-      operator,
-      smartCardNumber: smartCardNumber ? smartCardNumber.slice(0, 4) + '***' : 'MISSING'
-    });
-
-    if (!smartCardNumber) {
-      return res.status(400).json({
-        success: false,
-        message: 'Smart card number is required'
-      });
-    }
-
-    if (!operator) {
-      return res.status(400).json({
-        success: false,
-        message: 'Operator is required'
-      });
-    }
-
-    const clubKonnectOperator = OPERATOR_MAPPING[operator.toLowerCase()];
-    
-    if (!clubKonnectOperator) {
-      return res.status(400).json({
-        success: false,
-        message: 'Unsupported operator'
-      });
-    }
-
-    const response = await makeClubKonnectRequest('/APIVerifyCableTVV1.0.asp', {
-      CableTV: clubKonnectOperator,
-      SmartCardNo: smartCardNumber
-    });
-
-    console.log('Verification response:', response);
-
-    if (response.customer_name && 
-        response.customer_name !== 'INVALID_SMARTCARDNO' &&
-        response.customer_name !== 'INVALID_CREDENTIALS' &&
-        response.customer_name !== 'MISSING_CREDENTIALS') {
-      
-      return res.json({
-        success: true,
-        customerName: response.customer_name,
-        message: 'Smart card verified successfully'
-      });
-    } else {
-      return res.json({
-        success: false,
-        message: 'Invalid smart card number for this operator'
-      });
-    }
-
-  } catch (error) {
-    console.error('Smart card validation error:', error);
-    
-    return res.status(500).json({
-      success: false,
-      message: error.message || 'Smart card validation failed'
-    });
-  }
+const eaHeaders = () => ({
+  'Authorization': `Bearer ${EA_CONFIG.token}`,
+  'Cache-Control': 'no-cache',
+  'Content-Type': 'application/json'
 });
 
-// ========== GET OPERATORS ==========
+const makeEasyAccessRequest = async (method, endpoint, data = null) => {
+  const config = {
+    method,
+    url: `${EA_CONFIG.baseUrl}/${endpoint}`,
+    headers: eaHeaders(),
+    timeout: 60000
+  };
+  if (data) config.data = data;
+  console.log(`📡 EasyAccess ${method.toUpperCase()} /${endpoint}`, data || '');
+  const response = await axios(config);
+  console.log(`📥 EasyAccess Response:`, response.data);
+  return response.data;
+};
+
+const isEASuccess = (data) =>
+  (data.code === 200 || data.code === 201) &&
+  ['success', 'successful'].includes((data.status || '').toLowerCase());
+
+// ── EasyAccess Cable TV company codes ────────────────────────────────────────
+// 1=DSTV, 2=GOTV, 3=STARTIMES, 4=SHOWMAX
+const EA_CABLE_COMPANY = {
+  'dstv':      1,
+  'gotv':      2,
+  'startimes': 3,
+  'startime':  3,
+  'showmax':   4
+};
+
+// ── Maps company code back to product_type for get-plans ─────────────────────
+const EA_PRODUCT_TYPE = {
+  1: 'dstv',
+  2: 'gotv',
+  3: 'startimes',
+  4: 'showmax'
+};
+
+// ── Maps company code to response key in get-plans response ──────────────────
+const EA_RESPONSE_KEY = {
+  1: 'DSTV',
+  2: 'GOTV',
+  3: 'STARTIMES',
+  4: 'SHOWMAX'
+};
+
+// ── Operator display info ─────────────────────────────────────────────────────
+const OPERATOR_INFO = {
+  dstv: {
+    name: 'DStv',
+    logo: '📺',
+    color: '#FFA500',
+    description: 'Digital Satellite Television',
+    smartCardLength: 10,
+    eaCode: 1
+  },
+  gotv: {
+    name: 'GOtv',
+    logo: '📡',
+    color: '#00A651',
+    description: 'Digital Terrestrial Television',
+    smartCardLength: 10,
+    eaCode: 2
+  },
+  startimes: {
+    name: 'StarTimes',
+    logo: '🛰️',
+    color: '#FF0000',
+    description: 'Digital Television Service',
+    smartCardLength: 11,
+    eaCode: 3
+  },
+  showmax: {
+    name: 'Showmax',
+    logo: '🎬',
+    color: '#E50914',
+    description: 'Streaming Television Service',
+    smartCardLength: 10,
+    eaCode: 4
+  }
+};
+
+// ── GET /api/cabletv/providers ────────────────────────────────────────────────
 router.get('/providers', authenticate, async (req, res) => {
   try {
-    const operators = ['dstv', 'gotv', 'startimes'];
-    const operatorsWithStats = operators.map(operator => ({
-      code: operator,
-      ...OPERATOR_INFO[operator]
+    const providers = Object.entries(OPERATOR_INFO).map(([code, info]) => ({
+      code,
+      ...info
     }));
 
     res.json({
       success: true,
       message: 'Cable TV providers retrieved',
-      providers: operatorsWithStats,
-      count: operatorsWithStats.length,
+      providers,
+      count: providers.length,
       lastModified: new Date()
+    });
+  } catch (error) {
+    console.error('Get providers error:', error);
+    res.status(500).json({ success: false, message: 'Failed to retrieve providers' });
+  }
+});
+
+// ── POST /api/cabletv/validate-smartcard (EasyAccess) ────────────────────────
+router.post('/validate-smartcard', authenticate, async (req, res) => {
+  try {
+    const { smartCardNumber, operator } = req.body;
+
+    console.log('=== SMART CARD VALIDATION REQUEST (EasyAccess) ===');
+    console.log('Operator:', operator, '| Card:', smartCardNumber ? smartCardNumber.slice(0, 4) + '***' : 'MISSING');
+
+    if (!smartCardNumber) {
+      return res.status(400).json({ success: false, message: 'Smart card number is required' });
+    }
+
+    if (!operator) {
+      return res.status(400).json({ success: false, message: 'Operator is required' });
+    }
+
+    const companyCode = EA_CABLE_COMPANY[operator.toLowerCase()];
+    if (!companyCode) {
+      return res.status(400).json({ success: false, message: 'Unsupported operator' });
+    }
+
+    // ✅ Using correct field name 'iucno' as per EasyAccess docs
+    const data = await makeEasyAccessRequest('post', 'verify-tv', {
+      company: companyCode,
+      iucno: smartCardNumber
+    });
+
+    if (!isEASuccess(data)) {
+      return res.json({
+        success: false,
+        message: data.message || 'Invalid smart card number for this operator'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Smart card verified successfully',
+      customerName: data.customer_name,
+      customerDetails: {
+        name: data.customer_name,
+        package: data.current_package || null,
+        status: data.customer_status || null,
+        dueDate: data.due_date || null,
+        renewalAmount: data.renewal_amount || null,
+        currentBalance: data.current_balance || null,
+        smartCardNumber
+      }
     });
 
   } catch (error) {
-    console.error('Get providers error:', error);
+    console.error('Smart card validation error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to retrieve providers'
+      message: error.response?.data?.message || error.message || 'Smart card validation failed'
     });
   }
 });
 
-// ========== GET PACKAGES BY OPERATOR (FETCH FROM CLUBKONNECT DIRECTLY) ==========
+// ── GET /api/cabletv/packages/:operator (EasyAccess) ─────────────────────────
 router.get('/packages/:operator', authenticate, async (req, res) => {
   try {
-    const { operator } = req.params;
-    const normalizedOperator = operator.toLowerCase();
+    const normalizedOperator = req.params.operator.toLowerCase();
 
-    const validOperators = ['dstv', 'gotv', 'startimes', 'startime'];
-    if (!validOperators.includes(normalizedOperator)) {
+    // Normalize 'startime' -> 'startimes'
+    const canonicalOperator = normalizedOperator === 'startime' ? 'startimes' : normalizedOperator;
+
+    const companyCode = EA_CABLE_COMPANY[canonicalOperator];
+    if (!companyCode) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid operator. Valid operators are: dstv, gotv, startimes'
+        message: 'Invalid operator. Valid operators are: dstv, gotv, startimes, showmax'
       });
     }
 
-    console.log(`📡 Fetching ${normalizedOperator.toUpperCase()} packages from ClubKonnect...`);
+    // ✅ Correct endpoint: get-plans?product_type=gotv (GET request, not POST)
+    const productType = EA_PRODUCT_TYPE[companyCode];
+    console.log(`📡 Fetching ${canonicalOperator.toUpperCase()} packages from EasyAccess using get-plans?product_type=${productType}`);
 
-    // ✅ FETCH DIRECTLY FROM CLUBKONNECT
-    const url = `${CK_CONFIG.baseUrl}/APICableTVPackagesV2.asp?UserID=${CK_CONFIG.userId}&APIKey=${CK_CONFIG.apiKey}`;
-    
-    const response = await axios.get(url, { 
-      timeout: 30000,
-      headers: {
-        'User-Agent': 'VTU-App/1.0'
-      }
-    });
+    const data = await makeEasyAccessRequest('get', `get-plans?product_type=${productType}`);
 
-    let data = response.data;
-    
-    // Parse JSON if needed
-    if (typeof data === 'string') {
-      try {
-        data = JSON.parse(data);
-      } catch (e) {
-        throw new Error(`Failed to parse ClubKonnect response: ${data}`);
-      }
-    }
+    // ✅ Response key is uppercase e.g. 'GOTV', 'DSTV', 'STARTIMES'
+    const responseKey = EA_RESPONSE_KEY[companyCode];
+    const packageArray = data[responseKey];
 
-    console.log('✅ ClubKonnect response received');
-
-    // Check for different possible response structures
-    let operatorsData = null;
-    
-    if (data.TV_ID) {
-      operatorsData = data.TV_ID;
-    } else if (data.DSTV || data.DStv || data.GOtv || data.Startimes) {
-      operatorsData = data;
-    } else {
-      throw new Error('Invalid response from ClubKonnect API');
-    }
-
-    // Operator mapping for ClubKonnect API
-    const OPERATOR_KEY_MAPPING = {
-      'dstv': ['DStv', 'DSTV'],
-      'gotv': ['GOtv', 'GOTV'],
-      'startimes': ['Startimes', 'STARTIMES', 'StarTimes'],
-      'startime': ['Startimes', 'STARTIMES', 'StarTimes']
-    };
-
-    // Find the operator data
-    let operatorPackages = null;
-    const possibleKeys = OPERATOR_KEY_MAPPING[normalizedOperator];
-    
-    for (const key of possibleKeys) {
-      if (operatorsData[key]) {
-        operatorPackages = operatorsData[key];
-        break;
-      }
-    }
-
-    if (!operatorPackages || !Array.isArray(operatorPackages) || operatorPackages.length === 0) {
-      return res.status(404).json({
+    if (data.code !== 200 || !Array.isArray(packageArray) || packageArray.length === 0) {
+      return res.status(502).json({
         success: false,
-        message: `No packages available for ${normalizedOperator.toUpperCase()}`
+        message: data.message || `Failed to fetch packages for ${canonicalOperator.toUpperCase()}`
       });
     }
 
-    const products = operatorPackages[0].PRODUCT;
-    
-    if (!products || !Array.isArray(products)) {
-      return res.status(404).json({
-        success: false,
-        message: `No products found for ${normalizedOperator.toUpperCase()}`
-      });
-    }
+    console.log(`📦 Raw packages received: ${packageArray.length}`);
 
-    console.log(`📦 Found ${products.length} packages for ${normalizedOperator.toUpperCase()}`);
-
-    // Parse duration from package name
-    const parseDuration = (name) => {
-      const nameLower = name.toLowerCase();
-      if (nameLower.includes('weekly') || nameLower.includes('1 week')) return '1 Week';
-      if (nameLower.includes('quarterly') || nameLower.includes('3 months')) return '3 Months';
-      if (nameLower.includes('yearly') || nameLower.includes('1 year')) return '1 Year';
-      if (nameLower.includes('monthly') || nameLower.includes('1 month')) return '1 Month';
-      return '1 Month';
+    const isPopular = (name = '') => {
+      const keywords = ['padi', 'yanga', 'confam', 'compact', 'smallie', 'jinja', 'jolli', 'basic', 'nova'];
+      const n = name.toLowerCase();
+      return keywords.some(k => n.includes(k));
     };
 
-    // Check if popular
-    const isPopular = (name) => {
-      const popularKeywords = ['padi', 'yanga', 'confam', 'compact', 'smallie', 'jinja', 'jolli', 'basic', 'nova'];
-      const nameLower = name.toLowerCase();
-      return popularKeywords.some(keyword => nameLower.includes(keyword));
-    };
-
-    // ✅ FORMAT PACKAGES WITH CLUBKONNECT PRICES ONLY
-    const formattedPackages = products
-      .map(product => {
-        const packageId = product.PACKAGE_ID;
-        const packageName = product.PACKAGE_NAME;
-        const packageAmount = parseFloat(product.PACKAGE_AMOUNT);
-
-        // Skip invalid packages
-        if (!packageId || !packageName || isNaN(packageAmount) || packageAmount <= 0) {
-          return null;
-        }
-
-        // Skip packages out of range
-        if (packageAmount < 500 || packageAmount > 100000) {
-          return null;
-        }
+    // ✅ EasyAccess returns: plan_id, name, price, validity
+    const formattedPackages = packageArray
+      .map(pkg => {
+        const amount = parseFloat(pkg.price || 0);
+        if (!pkg.plan_id || !pkg.name || isNaN(amount) || amount <= 0) return null;
 
         return {
-          id: packageId,
-          packageId: packageId,
-          variation_id: packageId,
-          operator: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
-          name: packageName.replace(/\s+/g, ' ').trim(),
-          // ✅ ONLY ONE AMOUNT - ClubKonnect price
-          amount: packageAmount,
-          customerPrice: packageAmount,
-          providerCost: packageAmount,
-          profit: 0,
-          duration: parseDuration(packageName),
-          description: packageName.replace(/\s+/g, ' ').trim(),
-          package_name: packageName,
-          popular: isPopular(packageName),
+          id: pkg.plan_id,
+          packageId: pkg.plan_id,
+          variation_id: pkg.plan_id,
+          operator: canonicalOperator,
+          name: pkg.name.trim(),
+          amount,
+          customerPrice: amount,
+          duration: pkg.validity || '1 Month',
+          description: pkg.name.trim(),
+          popular: isPopular(pkg.name),
           active: true
         };
       })
-      .filter(pkg => pkg !== null)
-      .sort((a, b) => a.customerPrice - b.customerPrice);
+      .filter(Boolean)
+      .sort((a, b) => a.amount - b.amount);
 
-    console.log(`✅ Returning ${formattedPackages.length} valid packages`);
-
-    const operatorInfo = OPERATOR_INFO[normalizedOperator === 'startime' ? 'startimes' : normalizedOperator];
+    console.log(`✅ Returning ${formattedPackages.length} packages for ${canonicalOperator.toUpperCase()}`);
 
     res.json({
       success: true,
-      message: `Packages retrieved for ${normalizedOperator.toUpperCase()}`,
-      operator: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
-      operatorInfo: {
-        code: normalizedOperator === 'startime' ? 'startimes' : normalizedOperator,
-        ...operatorInfo
-      },
+      message: `Packages retrieved for ${canonicalOperator.toUpperCase()}`,
+      operator: canonicalOperator,
+      operatorInfo: { code: canonicalOperator, ...OPERATOR_INFO[canonicalOperator] },
       data: formattedPackages,
       count: formattedPackages.length,
       lastModified: new Date(),
-      source: 'clubkonnect_direct'
+      source: 'easyaccess'
     });
 
   } catch (error) {
-    console.error('Get packages error:', error);
+    console.error('Get packages error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch cable packages from ClubKonnect',
+      message: error.response?.data?.message || 'Failed to fetch cable packages from EasyAccess',
       error: error.message
     });
   }
 });
 
-// ========== HEALTH CHECK ==========
+// ── GET /api/cabletv/history ──────────────────────────────────────────────────
+router.get('/history', authenticate, async (req, res) => {
+  try {
+    const { operator, limit = 20, page = 1 } = req.query;
+    const Transaction = require('../models/Transaction');
+
+    const query = { userId: req.user.userId, serviceType: 'cable_tv' };
+    if (operator) query['metadata.operator'] = operator;
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const transactions = await Transaction.find(query)
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+
+    const totalTransactions = await Transaction.countDocuments(query);
+
+    const formattedTransactions = transactions.map(tx => ({
+      _id: tx._id,
+      reference: tx.reference,
+      operator: tx.metadata?.operator || 'UNKNOWN',
+      packageName: tx.metadata?.packageName || 'Unknown',
+      smartCardNumber: tx.metadata?.smartCardNumber || 'Unknown',
+      customerName: tx.metadata?.customerName || 'Unknown',
+      amount: tx.amount,
+      status: tx.status,
+      createdAt: tx.createdAt,
+      balanceAfter: tx.balanceAfter || tx.newBalance
+    }));
+
+    res.json({
+      success: true,
+      message: 'Cable TV payment history retrieved',
+      transactions: formattedTransactions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalTransactions,
+        pages: Math.ceil(totalTransactions / parseInt(limit))
+      },
+      statistics: {
+        totalSpent: formattedTransactions.reduce((sum, tx) => sum + tx.amount, 0),
+        successfulTransactions: formattedTransactions.filter(tx => tx.status === 'completed').length,
+        failedTransactions: formattedTransactions.filter(tx => tx.status === 'failed').length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Server error retrieving cable TV history' });
+  }
+});
+
+// ── Health check ──────────────────────────────────────────────────────────────
 router.get('/health', (req, res) => {
   res.json({
     success: true,
     service: 'cable-tv',
+    provider: 'easyaccess',
     status: 'healthy',
     timestamp: new Date().toISOString()
   });

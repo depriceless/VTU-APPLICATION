@@ -1,4 +1,13 @@
 const mongoose = require('mongoose');
+const crypto = require('crypto');
+
+// ── Reference generator ───────────────────────────────────────────────────────
+// ✅ Fix 6: crypto.randomBytes instead of Math.random()
+function generateReference(prefix = 'TXN') {
+  return `${prefix}_${Date.now()}_${crypto.randomBytes(6).toString('hex')}`;
+}
+
+// ── Schema ────────────────────────────────────────────────────────────────────
 
 const walletSchema = new mongoose.Schema({
   userId: {
@@ -28,50 +37,20 @@ const walletSchema = new mongoose.Schema({
   lastTransactionDate: {
     type: Date
   },
-  
-  // Wallet limits and settings
-  dailyLimit: {
-    type: Number,
-    default: 1000000 // 1 million naira
-  },
-  monthlyLimit: {
-    type: Number,
-    default: 10000000 // 10 million naira
-  },
-  minimumBalance: {
-    type: Number,
-    default: 0
-  },
-  
-  // Statistics for quick access
+
+  dailyLimit:    { type: Number, default: 1000000 },
+  monthlyLimit:  { type: Number, default: 10000000 },
+  minimumBalance:{ type: Number, default: 0 },
+
   stats: {
-    totalCredits: {
-      type: Number,
-      default: 0
-    },
-    totalDebits: {
-      type: Number,
-      default: 0
-    },
-    transactionCount: {
-      type: Number,
-      default: 0
-    },
-    averageTransactionAmount: {
-      type: Number,
-      default: 0
-    },
-    totalDeposits: {
-      type: Number,
-      default: 0
-    },
-    depositCount: {
-      type: Number,
-      default: 0
-    }
+    totalCredits:             { type: Number, default: 0 },
+    totalDebits:              { type: Number, default: 0 },
+    transactionCount:         { type: Number, default: 0 },
+    averageTransactionAmount: { type: Number, default: 0 },
+    totalDeposits:            { type: Number, default: 0 },
+    depositCount:             { type: Number, default: 0 }
   },
-  
-  // Metadata
+
   metadata: {
     createdBy: String,
     notes: String,
@@ -84,7 +63,7 @@ const walletSchema = new mongoose.Schema({
   }
 }, {
   timestamps: true,
-  toJSON: { virtuals: true },
+  toJSON:   { virtuals: true },
   toObject: { virtuals: true }
 });
 
@@ -93,149 +72,229 @@ walletSchema.index({ userId: 1 });
 walletSchema.index({ balance: 1 });
 walletSchema.index({ isActive: 1 });
 
-// Virtual for formatted balance
+// Virtual
 walletSchema.virtual('formattedBalance').get(function() {
   return `₦${this.balance.toLocaleString()}`;
 });
 
-// Methods
+// ── Methods ───────────────────────────────────────────────────────────────────
+
+/**
+ * credit() — atomically add funds to wallet.
+ *
+ * Uses findOneAndUpdate with $inc so the balance change is a single atomic
+ * MongoDB operation. No race condition possible.
+ */
 walletSchema.methods.credit = async function(amount, description, reference) {
   if (amount <= 0) throw new Error('Credit amount must be positive');
-  
+
   const Transaction = mongoose.model('Transaction');
-  const previousBalance = this.balance;
-  
-  // Update balance
-  this.balance += amount;
-  this.lastTransactionDate = new Date();
-  
-  // Update stats
-  this.stats.totalCredits += amount;
-  this.stats.transactionCount += 1;
-  this.stats.averageTransactionAmount = 
-    (this.stats.totalCredits + this.stats.totalDebits) / this.stats.transactionCount;
-  
-  // Create transaction record
-  const transaction = new Transaction({
-    walletId: this._id,
-    userId: this.userId,
-    type: 'credit',
+  const ref = reference || generateReference('TXN');
+
+  // ✅ Fix 1 & 2: Atomic balance update — no read-modify-write gap
+  const updatedWallet = await this.constructor.findOneAndUpdate(
+    { _id: this._id, isActive: true },
+    {
+      $inc: {
+        balance:                   amount,
+        'stats.totalCredits':      amount,
+        'stats.transactionCount':  1,
+        'stats.totalDeposits':     amount,
+        'stats.depositCount':      1
+      },
+      $set: { lastTransactionDate: new Date() }
+    },
+    { new: true, runValidators: true }
+  );
+
+  if (!updatedWallet) throw new Error('Wallet not found or is frozen');
+
+  // ✅ Fix 4: Record transaction after confirmed balance update
+  const transaction = await Transaction.create({
+    walletId:        this._id,
+    userId:          this.userId,
+    type:            'credit',
     amount,
-    previousBalance,
-    newBalance: this.balance,
-    description: description || `Wallet credited with ₦${amount.toLocaleString()}`,
-    reference: reference || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    status: 'completed',
-    category: 'funding' // ✅ ADDED: Explicitly set category
+    previousBalance: updatedWallet.balance - amount,
+    newBalance:      updatedWallet.balance,
+    description:     description || `Wallet credited with ₦${amount.toLocaleString()}`,
+    reference:       ref,
+    status:          'completed',
+    category:        'funding'
   });
-  
-  // Save both wallet and transaction
-  await this.save();
-  await transaction.save();
-  
-  return { wallet: this, transaction };
+
+  // Sync in-memory instance
+  this.balance               = updatedWallet.balance;
+  this.stats                 = updatedWallet.stats;
+  this.lastTransactionDate   = updatedWallet.lastTransactionDate;
+
+  return { wallet: updatedWallet, transaction };
 };
 
+/**
+ * debit() — atomically deduct funds from wallet only if balance is sufficient.
+ *
+ * The balance check AND the deduction happen in a single findOneAndUpdate
+ * query with a { balance: { $gte: amount } } condition. MongoDB either
+ * applies the whole update or rejects it — no gap for a second request
+ * to slip through.
+ */
 walletSchema.methods.debit = async function(amount, description, reference) {
   if (amount <= 0) throw new Error('Debit amount must be positive');
-  if (this.balance < amount) throw new Error('Insufficient wallet balance');
-  
+
   const Transaction = mongoose.model('Transaction');
-  const previousBalance = this.balance;
-  
-  // Update balance
-  this.balance -= amount;
-  this.lastTransactionDate = new Date();
-  
-  // Update stats
-  this.stats.totalDebits += amount;
-  this.stats.transactionCount += 1;
-  this.stats.averageTransactionAmount = 
-    (this.stats.totalCredits + this.stats.totalDebits) / this.stats.transactionCount;
-  
-  // Create transaction record
-  const transaction = new Transaction({
-    walletId: this._id,
-    userId: this.userId,
-    type: 'debit',
+  const ref = reference || generateReference('TXN');
+
+  // ✅ Fix 1: Atomic check-and-debit — TOCTOU race condition eliminated
+  const updatedWallet = await this.constructor.findOneAndUpdate(
+    {
+      _id:     this._id,
+      isActive: true,
+      balance: { $gte: amount }   // ← check AND deduct in one operation
+    },
+    {
+      $inc: {
+        balance:                  -amount,
+        'stats.totalDebits':       amount,
+        'stats.transactionCount':  1
+      },
+      $set: { lastTransactionDate: new Date() }
+    },
+    { new: true, runValidators: true }
+  );
+
+  // If no document was updated, either frozen or truly insufficient balance
+  if (!updatedWallet) {
+    // Re-fetch to give a precise error message
+    const current = await this.constructor.findById(this._id);
+    if (!current || !current.isActive) throw new Error('Wallet is frozen or not found');
+    throw new Error('Insufficient wallet balance');
+  }
+
+  // ✅ Fix 4: Record transaction only after confirmed deduction
+  const transaction = await Transaction.create({
+    walletId:        this._id,
+    userId:          this.userId,
+    type:            'debit',
     amount,
-    previousBalance,
-    newBalance: this.balance,
-    description: description || `Wallet debited with ₦${amount.toLocaleString()}`,
-    reference: reference || `TXN_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    status: 'completed',
-    category: 'withdrawal' // ✅ ADDED: Explicitly set category for debits
+    previousBalance: updatedWallet.balance + amount,
+    newBalance:      updatedWallet.balance,
+    description:     description || `Wallet debited with ₦${amount.toLocaleString()}`,
+    reference:       ref,
+    status:          'completed',
+    category:        'withdrawal'
   });
-  
-  // Save both wallet and transaction
-  await this.save();
-  await transaction.save();
-  
-  return { wallet: this, transaction };
+
+  // Sync in-memory instance
+  this.balance             = updatedWallet.balance;
+  this.stats               = updatedWallet.stats;
+  this.lastTransactionDate = updatedWallet.lastTransactionDate;
+
+  return { wallet: updatedWallet, transaction };
 };
 
+/**
+ * transfer() — moves funds between two wallets inside a MongoDB session.
+ *
+ * Both deductions and both transaction records are committed together.
+ * If anything fails mid-way, MongoDB rolls back the entire session —
+ * no money disappears and no phantom credits appear.
+ *
+ * Requires MongoDB replica set (Mongo Atlas supports this by default).
+ */
 walletSchema.methods.transfer = async function(recipientWallet, amount, description) {
-  if (this.balance < amount) throw new Error('Insufficient balance for transfer');
-  
+  if (amount <= 0) throw new Error('Transfer amount must be positive');
+
   const Transaction = mongoose.model('Transaction');
-  const transferReference = `TRF_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  const previousBalanceSender = this.balance;
-  const previousBalanceRecipient = recipientWallet.balance;
-  
-  // Update sender balance
-  this.balance -= amount;
-  this.lastTransactionDate = new Date();
-  this.stats.totalDebits += amount;
-  this.stats.transactionCount += 1;
-  
-  // Update recipient balance
-  recipientWallet.balance += amount;
-  recipientWallet.lastTransactionDate = new Date();
-  recipientWallet.stats.totalCredits += amount;
-  recipientWallet.stats.transactionCount += 1;
-  
-  // Create sender transaction (transfer_out)
-  const senderTransaction = new Transaction({
-    walletId: this._id,
-    userId: this.userId,
-    type: 'transfer_out',
-    amount,
-    previousBalance: previousBalanceSender,
-    newBalance: this.balance,
-    description: description || `Transfer to wallet ${recipientWallet._id}`,
-    reference: transferReference,
-    status: 'completed',
-    category: 'transfer', // ✅ ADDED: Set transfer category
-    relatedWalletId: recipientWallet._id
-  });
-  
-  // Create recipient transaction (transfer_in)
-  const recipientTransaction = new Transaction({
-    walletId: recipientWallet._id,
-    userId: recipientWallet.userId,
-    type: 'transfer_in',
-    amount,
-    previousBalance: previousBalanceRecipient,
-    newBalance: recipientWallet.balance,
-    description: description || `Transfer from wallet ${this._id}`,
-    reference: transferReference,
-    status: 'completed',
-    category: 'transfer', // ✅ ADDED: Set transfer category
-    relatedWalletId: this._id
-  });
-  
-  // Save everything
-  await this.save();
-  await recipientWallet.save();
-  await senderTransaction.save();
-  await recipientTransaction.save();
-  
-  return { 
-    reference: transferReference, 
-    amount,
-    senderTransaction,
-    recipientTransaction
-  };
+  const ref = generateReference('TRF');
+
+  // ✅ Fix 3 & 4: Session wraps all DB writes — fully atomic
+  const session = await mongoose.startSession();
+  try {
+    session.startTransaction();
+
+    // Atomic debit on sender — fails if balance insufficient
+    const updatedSender = await this.constructor.findOneAndUpdate(
+      { _id: this._id, isActive: true, balance: { $gte: amount } },
+      {
+        $inc: {
+          balance:                  -amount,
+          'stats.totalDebits':       amount,
+          'stats.transactionCount':  1
+        },
+        $set: { lastTransactionDate: new Date() }
+      },
+      { new: true, session, runValidators: true }
+    );
+
+    if (!updatedSender) {
+      await session.abortTransaction();
+      throw new Error('Insufficient balance or sender wallet is frozen');
+    }
+
+    // Atomic credit on recipient
+    const updatedRecipient = await this.constructor.findOneAndUpdate(
+      { _id: recipientWallet._id, isActive: true },
+      {
+        $inc: {
+          balance:                   amount,
+          'stats.totalCredits':      amount,
+          'stats.transactionCount':  1
+        },
+        $set: { lastTransactionDate: new Date() }
+      },
+      { new: true, session, runValidators: true }
+    );
+
+    if (!updatedRecipient) {
+      await session.abortTransaction();
+      throw new Error('Recipient wallet is frozen or not found');
+    }
+
+    // Create both transaction records in the same session
+    await Transaction.insertMany([
+      {
+        walletId:        this._id,
+        userId:          this.userId,
+        type:            'transfer_out',
+        amount,
+        previousBalance: updatedSender.balance + amount,
+        newBalance:      updatedSender.balance,
+        description:     description || `Transfer to wallet ${recipientWallet._id}`,
+        reference:       ref,
+        status:          'completed',
+        category:        'transfer',
+        relatedWalletId: recipientWallet._id
+      },
+      {
+        walletId:        recipientWallet._id,
+        userId:          recipientWallet.userId,
+        type:            'transfer_in',
+        amount,
+        previousBalance: updatedRecipient.balance - amount,
+        newBalance:      updatedRecipient.balance,
+        description:     description || `Transfer from wallet ${this._id}`,
+        reference:       ref,
+        status:          'completed',
+        category:        'transfer',
+        relatedWalletId: this._id
+      }
+    ], { session });
+
+    await session.commitTransaction();
+
+    // Sync in-memory instances
+    this.balance = updatedSender.balance;
+    recipientWallet.balance = updatedRecipient.balance;
+
+    return { reference: ref, amount, updatedSender, updatedRecipient };
+
+  } catch (err) {
+    await session.abortTransaction();
+    throw err;
+  } finally {
+    session.endSession();
+  }
 };
 
 walletSchema.methods.freeze = function() {
@@ -248,11 +307,11 @@ walletSchema.methods.unfreeze = function() {
   return this.save();
 };
 
-// Static methods
+// ── Statics ───────────────────────────────────────────────────────────────────
+
 walletSchema.statics.createForUser = async function(userId) {
   const existingWallet = await this.findOne({ userId });
   if (existingWallet) throw new Error('User already has a wallet');
-  
   const wallet = new this({ userId });
   return wallet.save();
 };

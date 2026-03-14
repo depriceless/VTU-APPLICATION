@@ -1,275 +1,209 @@
+// routes/payment.js
 const express = require('express');
 const router = express.Router();
 const axios = require('axios');
+const rateLimit = require('express-rate-limit');
 const { authenticate } = require('../middleware/auth');
 const MonnifyAccount = require('../models/MonnifyAccount');
 const PaystackAccount = require('../models/PaystackAccount');
 const PaymentGatewayConfig = require('../models/PaymentGatewayConfig');
 const User = require('../models/User');
+const { logger } = require('../utils/logger');
 
-console.log('💳 Payment Gateway routes initializing...');
+// ── Rate limiter for fetching virtual account (loose) ──────────
+// Allows frequent dashboard loads without triggering 429
+const virtualAccountFetchLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30,             // 30 requests per minute — well above any normal usage
+  message: { success: false, message: 'Too many requests. Please try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-// Paystack Configuration
+// ── Rate limiter for account creation only (strict) ────────────
+// Applied only when no account exists and one needs to be created
+const accountCreationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  message: { success: false, message: 'Too many account creation attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ── Payment config (read from env only) ───────────────────────
 const PAYSTACK_CONFIG = {
   secretKey: process.env.PAYSTACK_SECRET_KEY,
   publicKey: process.env.PAYSTACK_PUBLIC_KEY,
-  baseUrl: 'https://api.paystack.co'
+  baseUrl:   'https://api.paystack.co',
 };
 
-// Monnify Configuration
 const MONNIFY_CONFIG = {
-  apiKey: process.env.MONNIFY_API_KEY,
-  secretKey: process.env.MONNIFY_SECRET_KEY,
+  apiKey:       process.env.MONNIFY_API_KEY,
+  secretKey:    process.env.MONNIFY_SECRET_KEY,
   contractCode: process.env.MONNIFY_CONTRACT_CODE,
-  baseUrl: process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com'
+  baseUrl:      process.env.MONNIFY_BASE_URL || 'https://sandbox.monnify.com',
 };
 
-// Debug configuration
-console.log('🔍 Payment Gateway Configuration Check:');
-console.log('   Paystack Secret Key:', PAYSTACK_CONFIG.secretKey ? '✅ Set' : '❌ Missing');
-console.log('   Paystack Public Key:', PAYSTACK_CONFIG.publicKey ? '✅ Set' : '❌ Missing');
-console.log('   Monnify API Key:', MONNIFY_CONFIG.apiKey ? '✅ Set' : '❌ Missing');
-console.log('   Monnify Secret Key:', MONNIFY_CONFIG.secretKey ? '✅ Set' : '❌ Missing');
+if (!PAYSTACK_CONFIG.secretKey) logger.warn('PAYSTACK_SECRET_KEY is not set');
+if (!MONNIFY_CONFIG.apiKey)     logger.warn('MONNIFY_API_KEY is not set');
+if (!MONNIFY_CONFIG.secretKey)  logger.warn('MONNIFY_SECRET_KEY is not set');
 
-// Get Monnify Access Token
+// ── Get Monnify access token ───────────────────────────────────
 const getMonnifyToken = async () => {
   try {
     const auth = Buffer.from(`${MONNIFY_CONFIG.apiKey}:${MONNIFY_CONFIG.secretKey}`).toString('base64');
-    
     const response = await axios.post(
       `${MONNIFY_CONFIG.baseUrl}/api/v1/auth/login`,
       {},
-      {
-        headers: {
-          'Authorization': `Basic ${auth}`,
-          'Content-Type': 'application/json'
-        }
-      }
+      { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' } }
     );
-
     return response.data.responseBody.accessToken;
   } catch (error) {
-    console.error('❌ Monnify token error:', error.response?.data || error.message);
+    logger.error('Failed to get Monnify access token', error.message);
     throw new Error('Failed to get Monnify access token');
   }
 };
 
-// Helper function to generate varied account names for Monnify
+// ── Account name variant helper ────────────────────────────────
 const generateAccountNames = (userName, bankName) => {
   const variations = [
     userName,
     userName.toUpperCase(),
     userName.split(' ').reverse().join(' '),
   ];
-  
-  const bankIndex = {
-    'Moniepoint': 0,
-    'Access Bank': 1,
-    'Wema Bank': 2
-  };
-  
+  const bankIndex = { Moniepoint: 0, 'Access Bank': 1, 'Wema Bank': 2 };
   return variations[bankIndex[bankName] || 0];
 };
 
-// Helper function to create Paystack account
+// ── Create Paystack virtual account ───────────────────────────
 async function createPaystackAccount(userId) {
-  console.log('🔄 Auto-creating Paystack account for user:', userId);
-  
   try {
     const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('User not found');
-    }
+    if (!user) throw new Error('User not found');
 
-    console.log('🔍 Creating Paystack virtual account for:', user.email);
-
-    // Step 1: Create or get customer
     let customerId;
     try {
       const customerResponse = await axios.post(
         `${PAYSTACK_CONFIG.baseUrl}/customer`,
         {
-          email: user.email,
+          email:      user.email,
           first_name: user.name.split(' ')[0],
-          last_name: user.name.split(' ').slice(1).join(' ') || user.name.split(' ')[0],
-          phone: user.phone || ''
+          last_name:  user.name.split(' ').slice(1).join(' ') || user.name.split(' ')[0],
+          phone:      user.phone || '',
         },
-        {
-          headers: {
-            'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`,
-            'Content-Type': 'application/json'
-          }
-        }
+        { headers: { Authorization: `Bearer ${PAYSTACK_CONFIG.secretKey}`, 'Content-Type': 'application/json' } }
       );
       customerId = customerResponse.data.data.customer_code;
-      console.log('✅ Customer created:', customerId);
     } catch (error) {
       if (error.response?.status === 400) {
         const fetchResponse = await axios.get(
           `${PAYSTACK_CONFIG.baseUrl}/customer/${user.email}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`
-            }
-          }
+          { headers: { Authorization: `Bearer ${PAYSTACK_CONFIG.secretKey}` } }
         );
         customerId = fetchResponse.data.data.customer_code;
-        console.log('✅ Existing customer retrieved:', customerId);
       } else {
         throw error;
       }
     }
 
-    // Step 2: Create dedicated virtual account
     const accountResponse = await axios.post(
       `${PAYSTACK_CONFIG.baseUrl}/dedicated_account`,
-      {
-        customer: customerId,
-        preferred_bank: 'wema-bank'
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${PAYSTACK_CONFIG.secretKey}`,
-          'Content-Type': 'application/json'
-        }
-      }
+      { customer: customerId, preferred_bank: 'wema-bank' },
+      { headers: { Authorization: `Bearer ${PAYSTACK_CONFIG.secretKey}`, 'Content-Type': 'application/json' } }
     );
 
     const accountData = accountResponse.data.data;
-    console.log('✅ Paystack virtual account created:', accountData.account_number);
 
     const paystackAccount = new PaystackAccount({
-      userId: userId,
-      customerId: customerId,
-      accountNumber: accountData.account_number,
-      accountName: accountData.account_name,
-      bankName: accountData.bank.name,
-      bankCode: accountData.bank.id,
+      userId,
+      customerId,
+      accountNumber:    accountData.account_number,
+      accountName:      accountData.account_name,
+      bankName:         accountData.bank.name,
+      bankCode:         accountData.bank.id,
       accountReference: accountData.id,
-      customerEmail: user.email,
-      customerName: user.name,
-      isActive: true
+      customerEmail:    user.email,
+      customerName:     user.name,
+      isActive:         true,
     });
 
     await paystackAccount.save();
-    console.log('✅ Paystack account saved to database');
-
+    logger.success('Paystack virtual account created');
     return paystackAccount;
-
   } catch (error) {
-    console.error('❌ Auto-create Paystack account error:', error.response?.data || error.message);
+    logger.error('Failed to create Paystack account', error.message);
     throw error;
   }
 }
 
-// Helper function to create Monnify account
+// ── Create Monnify virtual accounts ───────────────────────────
 async function createMonnifyAccount(userId) {
-  console.log('🔄 Auto-creating Monnify account for user:', userId);
-  
   try {
     const user = await User.findById(userId);
-    if (!user) {
-      throw new Error('User not found');
-    }
+    if (!user) throw new Error('User not found');
 
-    console.log('🔍 Creating Monnify accounts for:', user.email);
-
-    const accessToken = await getMonnifyToken();
-    console.log('✅ Monnify access token obtained');
-
-    const bankConfigs = [
-      { code: "50515", name: "Moniepoint" },
-      { code: "044", name: "Access Bank" },
-      { code: "035", name: "Wema Bank" }
+    const accessToken      = await getMonnifyToken();
+    const bankConfigs      = [
+      { code: '50515', name: 'Moniepoint' },
+      { code: '044',   name: 'Access Bank' },
+      { code: '035',   name: 'Wema Bank' },
     ];
-
-    let allAccounts = [];
+    let allAccounts        = [];
     const accountReference = `USER_${userId}_${Date.now()}`;
 
-    // Try creating with all banks first
     try {
-      const requestBody = {
-        accountReference: accountReference,
-        accountName: user.name,
-        currencyCode: "NGN",
-        contractCode: MONNIFY_CONFIG.contractCode,
-        customerEmail: user.email,
-        customerName: user.name,
-        getAllAvailableBanks: false,
-        preferredBanks: ["50515", "044", "035"]
-      };
-
-      console.log('📤 Attempting to create all Monnify accounts at once...');
-
       const monnifyResponse = await axios.post(
         `${MONNIFY_CONFIG.baseUrl}/api/v2/bank-transfer/reserved-accounts`,
-        requestBody,
         {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
+          accountReference,
+          accountName:         user.name,
+          currencyCode:        'NGN',
+          contractCode:        MONNIFY_CONFIG.contractCode,
+          customerEmail:       user.email,
+          customerName:        user.name,
+          getAllAvailableBanks: false,
+          preferredBanks:      ['50515', '044', '035'],
+        },
+        { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
       );
 
-      const accountData = monnifyResponse.data.responseBody;
-      allAccounts = accountData.accounts.map(acc => ({
-        bankName: acc.bankName,
-        bankCode: acc.bankCode,
+      allAccounts = monnifyResponse.data.responseBody.accounts.map(acc => ({
+        bankName:      acc.bankName,
+        bankCode:      acc.bankCode,
         accountNumber: acc.accountNumber,
-        accountName: acc.accountName
+        accountName:   acc.accountName,
       }));
-
-      console.log(`✅ Created ${allAccounts.length} Monnify accounts successfully`);
-
-    } catch (error) {
-      console.log('⚠️ Bulk creation failed, trying individual creation...');
-      
-      for (let i = 0; i < bankConfigs.length; i++) {
+    } catch {
+      for (const bank of bankConfigs) {
         try {
-          const bank = bankConfigs[i];
           const individualRef = `${accountReference}_${bank.code}`;
-          
-          const requestBody = {
-            accountReference: individualRef,
-            accountName: generateAccountNames(user.name, bank.name),
-            currencyCode: "NGN",
-            contractCode: MONNIFY_CONFIG.contractCode,
-            customerEmail: user.email,
-            customerName: user.name,
-            getAllAvailableBanks: false,
-            preferredBanks: [bank.code]
-          };
-
-          console.log(`📤 Creating account for ${bank.name}...`);
-
           const response = await axios.post(
             `${MONNIFY_CONFIG.baseUrl}/api/v2/bank-transfer/reserved-accounts`,
-            requestBody,
             {
-              headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
-              }
-            }
+              accountReference: individualRef,
+              accountName:      generateAccountNames(user.name, bank.name),
+              currencyCode:     'NGN',
+              contractCode:     MONNIFY_CONFIG.contractCode,
+              customerEmail:    user.email,
+              customerName:     user.name,
+              getAllAvailableBanks: false,
+              preferredBanks:   [bank.code],
+            },
+            { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' } }
           );
 
-          const accountData = response.data.responseBody;
-          if (accountData.accounts && accountData.accounts.length > 0) {
+          const accounts = response.data.responseBody.accounts;
+          if (accounts?.length > 0) {
             allAccounts.push({
-              bankName: accountData.accounts[0].bankName,
-              bankCode: accountData.accounts[0].bankCode,
-              accountNumber: accountData.accounts[0].accountNumber,
-              accountName: accountData.accounts[0].accountName
+              bankName:      accounts[0].bankName,
+              bankCode:      accounts[0].bankCode,
+              accountNumber: accounts[0].accountNumber,
+              accountName:   accounts[0].accountName,
             });
-            console.log(`✅ Created ${bank.name} account successfully`);
           }
-
-          await new Promise(resolve => setTimeout(resolve, 500));
-
+          await new Promise((resolve) => setTimeout(resolve, 500));
         } catch (individualError) {
-          console.error(`❌ Failed to create ${bankConfigs[i].name} account:`, 
-            individualError.response?.data || individualError.message);
+          logger.error(`Failed to create ${bank.name} account`, individualError.message);
         }
       }
     }
@@ -279,209 +213,131 @@ async function createMonnifyAccount(userId) {
     }
 
     const monnifyAccount = new MonnifyAccount({
-      userId: userId,
-      accountReference: accountReference,
-      accounts: allAccounts,
+      userId,
+      accountReference,
+      accounts:      allAccounts,
       customerEmail: user.email,
-      customerName: user.name
+      customerName:  user.name,
     });
 
     await monnifyAccount.save();
-    console.log(`✅ ${allAccounts.length} Monnify account(s) saved to database`);
-
-    const createdBanks = allAccounts.map(acc => acc.bankName).join(', ');
-    console.log(`📋 Created accounts for: ${createdBanks}`);
-
+    logger.success(`${allAccounts.length} Monnify account(s) created`);
     return monnifyAccount;
-
   } catch (error) {
-    console.error('❌ Auto-create Monnify account error:', error.response?.data || error.message);
+    logger.error('Failed to create Monnify account', error.message);
     throw error;
   }
 }
 
-// ROUTE 1: Get active gateway info (NO AUTHENTICATION REQUIRED)
-router.get('/active-gateway', async (req, res) => {
+// ── ROUTE 1: Get active gateway ────────────────────────────────
+router.get('/active-gateway', authenticate, async (req, res) => {
   try {
-    console.log('🔍 [Active Gateway] Request received');
-    
     const config = await PaymentGatewayConfig.getConfig();
-    
-    console.log('🔍 [Active Gateway] Config retrieved:', {
-      activeGateway: config.activeGateway,
-      configId: config._id
-    });
-    
     res.json({
-      success: true,
-      activeGateway: config.activeGateway,
+      success:           true,
+      activeGateway:     config.activeGateway,
       availableGateways: ['monnify', 'paystack'],
       gateways: {
-        paystack: {
-          enabled: config.gateways.paystack.enabled,
-          configured: !!(config.gateways.paystack.publicKey && config.gateways.paystack.secretKey)
-        },
-        monnify: {
-          enabled: config.gateways.monnify.enabled,
-          configured: !!(config.gateways.monnify.apiKey && config.gateways.monnify.secretKey)
-        }
-      }
+        paystack: { enabled: config.gateways.paystack.enabled },
+        monnify:  { enabled: config.gateways.monnify.enabled },
+      },
     });
   } catch (error) {
-    console.error('❌ Get active gateway error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to get active gateway',
-      error: process.env.NODE_ENV === 'production' ? undefined : error.message
-    });
+    logger.error('Get active gateway error', error.message);
+    res.status(500).json({ success: false, message: 'Failed to get active gateway' });
   }
 });
 
-// ROUTE 2: Get user's virtual account (with auto-creation)
-router.get('/virtual-account', authenticate, async (req, res) => {
+// ── ROUTE 2: Get user's virtual account ───────────────────────
+// virtualAccountFetchLimiter: loose limit for normal dashboard loads
+// accountCreationLimiter: only triggered when account doesn't exist yet
+router.get('/virtual-account', authenticate, virtualAccountFetchLimiter, async (req, res) => {
   try {
-    const config = await PaymentGatewayConfig.getConfig();
+    const config         = await PaymentGatewayConfig.getConfig();
     const ACTIVE_GATEWAY = config.activeGateway;
-    
-    console.log(`📍 Fetching ${ACTIVE_GATEWAY} account for user:`, req.user.id);
-    
     let accountData;
 
     if (ACTIVE_GATEWAY === 'paystack') {
       let paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
-      
+
       if (!paystackAccount) {
-        console.log('⚠️ No Paystack account found. Auto-creating...');
+        // Apply strict creation limit only when actually creating
+        await new Promise((resolve, reject) => {
+          accountCreationLimiter(req, res, (err) => err ? reject(err) : resolve(undefined));
+        });
         try {
           paystackAccount = await createPaystackAccount(req.user.id);
-          console.log('✅ Paystack account auto-created successfully');
         } catch (createError) {
-          console.error('❌ Failed to auto-create Paystack account:', createError.message);
-          return res.status(500).json({
-            success: false,
-            message: 'Failed to create Paystack virtual account',
-            gateway: 'paystack',
-            error: process.env.NODE_ENV === 'production' ? undefined : createError.message
-          });
+          return res.status(500).json({ success: false, message: 'Failed to create Paystack virtual account', gateway: 'paystack' });
         }
       }
 
       accountData = {
-        gateway: 'paystack',
+        gateway:       'paystack',
         accountNumber: paystackAccount.accountNumber,
-        accountName: paystackAccount.accountName,
-        bankName: paystackAccount.bankName,
+        accountName:   paystackAccount.accountName,
+        bankName:      paystackAccount.bankName,
         accounts: [{
           accountNumber: paystackAccount.accountNumber,
-          accountName: paystackAccount.accountName,
-          bankName: paystackAccount.bankName
-        }]
+          accountName:   paystackAccount.accountName,
+          bankName:      paystackAccount.bankName,
+        }],
       };
 
     } else if (ACTIVE_GATEWAY === 'monnify') {
       let monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
-      
+
       if (!monnifyAccount) {
-        console.log('⚠️ No Monnify account found. Auto-creating...');
+        // Apply strict creation limit only when actually creating
+        await new Promise((resolve, reject) => {
+          accountCreationLimiter(req, res, (err) => err ? reject(err) : resolve(undefined));
+        });
         try {
           monnifyAccount = await createMonnifyAccount(req.user.id);
-          console.log('✅ Monnify account auto-created successfully');
         } catch (createError) {
-          console.error('❌ Failed to auto-create Monnify account:', createError.message);
-          return res.status(500).json({
-            success: false,
-            message: 'Failed to create Monnify virtual accounts',
-            gateway: 'monnify',
-            error: process.env.NODE_ENV === 'production' ? undefined : createError.message
-          });
+          return res.status(500).json({ success: false, message: 'Failed to create Monnify virtual accounts', gateway: 'monnify' });
         }
       }
 
       accountData = {
-        gateway: 'monnify',
-        accounts: monnifyAccount.accounts,
+        gateway:          'monnify',
+        accounts:         monnifyAccount.accounts,
         accountReference: monnifyAccount.accountReference,
-        totalAccounts: monnifyAccount.accounts.length
+        totalAccounts:    monnifyAccount.accounts.length,
       };
     }
 
-    res.status(200).json({
-      success: true,
-      data: accountData
-    });
-
+    res.status(200).json({ success: true, data: accountData });
   } catch (error) {
-    console.error('❌ Get virtual account error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve virtual account',
-      error: process.env.NODE_ENV === 'production' ? undefined : error.message
-    });
+    logger.error('Get virtual account error', error.message);
+    res.status(500).json({ success: false, message: 'Failed to retrieve virtual account' });
   }
 });
 
-// ROUTE 3: Get all payment accounts
+// ── ROUTE 3: Get all payment accounts ─────────────────────────
 router.get('/all-accounts', authenticate, async (req, res) => {
   try {
-    console.log('📍 Fetching all payment accounts for user:', req.user.id);
-    
-    const config = await PaymentGatewayConfig.getConfig();
+    const config         = await PaymentGatewayConfig.getConfig();
     const ACTIVE_GATEWAY = config.activeGateway;
-    
-    const monnifyAccount = await MonnifyAccount.findOne({ userId: req.user.id });
+
+    const monnifyAccount  = await MonnifyAccount.findOne({ userId: req.user.id });
     const paystackAccount = await PaystackAccount.findOne({ userId: req.user.id });
 
     const allAccounts = {
-      monnify: monnifyAccount ? {
-        exists: true,
-        accounts: monnifyAccount.accounts,
-        accountReference: monnifyAccount.accountReference
-      } : { exists: false },
-      paystack: paystackAccount ? {
-        exists: true,
-        accountNumber: paystackAccount.accountNumber,
-        accountName: paystackAccount.accountName,
-        bankName: paystackAccount.bankName
-      } : { exists: false },
-      activeGateway: ACTIVE_GATEWAY
+      monnify: monnifyAccount
+        ? { exists: true, accounts: monnifyAccount.accounts, accountReference: monnifyAccount.accountReference }
+        : { exists: false },
+      paystack: paystackAccount
+        ? { exists: true, accountNumber: paystackAccount.accountNumber, accountName: paystackAccount.accountName, bankName: paystackAccount.bankName }
+        : { exists: false },
+      activeGateway: ACTIVE_GATEWAY,
     };
 
-    res.status(200).json({
-      success: true,
-      data: allAccounts
-    });
-
+    res.status(200).json({ success: true, data: allAccounts });
   } catch (error) {
-    console.error('❌ Get all accounts error:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to retrieve payment accounts',
-      error: process.env.NODE_ENV === 'production' ? undefined : error.message
-    });
+    logger.error('Get all accounts error', error.message);
+    res.status(500).json({ success: false, message: 'Failed to retrieve payment accounts' });
   }
 });
-
-// ROUTE 4: Test endpoint
-router.get('/test', (req, res) => {
-  console.log('📍 Payment routes test endpoint hit');
-  res.json({
-    success: true,
-    message: 'Payment routes are working!',
-    timestamp: new Date().toISOString(),
-    routes: [
-      'GET /api/payment/active-gateway',
-      'GET /api/payment/virtual-account (requires auth)',
-      'GET /api/payment/all-accounts (requires auth)',
-      'GET /api/payment/test'
-    ]
-  });
-});
-
-console.log('✅ Payment Gateway routes initialized');
-console.log('   📋 Available routes:');
-console.log('      GET /api/payment/active-gateway');
-console.log('      GET /api/payment/virtual-account (auth required)');
-console.log('      GET /api/payment/all-accounts (auth required)');
-console.log('      GET /api/payment/test');
 
 module.exports = router;

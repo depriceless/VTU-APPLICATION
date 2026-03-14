@@ -4,20 +4,22 @@ const User = require('../models/User');
 const Wallet = require('../models/Wallet');
 const Transaction = require('../models/Transaction');
 const { authenticate } = require('../middleware/auth');
+const { logger } = require('../utils/logger');
 
-// GET /api/wallet/balance - Get current wallet balance
+// ── Input validators ───────────────────────────────────────────
+const validateAmount = (amount, max = 1000000) => {
+  const parsed = parseFloat(amount);
+  if (!amount || isNaN(parsed) || parsed <= 0) return { valid: false, message: 'Invalid amount. Please enter a valid positive number.' };
+  if (parsed > max) return { valid: false, message: `Amount cannot exceed ₦${max.toLocaleString()}` };
+  return { valid: true, value: parsed };
+};
+
+// ── GET /api/wallet/balance ────────────────────────────────────
 router.get('/wallet/balance', authenticate, async (req, res) => {
   try {
     const wallet = await Wallet.findByUserId(req.user.userId);
-    
-    if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
+    if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found' });
 
-    // Get recent transactions
     const recentTransactions = await Transaction.getWalletTransactions(wallet._id, { limit: 5 });
 
     res.json({
@@ -25,331 +27,233 @@ router.get('/wallet/balance', authenticate, async (req, res) => {
       balance: wallet.balance,
       formattedBalance: wallet.formattedBalance,
       wallet: {
-        id: wallet._id,
-        isActive: wallet.isActive,
-        currency: wallet.currency,
-        lastTransactionDate: wallet.lastTransactionDate
+        id:                  wallet._id,
+        isActive:            wallet.isActive,
+        currency:            wallet.currency,
+        lastTransactionDate: wallet.lastTransactionDate,
       },
       stats: wallet.stats,
-      recentTransactions
+      recentTransactions,
     });
-
   } catch (error) {
-    console.error('Get balance error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error fetching balance' 
-    });
+    logger.error('Get balance error', error.message);
+    res.status(500).json({ success: false, message: 'Server error fetching balance' });
   }
 });
 
-// POST /api/wallet/fund - Manual wallet funding
+// ── POST /api/wallet/fund ──────────────────────────────────────
 router.post('/wallet/fund', authenticate, async (req, res) => {
   try {
     const { amount, description } = req.body;
 
-    // Validate amount
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid amount. Please enter a valid positive number.' 
-      });
-    }
+    const check = validateAmount(amount, 1000000);
+    if (!check.valid) return res.status(400).json({ success: false, message: check.message });
 
-    if (amount > 1000000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Amount cannot exceed ₦1,000,000' 
-      });
-    }
-
-    // Find or create wallet
     let wallet = await Wallet.findByUserId(req.user.userId);
-    if (!wallet) {
-      wallet = await Wallet.createForUser(req.user.userId);
-    }
+    if (!wallet) wallet = await Wallet.createForUser(req.user.userId);
 
-    // Credit wallet using wallet method
     const result = await wallet.credit(
-      Number(amount), 
-      description || `Manual wallet funding: ₦${Number(amount).toLocaleString()}`
+      check.value,
+      description || `Manual wallet funding: ₦${check.value.toLocaleString()}`
     );
-
-    console.log(`Wallet funded: ${wallet.userId} - ₦${amount}`);
 
     res.json({
       success: true,
-      message: `Wallet funded successfully! ₦${Number(amount).toLocaleString()} added to your account.`,
-      balance: result.wallet.balance,
+      message: `Wallet funded successfully! ₦${check.value.toLocaleString()} added to your account.`,
+      balance:          result.wallet.balance,
       formattedBalance: result.wallet.formattedBalance,
-      transaction: result.transaction
+      transaction:      result.transaction,
     });
-
   } catch (error) {
-    console.error('Fund wallet error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: error.message || 'Server error occurred while funding wallet' 
-    });
+    logger.error('Fund wallet error', error.message);
+    res.status(500).json({ success: false, message: error.message || 'Server error occurred while funding wallet' });
   }
 });
 
-// POST /api/wallet/debit - Debit from wallet
+// ── POST /api/wallet/debit ─────────────────────────────────────
 router.post('/wallet/debit', authenticate, async (req, res) => {
   try {
     const { amount, description, reference } = req.body;
 
-    // Validate amount
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid amount' 
-      });
-    }
+    const check = validateAmount(amount);
+    if (!check.valid) return res.status(400).json({ success: false, message: check.message });
 
     const wallet = await Wallet.findByUserId(req.user.userId);
-    if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
+    if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found' });
 
-    // Debit wallet using wallet method
     const result = await wallet.debit(
-      Number(amount), 
-      description || `Wallet debit: ₦${Number(amount).toLocaleString()}`,
+      check.value,
+      description || `Wallet debit: ₦${check.value.toLocaleString()}`,
       reference
     );
 
-    console.log(`Wallet debited: ${wallet.userId} - ₦${amount}`);
-
     res.json({
       success: true,
-      message: `₦${Number(amount).toLocaleString()} debited from your wallet.`,
-      balance: result.wallet.balance,
+      message:          `₦${check.value.toLocaleString()} debited from your wallet.`,
+      balance:          result.wallet.balance,
       formattedBalance: result.wallet.formattedBalance,
-      transaction: result.transaction
+      transaction:      result.transaction,
     });
-
   } catch (error) {
-    console.error('Debit wallet error:', error);
-    res.status(400).json({ 
-      success: false, 
-      message: error.message || 'Server error occurred while processing debit' 
-    });
+    logger.error('Debit wallet error', error.message);
+    res.status(400).json({ success: false, message: error.message || 'Server error occurred while processing debit' });
   }
 });
 
-// GET /api/wallet/transactions - Get transaction history
+// ── GET /api/wallet/transactions ───────────────────────────────
 router.get('/wallet/transactions', authenticate, async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
-      type, 
-      status,
-      startDate, 
-      endDate 
-    } = req.query;
+    const { page = 1, limit = 20, type, status, startDate, endDate } = req.query;
 
     const wallet = await Wallet.findByUserId(req.user.userId);
-    if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
+    if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found' });
 
-    // Get transactions using static method
     const transactions = await Transaction.getUserTransactions(req.user.userId, {
-      page: parseInt(page),
+      page:  parseInt(page),
       limit: parseInt(limit),
       type,
       status,
       startDate,
-      endDate
+      endDate,
     });
 
-    // Get total count for pagination
     const totalQuery = { userId: req.user.userId };
-    if (type) totalQuery.type = type;
+    if (type)   totalQuery.type   = type;
     if (status) totalQuery.status = status;
     if (startDate || endDate) {
       totalQuery.createdAt = {};
       if (startDate) totalQuery.createdAt.$gte = new Date(startDate);
-      if (endDate) totalQuery.createdAt.$lte = new Date(endDate);
+      if (endDate)   totalQuery.createdAt.$lte = new Date(endDate);
     }
-    
+
     const totalTransactions = await Transaction.countDocuments(totalQuery);
 
     res.json({
       success: true,
       transactions,
       pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalTransactions / limit),
+        currentPage:       parseInt(page),
+        totalPages:        Math.ceil(totalTransactions / limit),
         totalTransactions,
-        hasNext: (page * limit) < totalTransactions,
-        hasPrev: page > 1
+        hasNext:           (page * limit) < totalTransactions,
+        hasPrev:           page > 1,
       },
       wallet: {
-        balance: wallet.balance,
+        balance:          wallet.balance,
         formattedBalance: wallet.formattedBalance,
-        stats: wallet.stats
-      }
+        stats:            wallet.stats,
+      },
     });
-
   } catch (error) {
-    console.error('Get transactions error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error fetching transactions' 
-    });
+    logger.error('Get transactions error', error.message);
+    res.status(500).json({ success: false, message: 'Server error fetching transactions' });
   }
 });
 
-// POST /api/wallet/transfer - Transfer to another user
+// ── POST /api/wallet/transfer ──────────────────────────────────
 router.post('/wallet/transfer', authenticate, async (req, res) => {
   try {
     const { recipientEmail, amount, description } = req.body;
 
-    // Validation
-    if (!recipientEmail || !amount || isNaN(amount) || amount <= 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Please provide valid recipient email and amount' 
-      });
+    // Validate email format
+    if (!recipientEmail || typeof recipientEmail !== 'string' || recipientEmail.length > 254) {
+      return res.status(400).json({ success: false, message: 'Invalid recipient email' });
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(recipientEmail)) {
+      return res.status(400).json({ success: false, message: 'Invalid recipient email format' });
     }
 
-    if (amount > 500000) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Transfer amount cannot exceed ₦500,000' 
-      });
+    const check = validateAmount(amount, 500000);
+    if (!check.valid) return res.status(400).json({ success: false, message: check.message });
+
+    // Validate description length
+    if (description && description.length > 200) {
+      return res.status(400).json({ success: false, message: 'Description too long (max 200 characters)' });
     }
 
-    // Find sender and recipient
-    const sender = await User.findById(req.user.userId);
-    const recipient = await User.findOne({ email: recipientEmail.toLowerCase() });
+    const sender    = await User.findById(req.user.userId);
+    const recipient = await User.findOne({ email: recipientEmail.toLowerCase().trim() });
 
-    if (!sender) {
-      return res.status(404).json({ success: false, message: 'Sender not found' });
-    }
+    if (!sender) return res.status(404).json({ success: false, message: 'Sender not found' });
 
+    // Use a vague message — don't confirm whether the email is registered
     if (!recipient) {
-      return res.status(404).json({ success: false, message: 'Recipient not found' });
+      return res.status(400).json({ success: false, message: 'Transfer failed. Please check the recipient details and try again.' });
     }
 
     if (sender._id.toString() === recipient._id.toString()) {
       return res.status(400).json({ success: false, message: 'Cannot transfer to yourself' });
     }
 
-    // Get wallets
-    const senderWallet = await Wallet.findByUserId(sender._id);
-    let recipientWallet = await Wallet.findByUserId(recipient._id);
+    const senderWallet    = await Wallet.findByUserId(sender._id);
+    let   recipientWallet = await Wallet.findByUserId(recipient._id);
 
-    if (!senderWallet) {
-      return res.status(404).json({ success: false, message: 'Sender wallet not found' });
-    }
+    if (!senderWallet) return res.status(404).json({ success: false, message: 'Sender wallet not found' });
+    if (!recipientWallet) recipientWallet = await Wallet.createForUser(recipient._id);
 
-    // Create recipient wallet if doesn't exist
-    if (!recipientWallet) {
-      recipientWallet = await Wallet.createForUser(recipient._id);
-    }
-
-    // Perform transfer using wallet method
     const result = await senderWallet.transfer(
-      recipientWallet, 
-      Number(amount),
+      recipientWallet,
+      check.value,
       description || `Transfer to ${recipient.name}`
     );
 
-    console.log(`Transfer: ${sender.name} → ${recipient.name}: ₦${amount}`);
-
     res.json({
       success: true,
-      message: `₦${Number(amount).toLocaleString()} transferred successfully to ${recipient.name}`,
+      message: `₦${check.value.toLocaleString()} transferred successfully to ${recipient.name}`,
       transfer: {
-        amount: Number(amount),
-        recipient: {
-          name: recipient.name,
-          email: recipient.email
-        },
+        amount:    check.value,
+        recipient: { name: recipient.name, email: recipient.email },
         reference: result.reference,
-        newBalance: senderWallet.balance,
-        formattedBalance: senderWallet.formattedBalance
-      }
+        newBalance:       senderWallet.balance,
+        formattedBalance: senderWallet.formattedBalance,
+      },
     });
-
   } catch (error) {
-    console.error('Transfer error:', error);
-    res.status(400).json({ 
-      success: false, 
-      message: error.message || 'Server error occurred during transfer' 
-    });
+    logger.error('Transfer error', error.message);
+    res.status(400).json({ success: false, message: error.message || 'Server error occurred during transfer' });
   }
 });
 
-// GET /api/wallet/stats - Get wallet statistics
+// ── GET /api/wallet/stats ──────────────────────────────────────
 router.get('/wallet/stats', authenticate, async (req, res) => {
   try {
     const wallet = await Wallet.findByUserId(req.user.userId);
-    
-    if (!wallet) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Wallet not found' 
-      });
-    }
+    if (!wallet) return res.status(404).json({ success: false, message: 'Wallet not found' });
 
-    // Get additional stats from transactions
     const thirtyDaysAgo = new Date(Date.now() - (30 * 24 * 60 * 60 * 1000));
-    const sevenDaysAgo = new Date(Date.now() - (7 * 24 * 60 * 60 * 1000));
+    const sevenDaysAgo  = new Date(Date.now() - (7  * 24 * 60 * 60 * 1000));
 
-    const monthlyTransactions = await Transaction.countDocuments({
-      userId: req.user.userId,
-      createdAt: { $gte: thirtyDaysAgo }
-    });
-
-    const weeklyTransactions = await Transaction.countDocuments({
-      userId: req.user.userId,
-      createdAt: { $gte: sevenDaysAgo }
-    });
+    const [monthlyTransactions, weeklyTransactions] = await Promise.all([
+      Transaction.countDocuments({ userId: req.user.userId, createdAt: { $gte: thirtyDaysAgo } }),
+      Transaction.countDocuments({ userId: req.user.userId, createdAt: { $gte: sevenDaysAgo  } }),
+    ]);
 
     res.json({
       success: true,
       stats: {
-        currentBalance: wallet.balance,
+        currentBalance:   wallet.balance,
         formattedBalance: wallet.formattedBalance,
         ...wallet.stats,
         monthlyTransactions,
         weeklyTransactions,
         walletAge: Math.ceil((new Date() - wallet.createdAt) / (24 * 60 * 60 * 1000)),
-        isActive: wallet.isActive,
-        currency: wallet.currency
-      }
+        isActive:  wallet.isActive,
+        currency:  wallet.currency,
+      },
     });
-
   } catch (error) {
-    console.error('Get wallet stats error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error fetching wallet statistics' 
-    });
+    logger.error('Get wallet stats error', error.message);
+    res.status(500).json({ success: false, message: 'Server error fetching wallet statistics' });
   }
 });
 
-// POST /api/wallet/create - Create wallet for user (if needed)
+// ── POST /api/wallet/create ────────────────────────────────────
 router.post('/wallet/create', authenticate, async (req, res) => {
   try {
     const existingWallet = await Wallet.findByUserId(req.user.userId);
-    
     if (existingWallet) {
-      return res.status(400).json({
-        success: false,
-        message: 'User already has a wallet'
-      });
+      return res.status(400).json({ success: false, message: 'User already has a wallet' });
     }
 
     const wallet = await Wallet.createForUser(req.user.userId);
@@ -358,19 +262,15 @@ router.post('/wallet/create', authenticate, async (req, res) => {
       success: true,
       message: 'Wallet created successfully',
       wallet: {
-        id: wallet._id,
-        balance: wallet.balance,
+        id:               wallet._id,
+        balance:          wallet.balance,
         formattedBalance: wallet.formattedBalance,
-        currency: wallet.currency
-      }
+        currency:         wallet.currency,
+      },
     });
-
   } catch (error) {
-    console.error('Create wallet error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Error creating wallet'
-    });
+    logger.error('Create wallet error', error.message);
+    res.status(500).json({ success: false, message: error.message || 'Error creating wallet' });
   }
 });
 

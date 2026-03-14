@@ -1,484 +1,323 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Menu, X, ChevronDown, ArrowRight, Wifi, Tv, Zap, Printer, Globe, GraduationCap, DollarSign, Phone, Mail } from 'lucide-react';
+import { Menu, X, ChevronDown, ArrowRight, Wifi, Tv, Zap, Printer, Globe, GraduationCap, DollarSign } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-// Service configuration - moved outside component for performance
 const SERVICES_CONFIG = [
-  { 
-    icon: Wifi, 
-    name: 'Data Bundles', 
-    desc: 'Affordable data plans', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: Tv, 
-    name: 'Cable TV', 
-    desc: 'DSTV, GOTV subscriptions', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: Zap, 
-    name: 'Electricity', 
-    desc: 'Pay electricity bills', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: Printer, 
-    name: 'Print Recharge', 
-    desc: 'Generate recharge pins', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: Globe, 
-    name: 'Internet', 
-    desc: 'Internet subscriptions', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: GraduationCap, 
-    name: 'Education', 
-    desc: 'WAEC, NECO, JAMB', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
-  { 
-    icon: DollarSign, 
-    name: 'Betting & Transfer', 
-    desc: 'Fund wallets & transfers', 
-    color: 'text-red-600', 
-    bgColor: 'bg-red-50',
-    href: '#services'
-  },
+  { icon: Wifi,          name: 'Data Bundles',      desc: 'Affordable data plans',       href: '#services' },
+  { icon: Tv,            name: 'Cable TV',           desc: 'DSTV, GOTV subscriptions',    href: '#services' },
+  { icon: Zap,           name: 'Electricity',        desc: 'Pay electricity bills',        href: '#services' },
+  { icon: Printer,       name: 'Print Recharge',     desc: 'Generate recharge pins',       href: '#services' },
+  { icon: Globe,         name: 'Internet',           desc: 'Internet subscriptions',       href: '#services' },
+  { icon: GraduationCap, name: 'Education',          desc: 'WAEC, NECO, JAMB',            href: '#services' },
+  { icon: DollarSign,    name: 'Betting & Transfer', desc: 'Fund wallets & transfers',     href: '#services' },
 ];
 
-const CONTACT_INFO = {
-  phone: '+234 800 123 4567',
-  email: 'support@connectpay.ng'
-};
-
 const NAV_LINKS = [
-  { href: '/', label: 'Home', isRoute: true },
+  { href: '/',             label: 'Home',         isRoute: true  },
   { href: '#how-it-works', label: 'How it works', isRoute: false },
-  { href: '#features', label: 'Why us', isRoute: false },
-  { href: '#pricing', label: 'Pricing', isRoute: false },
+  { href: '#features',     label: 'Why us',       isRoute: false },
+  { href: '#pricing',      label: 'Pricing',      isRoute: false },
 ];
 
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [servicesOpen, setServicesOpen] = useState(false);
-  const [headerBg, setHeaderBg] = useState(false);
+  const [servicesOpen, setServicesOpen]     = useState(false);
+  const [scrolled, setScrolled]             = useState(false);
   const pathname = usePathname();
 
-  // Optimized scroll handler with debouncing
   useEffect(() => {
     let ticking = false;
-    
-    const handleScroll = () => {
+    const onScroll = () => {
       if (!ticking) {
-        window.requestAnimationFrame(() => {
-          setHeaderBg(window.scrollY > 50);
-          ticking = false;
-        });
+        window.requestAnimationFrame(() => { setScrolled(window.scrollY > 20); ticking = false; });
         ticking = true;
       }
     };
-
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Close mobile menu on escape key
   useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') {
-        setMobileMenuOpen(false);
-        setServicesOpen(false);
-      }
-    };
-
-    if (mobileMenuOpen) {
-      document.addEventListener('keydown', handleEscape);
-      // Prevent body scroll when mobile menu is open
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.body.style.overflow = '';
-    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setMobileMenuOpen(false); setServicesOpen(false); } };
+    if (mobileMenuOpen) { document.addEventListener('keydown', onKey); document.body.style.overflow = 'hidden'; }
+    else { document.body.style.overflow = ''; }
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
 
-  // Memoized callbacks
-  const toggleMobileMenu = useCallback(() => {
-    setMobileMenuOpen(prev => !prev);
-    setServicesOpen(false);
-  }, []);
+  const toggleMobile   = useCallback(() => { setMobileMenuOpen(p => !p); setServicesOpen(false); }, []);
+  const toggleServices = useCallback(() => setServicesOpen(p => !p), []);
+  const closeMenu      = useCallback(() => { setMobileMenuOpen(false); setServicesOpen(false); }, []);
 
-  const toggleServices = useCallback(() => {
-    setServicesOpen(prev => !prev);
-  }, []);
-
-  const closeMobileMenu = useCallback(() => {
-    setMobileMenuOpen(false);
-    setServicesOpen(false);
-  }, []);
-
-  // Memoized class names
-  const headerClassName = useMemo(() => 
-    `fixed top-0 w-full z-40 transition-all duration-300 ${
-      headerBg ? 'bg-white shadow-lg border-b border-gray-100' : 'bg-white shadow-sm'
+  const headerClass = useMemo(() =>
+    `fixed top-0 w-full z-50 transition-all duration-500 ${
+      scrolled
+        ? 'bg-white/95 backdrop-blur-md shadow-[0_1px_0_0_rgba(0,0,0,0.06)] border-b border-gray-100/80'
+        : 'bg-white border-b border-gray-300'
     }`,
-    [headerBg]
+    [scrolled]
   );
 
   return (
-    <header className={headerClassName}>
-      {/* Top Bar */}
-      <TopBar />
-
-      {/* Main Navigation */}
-      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" role="navigation" aria-label="Main navigation">
-        <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Logo */}
-          <Logo />
-
-          {/* Desktop Navigation */}
-          <DesktopNav pathname={pathname} />
-
-          {/* Desktop CTA Buttons */}
-          <DesktopCTA />
-
-          {/* Mobile Menu Button */}
-          <MobileMenuButton 
-            isOpen={mobileMenuOpen} 
-            onClick={toggleMobileMenu}
-            aria-expanded={mobileMenuOpen}
-            aria-controls="mobile-menu"
-          />
-        </div>
-
-        {/* Mobile Menu */}
-        <MobileMenu 
-          isOpen={mobileMenuOpen}
-          servicesOpen={servicesOpen}
-          toggleServices={toggleServices}
-          closeMenu={closeMobileMenu}
-          pathname={pathname}
-        />
-      </nav>
-    </header>
-  );
-}
-
-// ============================================================================
-// Sub-components for better organization and reusability
-// ============================================================================
-
-function TopBar() {
-  return (
-    <div className="bg-red-600 text-white py-1.5 px-4 sm:px-6 lg:px-8 text-[10px] sm:text-xs h-[32px] sm:h-[36px] flex items-center overflow-hidden">
-      <div className="max-w-7xl mx-auto w-full">
-        <div className="flex items-center justify-center gap-4 sm:gap-8 overflow-x-auto scrollbar-hide">
-          <ContactInfo icon={Phone} text={CONTACT_INFO.phone} />
-          <ContactInfo icon={Mail} text={CONTACT_INFO.email} />
-        </div>
-      </div>
-      
-      <style jsx>{`
-        .scrollbar-hide::-webkit-scrollbar {
-          display: none;
+    <>
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        .header-font { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .nav-link-underline { position: relative; }
+        .nav-link-underline::after {
+          content: '';
+          position: absolute;
+          bottom: -2px;
+          left: 50%;
+          width: 0;
+          height: 2px;
+          background: #dc2626;
+          border-radius: 2px;
+          transition: all 0.25s ease;
+          transform: translateX(-50%);
         }
-        .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        .nav-link-underline:hover::after,
+        .nav-link-underline.active::after { width: 70%; }
+        .services-panel {
+          transform: translateY(8px);
+          opacity: 0;
+          visibility: hidden;
+          transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
         }
+        .services-trigger:hover .services-panel,
+        .services-trigger:focus-within .services-panel {
+          transform: translateY(0);
+          opacity: 1;
+          visibility: visible;
+        }
+        .service-card { transition: background 0.15s ease, transform 0.15s ease; }
+        .service-card:hover { background: #fef2f2; transform: translateX(2px); }
       `}</style>
-    </div>
-  );
-}
 
-function ContactInfo({ icon: Icon, text }) {
-  return (
-    <div className="flex items-center gap-1.5 whitespace-nowrap">
-      <Icon className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-white/90 flex-shrink-0" aria-hidden="true" />
-      <span className="text-white font-medium">{text}</span>
-    </div>
-  );
-}
+      <header className={`${headerClass} header-font`}>
+        <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" aria-label="Main navigation">
+          <div className="flex items-center justify-between h-16 sm:h-[68px]">
 
-function Logo() {
-  return (
-    <div className="flex items-center space-x-2 sm:space-x-3">
-      <Link href="/" className="flex items-center space-x-2 sm:space-x-3" aria-label="ConnectPay Home">
-        <Image 
-          src="/assets/images/logo.png" 
-          alt="ConnectPay Logo" 
-          width={50} 
-          height={50}
-          className="h-8 w-8 sm:h-10 sm:w-10 object-contain"
-          priority
-        />
-        <div className="flex flex-col">
-          <span className="text-lg sm:text-xl font-bold bg-gradient-to-r from-red-600 to-red-500 bg-clip-text text-transparent uppercase">
-            CONNECTPAY
-          </span>
-          <p className="text-[10px] sm:text-xs text-gray-500 font-medium hidden sm:block uppercase">
-            Digital Services
-          </p>
-        </div>
-      </Link>
-    </div>
-  );
-}
-
-function DesktopNav({ pathname }) {
-  return (
-    <div className="hidden lg:flex items-center justify-center flex-1">
-      <div className="flex items-center space-x-0 lg:space-x-1 xl:space-x-0">
-        {NAV_LINKS.map((link) => {
-          const isActive = pathname === link.href;
-          return link.isRoute ? (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`px-3 xl:px-4 py-2 font-medium transition rounded-lg text-sm tracking-wide ${
-                isActive 
-                  ? 'text-red-600 bg-red-50' 
-                  : 'text-gray-700 hover:text-red-600 hover:bg-red-50'
-              }`}
-            >
-              {link.label}
+            {/* Logo */}
+            <Link href="/" className="flex items-center gap-3 group flex-shrink-0" aria-label="ConnectPay Home">
+              <div className="relative">
+                <Image
+                  src="/assets/images/logo.png"
+                  alt="ConnectPay Logo"
+                  width={52}
+                  height={52}
+                  className="h-11 w-11 sm:h-12 sm:w-12 object-contain"
+                  priority
+                />
+              </div>
+              <div className="flex flex-col leading-none">
+                <span className="text-[17px] sm:text-[18px] font-bold text-gray-900 tracking-tight">
+                  Connect<span className="text-red-600">Pay</span>
+                </span>
+                <span className="text-[10px] text-gray-400 font-medium tracking-[0.08em] uppercase hidden sm:block mt-0.5">
+                  Digital Services
+                </span>
+              </div>
             </Link>
-          ) : (
-            <a
-              key={link.href}
-              href={link.href}
-              className="px-3 xl:px-4 py-2 font-medium text-gray-700 hover:text-red-600 transition rounded-lg hover:bg-red-50 text-sm tracking-wide"
-            >
-              {link.label}
-            </a>
-          );
-        })}
-        
-        {/* Services Dropdown */}
-        <ServicesDropdown />
-        
-        {/* Contact Us - Last item */}
-        <a
-          href="#contact"
-          className="px-3 xl:px-4 py-2 font-medium text-gray-700 hover:text-red-600 transition rounded-lg hover:bg-red-50 text-sm tracking-wide"
-        >
-          Contact us
-        </a>
-      </div>
-    </div>
-  );
-}
 
-function ServicesDropdown() {
-  return (
-    <div className="relative group">
-      <button 
-        className="flex items-center gap-1 px-3 xl:px-4 py-2 font-medium text-gray-700 hover:text-red-600 transition rounded-lg hover:bg-red-50 text-sm tracking-wide"
-        aria-haspopup="true"
-        aria-expanded="false"
-      >
-        Services
-        <ChevronDown className="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-300" aria-hidden="true" />
-      </button>
-      
-      <div className="absolute top-full left-0 mt-1.5 w-80 bg-white rounded-xl shadow-2xl border border-gray-100 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-300">
-        <div className="p-4">
-          <div className="mb-3">
-            <h3 className="text-xs font-semibold text-gray-900 tracking-wide mb-1">
-              Our services
-            </h3>
-            <p className="text-xs text-gray-500">All digital solutions</p>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-2">
-            {SERVICES_CONFIG.map((service) => (
-              <ServiceItem key={service.name} service={service} />
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+            {/* Desktop nav links */}
+            <div className="hidden lg:flex items-center gap-1">
+              {NAV_LINKS.map((link) =>
+                link.isRoute ? (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide rounded-lg transition-colors ${
+                      pathname === link.href ? 'text-red-600 active' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ) : (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    className="nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide text-gray-600 hover:text-gray-900 rounded-lg transition-colors"
+                  >
+                    {link.label}
+                  </a>
+                )
+              )}
 
-function ServiceItem({ service }) {
-  const Icon = service.icon;
-  
-  return (
-    <a
-      href={service.href}
-      className="flex items-center gap-2 p-2.5 rounded-lg hover:bg-gray-50 transition-all group/item"
-    >
-      <div className={`w-9 h-9 ${service.bgColor} rounded-lg flex items-center justify-center flex-shrink-0`}>
-        <Icon className={`w-4 h-4 ${service.color}`} aria-hidden="true" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <span className="text-sm font-medium text-gray-900 truncate block">
-          {service.name}
-        </span>
-        <span className="text-xs text-gray-500 truncate block">
-          {service.desc}
-        </span>
-      </div>
-    </a>
-  );
-}
-
-function DesktopCTA() {
-  return (
-    <div className="hidden lg:flex items-center space-x-2">
-      <Link 
-        href="/login" 
-        className="font-medium text-gray-700 hover:text-red-600 px-3 py-2 rounded-lg transition hover:bg-gray-50 text-sm tracking-wide"
-      >
-        Sign in
-      </Link>
-      <Link 
-        href="/register" 
-        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded-lg font-medium transition transform hover:scale-[1.02] shadow-md flex items-center gap-1.5 text-sm tracking-wide"
-      >
-        Get started
-        <ArrowRight className="w-3.5 h-3.5" aria-hidden="true" />
-      </Link>
-    </div>
-  );
-}
-
-function MobileMenuButton({ isOpen, onClick }) {
-  return (
-    <button 
-      className="lg:hidden text-gray-700 p-1.5 hover:bg-gray-100 rounded-lg transition" 
-      onClick={onClick}
-      aria-label={isOpen ? 'Close menu' : 'Open menu'}
-      aria-expanded={isOpen}
-    >
-      {isOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-    </button>
-  );
-}
-
-function MobileMenu({ isOpen, servicesOpen, toggleServices, closeMenu, pathname }) {
-  if (!isOpen) return null;
-
-  return (
-    <div 
-      id="mobile-menu"
-      className="lg:hidden border-t border-gray-100 py-3 space-y-0.5"
-      role="menu"
-    >
-      {NAV_LINKS.map((link) => {
-        const isActive = pathname === link.href;
-        return link.isRoute ? (
-          <Link
-            key={link.href}
-            href={link.href}
-            onClick={closeMenu}
-            className={`block px-4 py-2.5 font-medium transition rounded-lg text-sm ${
-              isActive 
-                ? 'text-red-600 bg-red-50' 
-                : 'text-gray-700 hover:text-red-600 hover:bg-red-50'
-            }`}
-            role="menuitem"
-          >
-            {link.label}
-          </Link>
-        ) : (
-          <a
-            key={link.href}
-            href={link.href}
-            onClick={closeMenu}
-            className="block px-4 py-2.5 font-medium text-gray-700 hover:text-red-600 hover:bg-red-50 rounded-lg transition text-sm"
-            role="menuitem"
-          >
-            {link.label}
-          </a>
-        );
-      })}
-
-      {/* Mobile Services Dropdown */}
-      <div>
-        <button 
-          onClick={toggleServices}
-          className="flex items-center justify-between w-full px-4 py-2.5 font-medium text-gray-700 hover:text-red-600 hover:bg-red-50 rounded-lg transition text-sm"
-          aria-expanded={servicesOpen}
-        >
-          Services
-          <ChevronDown 
-            className={`w-4 h-4 transition-transform duration-300 ${servicesOpen ? 'rotate-180' : ''}`}
-            aria-hidden="true"
-          />
-        </button>
-        
-        {servicesOpen && (
-          <div className="pl-4 mt-1 space-y-0.5">
-            {SERVICES_CONFIG.map((service) => {
-              const Icon = service.icon;
-              return (
-                <Link
-                  key={service.name}
-                  href={service.href}
-                  onClick={closeMenu}
-                  className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition text-sm"
+              {/* Services mega dropdown */}
+              <div className="services-trigger relative">
+                <button
+                  className="nav-link-underline flex items-center gap-1 px-4 py-2 text-[13.5px] font-semibold tracking-wide text-gray-600 hover:text-gray-900 rounded-lg transition-colors"
+                  aria-haspopup="true"
                 >
-                  <Icon className={`w-4 h-4 ${service.color}`} aria-hidden="true" />
-                  {service.name}
-                </Link>
-              );
-            })}
+                  Services
+                  <ChevronDown className="w-3.5 h-3.5 mt-0.5" />
+                </button>
+
+                <div className="services-panel absolute top-full left-1/2 -translate-x-1/2 mt-3 w-[520px] bg-white rounded-2xl shadow-[0_20px_60px_-10px_rgba(0,0,0,0.15)] border border-gray-100 p-5">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+                    <div>
+                      <p className="text-[13px] font-bold text-gray-900">All Services</p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">Fast, reliable digital solutions</p>
+                    </div>
+                    <a href="#services" className="text-[11px] font-semibold text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors">
+                      View all <ArrowRight className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {SERVICES_CONFIG.map((s) => {
+                      const Icon = s.icon;
+                      return (
+                        <a key={s.name} href={s.href} className="service-card flex items-center gap-3 p-3 rounded-xl cursor-pointer">
+                          <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center flex-shrink-0">
+                            <Icon className="w-4 h-4 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="text-[13px] font-semibold text-gray-800 leading-tight">{s.name}</p>
+                            <p className="text-[11px] text-gray-400 mt-0.5">{s.desc}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <Link
+                href="/contact"
+                className={`nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide rounded-lg transition-colors ${
+                  pathname === '/contact' ? 'text-red-600 active' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Contact
+              </Link>
+            </div>
+
+            {/* Desktop CTA */}
+            <div className="hidden lg:flex items-center gap-3">
+              <Link
+                href="/login"
+                className="px-4 py-2 text-[13.5px] font-semibold text-gray-700 hover:text-gray-900 rounded-lg hover:bg-gray-50 transition-colors tracking-wide"
+              >
+                Sign in
+              </Link>
+              <Link
+                href="/register"
+                className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-5 py-2.5 rounded-xl text-[13.5px] font-bold shadow-lg shadow-red-600/30 hover:shadow-red-600/40 transition-all duration-200 tracking-wide"
+              >
+                Get started
+                <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {/* Mobile hamburger */}
+            <button
+              className="lg:hidden p-2 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors"
+              onClick={toggleMobile}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
-        )}
-      </div>
 
-      {/* Contact Us - Last item before CTA */}
-      <a
-        href="#contact"
-        onClick={closeMenu}
-        className="block px-4 py-2.5 font-medium text-gray-700 hover:text-red-600 hover:bg-red-50 rounded-lg transition text-sm"
-        role="menuitem"
-      >
-        Contact us
-      </a>
+          {/* ── Mobile menu ── */}
+          {mobileMenuOpen && (
+            <div className="lg:hidden border-t border-gray-100 py-4 space-y-1 pb-6">
+              {NAV_LINKS.map((link) =>
+                link.isRoute ? (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={closeMenu}
+                    className={`flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors ${
+                      pathname === link.href ? 'text-red-600 bg-red-50' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                ) : (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    onClick={closeMenu}
+                    className="flex items-center px-4 py-2.5 text-sm font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-colors"
+                  >
+                    {link.label}
+                  </a>
+                )
+              )}
 
-      {/* Mobile CTA Buttons */}
-      <div className="pt-3 space-y-2 border-t border-gray-100 mt-3">
-        <Link 
-          href="/login"
-          onClick={closeMenu}
-          className="block w-full text-center font-medium text-gray-700 hover:text-red-600 py-2.5 border border-gray-200 hover:border-red-600 rounded-lg transition text-sm uppercase"
-        >
-          Sign in
-        </Link>
-        <Link 
-          href="/register"
-          onClick={closeMenu}
-          className="block w-full text-center bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-medium shadow-md transition text-sm uppercase"
-        >
-          Get started free
-        </Link>
-      </div>
-    </div>
+              {/* Mobile services accordion */}
+              <div>
+                <button
+                  onClick={toggleServices}
+                  className="flex items-center justify-between w-full px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 rounded-xl transition-colors"
+                  aria-expanded={servicesOpen}
+                >
+                  Services
+                  <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${servicesOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {servicesOpen && (
+                  <div className="mt-1 ml-2 space-y-0.5 border-l-2 border-red-100 pl-3">
+                    {SERVICES_CONFIG.map((s) => {
+                      const Icon = s.icon;
+                      return (
+                        <a
+                          key={s.name}
+                          href={s.href}
+                          onClick={closeMenu}
+                          className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-50 transition-colors group"
+                        >
+                          <div className="w-8 h-8 bg-red-50 group-hover:bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors">
+                            <Icon className="w-3.5 h-3.5 text-red-600" />
+                          </div>
+                          <div>
+                            <p className="text-[13px] font-semibold text-gray-800">{s.name}</p>
+                            <p className="text-[11px] text-gray-400">{s.desc}</p>
+                          </div>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <Link
+                href="/contact"
+                onClick={closeMenu}
+                className={`flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors ${
+                  pathname === '/contact' ? 'text-red-600 bg-red-50' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                Contact
+              </Link>
+
+              {/* Mobile CTA row */}
+              <div className="pt-4 space-y-2.5 border-t border-gray-100 mt-3 px-1">
+                <Link
+                  href="/login"
+                  onClick={closeMenu}
+                  className="flex items-center justify-center w-full py-3 border-2 border-gray-200 hover:border-gray-300 text-gray-700 font-bold text-sm rounded-xl transition-colors"
+                >
+                  Sign in
+                </Link>
+                <Link
+                  href="/register"
+                  onClick={closeMenu}
+                  className="flex items-center justify-center gap-2 w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-red-600/25 transition-colors"
+                >
+                  Get started free
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            </div>
+          )}
+        </nav>
+      </header>
+    </>
   );
 }

@@ -43,31 +43,23 @@ export default function PaymentHistory() {
     };
   }, []);
 
-  // Fetch transactions and filter for payments only
   const fetchPaymentTransactions = async () => {
     if (!isMountedRef.current) return;
 
     try {
-      console.log('🔍 Fetching payment transactions...');
       const response = await apiClient.get('/transactions');
       
       if (response.data?.success && isMountedRef.current) {
         const txData = response.data.transactions || [];
         
-        // Filter for PAYMENT transactions only (money IN - excluding service purchases)
+        const serviceCategories = [
+          'airtime', 'data', 'cable-tv', 'electricity', 
+          'betting', 'internet', 'education', 'payment'
+        ];
+        
         const paymentTransactions = txData.filter((tx: any) => {
-          // Service categories that should NOT be in payment history
-          const serviceCategories = [
-            'airtime', 'data', 'cable-tv', 'electricity', 
-            'betting', 'internet', 'education', 'payment'
-          ];
+          if (tx.category && serviceCategories.includes(tx.category)) return false;
           
-          // Exclude if it's a service category
-          if (tx.category && serviceCategories.includes(tx.category)) {
-            return false;
-          }
-          
-          // Exclude if description contains service keywords
           const description = (tx.description || '').toLowerCase();
           const serviceKeywords = [
             'airtime', 'data', 'cable', 'tv', 'dstv', 'gotv', 'startimes',
@@ -75,11 +67,8 @@ export default function PaymentHistory() {
             'internet', 'wifi', 'education', 'waec', 'jamb', 'neco'
           ];
           
-          if (serviceKeywords.some(keyword => description.includes(keyword))) {
-            return false;
-          }
+          if (serviceKeywords.some(keyword => description.includes(keyword))) return false;
           
-          // Include credits, debits (non-service), transfers in, funding, deposits
           return (
             tx.type === 'credit' || 
             tx.type === 'debit' ||
@@ -105,22 +94,18 @@ export default function PaymentHistory() {
           metadata: tx.metadata || {}
         }));
         
-        // Sort by date (newest first)
         formattedTransactions.sort((a, b) => 
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
         
         setTransactions(formattedTransactions);
         setApiError(null);
-        console.log('✅ Payment transactions loaded:', formattedTransactions.length);
       } else if (isMountedRef.current) {
         setTransactions([]);
       }
     } catch (error: any) {
       if (isMountedRef.current) {
-        console.error('❌ Error fetching payment transactions:', error);
         setTransactions([]);
-        
         if (error.status !== 401) {
           setApiError('Unable to fetch payment history. Please check your connection.');
         }
@@ -128,7 +113,6 @@ export default function PaymentHistory() {
     }
   };
 
-  // Initial fetch
   useEffect(() => {
     const fetchData = async () => {
       setIsLoading(true);
@@ -139,14 +123,12 @@ export default function PaymentHistory() {
     fetchData();
   }, []);
 
-  // Handle refresh
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await fetchPaymentTransactions();
     setIsRefreshing(false);
   };
 
-  // Format date
   const formatTransactionDate = (dateString: string): string => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { 
@@ -160,20 +142,14 @@ export default function PaymentHistory() {
     });
   };
 
-  // Get gateway name
   const getGatewayName = (transaction: Transaction): string => {
-    if (transaction.gateway?.provider) {
-      return transaction.gateway.provider;
-    }
-    if (transaction.category === 'funding') {
-      return 'Bank - AutoFunding';
-    }
+    if (transaction.gateway?.provider) return transaction.gateway.provider;
+    if (transaction.category === 'funding') return 'Bank - AutoFunding';
     return 'Manual';
   };
 
-  // Handle transaction click
   const handleTransactionPress = (transaction: Transaction) => {
-    router.push(`/transaction-details?data=${encodeURIComponent(JSON.stringify(transaction))}`);
+    router.push(`/dashboard/transaction-details?data=${encodeURIComponent(JSON.stringify(transaction))}`);
   };
 
   if (isLoading) {
@@ -221,7 +197,6 @@ export default function PaymentHistory() {
 
   return (
     <div className="page-container">
-      {/* Header */}
       <div className="header-section">
         <button onClick={() => router.back()} className="back-button">
           <ChevronLeft size={20} strokeWidth={2.5} />
@@ -240,7 +215,6 @@ export default function PaymentHistory() {
         </button>
       </div>
 
-      {/* API Error Alert */}
       {apiError && (
         <div className="error-alert">
           <AlertCircle size={18} className="error-icon" />
@@ -253,12 +227,10 @@ export default function PaymentHistory() {
         </div>
       )}
 
-      {/* Page Title */}
       <div className="page-title-section">
         <h2 className="page-title">INSTANT FUNDING (ATM CARD & BANK-AUTO FUNDING) PAYMENT HISTORY</h2>
       </div>
 
-      {/* Transactions Table */}
       {transactions.length === 0 ? (
         <div className="empty-state">
           <div className="empty-icon-wrapper">
@@ -289,6 +261,8 @@ export default function PaymentHistory() {
                   <tr 
                     key={tx._id}
                     className="table-row"
+                    onClick={() => handleTransactionPress(tx)}
+                    style={{ cursor: 'pointer' }}
                   >
                     <td>{index + 1}</td>
                     <td className="amount-cell">₦{tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

@@ -50,7 +50,6 @@ export default function PurchaseHistory() {
     if (!isMountedRef.current) return;
 
     try {
-      console.log('🔍 Fetching purchase transactions...');
       const response = await apiClient.get('/transactions');
       
       if (response.data?.success && isMountedRef.current) {
@@ -62,13 +61,8 @@ export default function PurchaseHistory() {
             'betting', 'internet', 'education', 'payment'
           ];
           
-          if (tx.category && serviceCategories.includes(tx.category)) {
-            return true;
-          }
-          
-          if (tx.type === 'transfer_out') {
-            return true;
-          }
+          if (tx.category && serviceCategories.includes(tx.category)) return true;
+          if (tx.type === 'transfer_out') return true;
           
           const description = (tx.description || '').toLowerCase();
           const serviceKeywords = [
@@ -102,15 +96,12 @@ export default function PurchaseHistory() {
         
         setTransactions(formattedTransactions);
         setApiError(null);
-        console.log('✅ Purchase transactions loaded:', formattedTransactions.length);
       } else if (isMountedRef.current) {
         setTransactions([]);
       }
     } catch (error: any) {
       if (isMountedRef.current) {
-        console.error('❌ Error fetching purchase transactions:', error);
         setTransactions([]);
-        
         if (error.status !== 401) {
           setApiError('Unable to fetch purchase history. Please check your connection.');
         }
@@ -225,15 +216,18 @@ export default function PurchaseHistory() {
     if (description.includes('education') || description.includes('waec') || description.includes('jamb') || description.includes('neco')) return 'Education';
     if (description.includes('transfer')) return 'Transfer';
     
-    if (transaction.metadata?.serviceType) {
-      return transaction.metadata.serviceType;
-    }
+    if (transaction.metadata?.serviceType) return transaction.metadata.serviceType;
     
     if (transaction.category && transaction.category !== 'general') {
       return transaction.category.charAt(0).toUpperCase() + transaction.category.slice(1);
     }
     
     return 'Purchase';
+  };
+
+  const cleanDescription = (description?: string): string => {
+    if (!description) return 'N/A';
+    return description.replace(/\s*\((EasyAccess|ClubKonnect)\)/gi, '').trim();
   };
 
   const handleViewReceipt = (transaction: Transaction) => {
@@ -410,7 +404,7 @@ export default function PurchaseHistory() {
                     <td>{index + 1}</td>
                     <td className="mobile-cell">{getMobileNumber(tx)}</td>
                     <td>{tx.metadata?.network || tx.metadata?.provider || getServiceName(tx)}</td>
-                    <td>{tx.description?.replace(/\s*\(EasyAccess\)/gi, '').trim() || 'N/A'}</td>
+                    <td>{cleanDescription(tx.description)}</td>
                     <td className="amount-cell">₦{tx.amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                     <td>{getDataType(tx)}</td>
                     <td className="response-cell">{tx.metadata?.serverResponse || tx.metadata?.response || 'Success'}</td>
@@ -490,7 +484,7 @@ export default function PurchaseHistory() {
                   </div>
                   <div className="receipt-row">
                     <span className="receipt-label">Plan/Package:</span>
-                    <span className="receipt-value">{selectedTransaction.description?.replace(/\s*\(EasyAccess\)/gi, '').trim() || 'N/A'}</span>
+                    <span className="receipt-value">{cleanDescription(selectedTransaction.description)}</span>
                   </div>
                   {getDataType(selectedTransaction) !== 'N/A' && (
                     <div className="receipt-row">
@@ -858,7 +852,6 @@ export default function PurchaseHistory() {
           box-shadow: 0 2px 8px rgba(220, 38, 38, 0.3);
         }
 
-        /* Modal Styles */
         .modal-overlay {
           position: fixed;
           top: 0;
@@ -1077,29 +1070,17 @@ export default function PurchaseHistory() {
         }
 
         @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
-            opacity: 1;
-          }
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
 
         @keyframes slideUp {
-          from {
-            transform: translateY(20px);
-            opacity: 0;
-          }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
+          from { transform: translateY(20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
         }
 
         @keyframes spin {
-          to {
-            transform: rotate(360deg);
-          }
+          to { transform: rotate(360deg); }
         }
 
         @media (max-width: 768px) {

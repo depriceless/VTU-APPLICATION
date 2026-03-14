@@ -13,6 +13,10 @@ const roboto = Roboto({
 export const metadata: Metadata = {
   title: "ConnectPay - Digital Services",
   description: "Your one-stop platform for digital services",
+  icons: {
+    icon: "/assets/images/logo.png",
+    apple: "/assets/images/logo.png",
+  },
 };
 
 export default function RootLayout({

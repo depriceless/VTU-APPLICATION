@@ -3,778 +3,461 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
+const { doubleCsrf } = require('csrf-csrf');
 require('dotenv').config();
 
-// === ENHANCED ERROR HANDLING FOR DEBUGGING ===
+const { logger } = require('./utils/logger');
+const { closeRedis } = require('./utils/redis');
+
+// ── Global error handlers ──────────────────────────────────────
 process.on('uncaughtException', (err) => {
-  console.error('\n🚨 === UNCAUGHT EXCEPTION ===');
-  console.error('Time:', new Date().toISOString());
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-  console.error('Name:', err.name);
-  console.error('Code:', err.code);
-  console.error('===============================\n');
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('\n🚨 === UNHANDLED REJECTION ===');
-  console.error('Time:', new Date().toISOString());
-  console.error('Promise:', promise);
-  console.error('Reason:', reason);
-  console.error('===============================\n');
-});
-
-console.log('🟡 Server starting at:', new Date().toISOString());
-console.log('🟡 Node version:', process.version);
-console.log('🟡 Environment:', process.env.NODE_ENV || 'development');
-
-// === CHECK REQUIRED MODULES ===
-console.log('🔍 Checking required modules...');
-try {
-  console.log('✅ Express loaded');
-  console.log('✅ Mongoose loaded');
-  console.log('✅ CORS loaded');
-} catch (err) {
-  console.error('❌ Module loading error:', err.message);
+  logger.error('Uncaught Exception', err.message);
   process.exit(1);
-}
+});
 
-const app = express();
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled Rejection', reason?.message || reason);
+});
+
+logger.info(`Server starting — Node ${process.version} — ${process.env.NODE_ENV || 'development'}`);
+
+const app  = express();
 const PORT = process.env.PORT || 5000;
 
-// === ROUTES IMPORTS WITH ERROR HANDLING ===
-console.log('🔍 Loading routes...');
-let authRoutes, balanceRoutes, userRoutes, walletRoutes, purchaseRoutes;
-let dataRoutes, cableRoutes, transactionRoutes, adminAuthRoutes;
-let adminRoutes, dashboardRoutes, notificationRoutes, userManagementRoutes;
+// ── Route imports ──────────────────────────────────────────────
+const loadRoute = (path) => {
+  try {
+    const route = require(path);
+    logger.success(`Loaded: ${path}`);
+    return route;
+  } catch (err) {
+    logger.error(`Failed to load route: ${path}`, err.message);
+    return null;
+  }
+};
 
-try {
-  authRoutes = require('./routes/auth');
-  console.log('✅ Auth routes loaded');
-} catch (err) {
-  console.error('❌ Auth routes error:', err.message);
-  authRoutes = null;
-}
+const authRoutes           = loadRoute('./routes/auth');
+const balanceRoutes        = loadRoute('./routes/balance');
+const userRoutes           = loadRoute('./routes/user');
+const walletRoutes         = loadRoute('./routes/wallet');
+const purchaseRoutes       = loadRoute('./routes/purchase');
+const dataRoutes           = loadRoute('./routes/dataplan');
+const cableRoutes          = loadRoute('./routes/cabletv');
+const transactionRoutes    = loadRoute('./routes/transactions');
+const adminRoutes          = loadRoute('./routes/admin');
+const dashboardRoutes      = loadRoute('./routes/dashboard');
+const notificationRoutes   = loadRoute('./routes/notifications');
+const userManagementRoutes = loadRoute('./routes/userManagement');
 
-try {
-  balanceRoutes = require('./routes/balance');
-  console.log('✅ Balance routes loaded');
-} catch (err) {
-  console.error('❌ Balance routes error:', err.message);
-  balanceRoutes = null;
-}
-
-try {
-  userRoutes = require('./routes/user');
-  console.log('✅ User routes loaded (includes change-password and change-pin)');
-} catch (err) {
-  console.error('❌ User routes error:', err.message);
-  userRoutes = null;
-}
-
-try {
-  walletRoutes = require('./routes/wallet');
-  console.log('✅ Wallet routes loaded');
-} catch (err) {
-  console.error('❌ Wallet routes error:', err.message);
-  walletRoutes = null;
-}
-
-try {
-  purchaseRoutes = require('./routes/purchase');
-  console.log('✅ Purchase routes loaded');
-} catch (err) {
-  console.error('❌ Purchase routes error:', err.message);
-  purchaseRoutes = null;
-}
-
-try {
-  dataRoutes = require('./routes/dataplan');
-  console.log('✅ Data routes loaded');
-} catch (err) {
-  console.error('❌ Data routes error:', err.message);
-  dataRoutes = null;
-}
-
-try {
-  cableRoutes = require('./routes/cabletv');
-  console.log('✅ Cable routes loaded');
-} catch (err) {
-  console.error('❌ Cable routes error:', err.message);
-  cableRoutes = null;
-}
-
-try {
-  transactionRoutes = require('./routes/transactions');
-  console.log('✅ Transaction routes loaded');
-} catch (err) {
-  console.error('❌ Transaction routes error:', err.message);
-  transactionRoutes = null;
-}
-
-console.log('ℹ️  Account routes commented out - file not created yet');
-
-// === ADMIN AUTH DEBUG SECTION ===
-console.log('🔍 Debugging admin auth routes...');
+let adminAuthRoutes = null;
 try {
   const adminAuthImport = require('./routes/adminAuth');
-  console.log('✅ Admin auth import successful');
-  console.log('📋 Admin auth exports:', Object.keys(adminAuthImport));
-  
   adminAuthRoutes = adminAuthImport.router;
-  console.log('📋 Router extracted:', adminAuthRoutes ? 'exists' : 'missing');
-  
-  if (adminAuthRoutes && adminAuthRoutes.stack) {
-    console.log('📋 Router stack length:', adminAuthRoutes.stack.length);
-    adminAuthRoutes.stack.forEach((layer, index) => {
-      if (layer.route) {
-        console.log(`📋 Route ${index}:`, layer.route.path, 'Methods:', Object.keys(layer.route.methods));
-      } else {
-        console.log(`📋 Middleware ${index}:`, layer.regexp ? layer.regexp.toString() : 'unknown');
+  logger.success('Loaded: ./routes/adminAuth');
+} catch (err) {
+  logger.error('Failed to load route: ./routes/adminAuth', err.message);
+}
+
+// ── CORS ───────────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5173',
+  'http://10.196.79.7:3000',
+  'https://admin-connectpay.netlify.app',
+  // 'https://connectpay.com.ng',
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) {
+      if (process.env.NODE_ENV === 'production') {
+        return callback(new Error('Direct API access not allowed'));
       }
-    });
-  } else {
-    console.log('❌ Router has no stack or router is missing');
-  }
-} catch (err) {
-  console.error('❌ Admin auth import error:', err.message);
-  console.error('❌ Stack trace:', err.stack);
-  adminAuthRoutes = null;
-}
+      return callback(null, true);
+    }
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked: ${origin}`);
+      callback(new Error(`CORS blocked: ${origin} not allowed`));
+    }
+  },
+  methods:              ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders:       ['Content-Type', 'Authorization', 'X-CSRF-Token'],
+  credentials:          true,
+  preflightContinue:    false,
+  optionsSuccessStatus: 200,
+}));
+app.options('*', cors());
+logger.success('CORS configured');
 
-try {
-  adminRoutes = require('./routes/admin');
-  console.log('✅ Admin routes loaded');
-} catch (err) {
-  console.error('❌ Admin routes error:', err.message);
-  adminRoutes = null;
-}
+// ── Security headers ───────────────────────────────────────────
+app.disable('x-powered-by');
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy:   { policy: 'unsafe-none' },
+}));
 
-try {
-  dashboardRoutes = require('./routes/dashboard');
-  console.log('✅ Dashboard routes loaded');
-} catch (err) {
-  console.error('❌ Dashboard routes error:', err.message);
-  dashboardRoutes = null;
-}
-
-try {
-  notificationRoutes = require('./routes/notifications');
-  console.log('✅ Notification routes loaded');
-} catch (err) {
-  console.error('❌ Notification routes error:', err.message);
-  notificationRoutes = null;
-}
-
-try {
-  userManagementRoutes = require('./routes/userManagement');
-  console.log('✅ User management routes loaded');
-} catch (err) {
-  console.error('❌ User management routes error:', err.message);
-  userManagementRoutes = null;
-}
-
-// === SECURITY MIDDLEWARE ===
-app.use(helmet());
-
-// === CORS CONFIGURATION ===
-try {
-  app.use(cors({
-    origin: [
-      'http://localhost:3000',
-      'http://localhost:3001',
-      'http://172.28.46.7:3000',
-      'http://localhost:19006',
-      'http://localhost:5173',
-      'http://192.168.126.7:5173',
-      'https://admin-connectpay.netlify.app',
-      'https://*.netlify.app',
-    ],
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    preflightContinue: false,
-    optionsSuccessStatus: 200
-  }));
-
-  app.options('*', cors());
-  console.log('✅ CORS configured');
-} catch (err) {
-  console.error('❌ CORS error:', err.message);
-}
-
-try {
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true }));
-  console.log('✅ Body parser configured');
-} catch (err) {
-  console.error('❌ Body parser error:', err.message);
-}
-
-// Request logging
+// ── Request timeout ────────────────────────────────────────────
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+  req.setTimeout(30000);
+  res.setTimeout(30000);
   next();
 });
 
-// === MONGODB CONNECTION ===
-console.log('🔍 Connecting to MongoDB...');
-console.log('🔍 MongoDB URI:', process.env.MONGO_URI ? 'Set' : 'NOT SET');
+// ── Cookie parser (must come before CSRF) ─────────────────────
+app.use(cookieParser());
+logger.success('Cookie parser configured');
 
+// ── Request ID (correlation ID for tracing) ────────────────────
+// Placed before CSRF so req.id is available in CSRF error logs
+const { randomUUID } = require('crypto');
+app.use((req, res, next) => {
+  req.id = randomUUID();
+  res.setHeader('X-Request-ID', req.id);
+  next();
+});
+
+// ── CSRF protection ────────────────────────────────────────────
+// Uses the double-submit cookie pattern:
+//   1. GET /api/auth/csrf-token → sets a signed __Host-csrf cookie + returns token in JSON
+//   2. Frontend includes the token as X-CSRF-Token header on every state-changing request
+//   3. doubleCsrfProtection middleware validates the header matches the cookie on POST/PUT/PATCH/DELETE
+//
+// sameSite: 'strict' on auth cookies already blocks most CSRF, but this
+// adds a second layer for defence-in-depth.
+//
+// Exemptions: Paystack webhooks (/api/paystack/webhook) use HMAC signatures
+// instead of CSRF tokens — they are excluded below.
+
+if (!process.env.CSRF_SECRET) {
+  logger.warn('CSRF_SECRET not set in .env — CSRF protection is disabled. Set a strong random secret.');
+}
+
+const CSRF_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-csrf' : 'csrf';
+
+const csrfResult = doubleCsrf({
+  getSecret:            () => process.env.CSRF_SECRET || 'dev-csrf-secret-change-in-production',
+  // For stateless JWT auth, use the auth token as the session identifier.
+  // Falls back to a fixed string for unauthenticated requests (e.g. login page).
+  getSessionIdentifier: (req) =>
+    req.cookies?.token ||
+    req.header('Authorization')?.replace('Bearer ', '') ||
+    'anonymous',
+  cookieName:           CSRF_COOKIE_NAME,
+  cookieOptions: {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure:   process.env.NODE_ENV === 'production',
+    path:     '/',
+  },
+  size:        64,
+  getTokenFromRequest: (req) =>
+    req.headers['x-csrf-token'] || req.body?._csrf,
+});
+
+// csrf-csrf v4 exports generateCsrfToken
+const generateToken        = csrfResult.generateCsrfToken ?? csrfResult.generateToken;
+const doubleCsrfProtection = csrfResult.doubleCsrfProtection;
+
+// Expose CSRF token endpoint — frontend calls this once on load
+app.get('/api/auth/csrf-token', (req, res) => {
+  const token = generateToken(req, res);
+  return res.json({ csrfToken: token });
+});
+
+// Apply CSRF validation to all state-changing API routes
+// Webhook paths that use their own HMAC auth are excluded
+const CSRF_EXEMPT = [
+  '/api/paystack/webhook',
+  '/api/payment/webhook',
+];
+
+app.use((req, res, next) => {
+  if (CSRF_EXEMPT.some(path => req.path.startsWith(path))) {
+    return next();
+  }
+  return doubleCsrfProtection(req, res, next);
+});
+
+logger.success('CSRF protection configured');
+
+// ── Rate limiters ──────────────────────────────────────────────
+
+// Global: 100 req/min per IP across all /api routes
+const globalLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Too many requests, please slow down' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/', globalLimiter);
+
+// Auth: 10 attempts per 15 min (failed attempts only)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many login attempts. Try again in 15 minutes.' },
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login',    authLimiter);
+app.use('/api/auth/register', authLimiter);
+
+// Purchase (transactional): 20 req per 15 min
+const purchaseLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, message: 'Too many purchase attempts. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/purchase', purchaseLimiter);
+
+// Verify/validate: 30 req per 15 min
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many verification requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/purchase/verify-data',                      verifyLimiter);
+app.use('/api/purchase/verify-cable-tv',                  verifyLimiter);
+app.use('/api/purchase/verify-electricity',               verifyLimiter);
+app.use('/api/purchase/query-ea-transaction',             verifyLimiter);
+app.use('/api/purchase/ea-balance',                       verifyLimiter);
+app.use('/api/purchase/electricity/validate-meter',       verifyLimiter);
+app.use('/api/purchase/cable-tv/validate-card',           verifyLimiter);
+app.use('/api/purchase/internet/validate-customer',       verifyLimiter);
+app.use('/api/purchase/betting/validate-customer',        verifyLimiter);
+
+// Wallet mutations: 30 req per 15 min
+const walletMutationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many wallet requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/wallet/fund',     walletMutationLimiter);
+app.use('/api/wallet/debit',    walletMutationLimiter);
+app.use('/api/wallet/transfer', walletMutationLimiter);
+
+// Paystack / payment gateways
+const gatewayLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { success: false, message: 'Too many wallet requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/paystack', gatewayLimiter);
+app.use('/api/payment',  gatewayLimiter);
+
+// Admin
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  message: { success: false, message: 'Too many admin requests. Please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/admin', adminLimiter);
+
+// ── Body parser ────────────────────────────────────────────────
+// The verify callback captures the raw body buffer for the Paystack
+// webhook route only — needed for correct HMAC signature validation.
+// All other routes are unaffected.
+app.use(express.json({
+  limit: '100kb',
+  verify: (req, res, buf) => {
+    if (req.path === '/api/paystack/webhook') {
+      req.rawBody = buf.toString('utf8');
+    }
+  },
+}));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+logger.success('Body parser configured (100kb limit)');
+
+// ── NoSQL injection protection ─────────────────────────────────
+const mongoSanitize = require('express-mongo-sanitize');
+app.use(mongoSanitize({
+  replaceWith: '_',
+  onSanitize: ({ req, key }) => {
+    logger.warn(`Sanitized suspicious input on key: ${key} from IP: ${req.ip}`);
+  },
+}));
+logger.success('MongoDB sanitization configured');
+
+// ── Request ID moved — see above (before CSRF) ────────────────
+
+// ── Content-Type enforcement on POST/PUT/PATCH ─────────────────
+app.use((req, res, next) => {
+  if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('application/json')) {
+      return res.status(415).json({
+        success: false,
+        message: 'Content-Type must be application/json',
+      });
+    }
+  }
+  next();
+});
+
+// ── Pagination param sanitizer ─────────────────────────────────
+app.use((req, res, next) => {
+  if (req.query.page) {
+    const p = parseInt(req.query.page);
+    req.query.page = (!isNaN(p) && p > 0) ? Math.min(p, 1000) : 1;
+  }
+  if (req.query.limit) {
+    const l = parseInt(req.query.limit);
+    req.query.limit = (!isNaN(l) && l > 0) ? Math.min(l, 100) : 20;
+  }
+  next();
+});
+
+// ── Request logging (development only) ────────────────────────
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'development') {
+    logger.info(`[${req.id}] ${req.method} ${req.path}`);
+  }
+  next();
+});
+
+// ── MongoDB ────────────────────────────────────────────────────
 if (!process.env.MONGO_URI) {
-  console.error('❌ MONGO_URI environment variable is not set!');
+  logger.error('MONGO_URI environment variable is not set');
   process.exit(1);
 }
 
 mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 30000,
-  socketTimeoutMS: 60000,
-  maxPoolSize: 10,
-  retryWrites: true,
+  maxPoolSize: 10, minPoolSize: 2,
+  maxIdleTimeMS: 30000, serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000, family: 4,
 })
-.then(async () => {
-  console.log('✅ Connected to MongoDB successfully\n');
-})
-.catch((error) => {
-  console.error('❌ MongoDB connection error:', error.message);
-  console.error('Stack:', error.stack);
-  process.exit(1);
-});
+.then(() => logger.success('Connected to MongoDB'))
+.catch((error) => { logger.error('MongoDB connection error', error.message); process.exit(1); });
 
-mongoose.connection.on('disconnected', () => {
-  console.log('⚠️ MongoDB disconnected');
-});
+mongoose.connection.on('disconnected', () => logger.warn('MongoDB disconnected'));
+mongoose.connection.on('error', (err) => logger.error('MongoDB error', err.message));
 
-mongoose.connection.on('error', (err) => {
-  console.error('❌ MongoDB connection error:', err);
-});
-
-// === BASIC ROUTES ===
+// ── Basic routes ───────────────────────────────────────────────
 app.get('/api', (req, res) => {
-  console.log('📍 API root endpoint hit');
-  res.status(200).json({
-    message: 'API is running',
-    version: '1.0.0',
-    timestamp: new Date().toISOString()
-  });
+  res.status(200).json({ message: 'API is running', version: '1.0.0', timestamp: new Date().toISOString() });
 });
 
 app.get('/api/health', (req, res) => {
-  console.log('📍 Health check endpoint hit');
-  res.status(200).json({ 
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    mongoConnection: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
-  });
+  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/get-server-ip', (req, res) => {
-  const https = require('https');
-  
-  https.get('https://api.ipify.org?format=json', (resp) => {
-    let data = '';
-    resp.on('data', (chunk) => { data += chunk; });
-    resp.on('end', () => {
-      const ipData = JSON.parse(data);
-      console.log('YOUR IP IS:', ipData.ip);
-      res.json({ ip: ipData.ip });
-    });
-  });
-});
-
-app.get('/api/admin/auth/direct-test', (req, res) => {
-  console.log('📍 Direct admin auth test hit');
-  res.json({
-    success: true,
-    message: 'Direct admin auth test route works!',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// === TEST ROUTE FOR INTERNET (NO AUTH) ===
-app.get('/api/internet-test', (req, res) => {
-  console.log('📍 Direct internet test route hit');
-  res.json({
-    success: true,
-    message: 'Internet routes are reachable',
-    timestamp: new Date().toISOString()
-  });
-});
-
-// ============================================
-// ROUTE REGISTRATION WITH ERROR HANDLING
-// ============================================
-console.log('🔍 Registering routes...');
-
-// ============================================
-// AUTHENTICATION ROUTES
-// ============================================
-if (authRoutes) {
+// ── Route registration ─────────────────────────────────────────
+const register = (path, router) => {
+  if (!router) return;
   try {
-    app.use('/api/auth', authRoutes);
-    console.log('✅ Auth routes registered at /api/auth');
+    app.use(path, router);
+    logger.success(`Registered: ${path}`);
   } catch (err) {
-    console.error('❌ Auth routes registration error:', err.message);
+    logger.error(`Failed to register: ${path}`, err.message);
   }
+};
+
+register('/api/auth',          authRoutes);
+register('/api/balance',       balanceRoutes);
+register('/api/user',          userRoutes);
+register('/api',               walletRoutes);
+register('/api/transactions',  transactionRoutes);
+register('/api/data',          dataRoutes);
+register('/api/cable',         cableRoutes);
+register('/api/notifications', notificationRoutes);
+register('/api/users',         userManagementRoutes);
+register('/api/admin/auth',    adminAuthRoutes);
+register('/api/admin',         adminRoutes);
+register('/api/dashboard',     dashboardRoutes);
+register('/api/purchase',      purchaseRoutes);
+
+const dynamicRoutes = [
+  ['/api/paystack-resolution', './routes/paystackResolution'],
+  ['/api/internet',            './routes/internet'],
+  ['/api/electricity',         './routes/electricity'],
+  ['/api/easyaccess',          './routes/easyaccess'],
+  ['/api/airtime',             './routes/airtime'],
+  ['/api/betting',             './routes/betting'],
+  ['/api/admin/transactions',  './routes/adminTransactions'],
+  ['/api/admin/dashboard',     './routes/adminDashboard'],
+  ['/api/admin/bulk',          './routes/adminBulkOperations'],
+  ['/api/admin/financial',     './routes/FinancialMangement'],
+  ['/api/paystack',            './routes/paystack'],
+  ['/api/payment',             './routes/payment'],
+  ['/api/admin/payment-gateway', './routes/paymentGatewayConfig'],
+  ['/api/support',             './routes/support'],
+  ['/api/clubkonnect',         './routes/clubkonnect'],
+];
+
+for (const [path, routePath] of dynamicRoutes) {
+  const route = loadRoute(routePath);
+  if (route) register(path, route);
 }
 
-// ============================================
-// BALANCE ROUTES
-// ============================================
-if (balanceRoutes) {
-  try {
-    app.use('/api/balance', balanceRoutes);
-    console.log('✅ Balance routes registered at /api/balance');
-  } catch (err) {
-    console.error('❌ Balance routes registration error:', err.message);
-  }
-}
+logger.success('All routes registered');
 
-// ============================================
-// USER ROUTES
-// ============================================
-if (userRoutes) {
-  try {
-    app.use('/api/user', userRoutes);
-    console.log('✅ User routes registered at /api/user (includes /change-password and /change-pin)');
-  } catch (err) {
-    console.error('❌ User routes registration error:', err.message);
-  }
-}
-
-console.log('ℹ️  Account routes skipped - not loaded');
-
-// ============================================
-// WALLET ROUTES
-// ============================================
-if (walletRoutes) {
-  try {
-    app.use('/api', walletRoutes);
-    console.log('✅ Wallet routes registered at /api');
-  } catch (err) {
-    console.error('❌ Wallet routes registration error:', err.message);
-  }
-}
-
-// ============================================
-// 🔥🔥🔥 PAYSTACK RESOLUTION - REGISTER EARLY! 🔥🔥🔥
-// ============================================
-console.log('');
-console.log('🔥 ============================================');
-console.log('🔥 REGISTERING PAYSTACK RESOLUTION ROUTES');
-console.log('🔥 ============================================');
-
-try {
-  const paystackResolutionRoutes = require('./routes/paystackResolution');
-  
-  console.log('📋 Module Type:', typeof paystackResolutionRoutes);
-  console.log('📋 Module Exports:', paystackResolutionRoutes ? Object.keys(paystackResolutionRoutes) : 'null');
-  
-  if (!paystackResolutionRoutes) {
-    throw new Error('Paystack Resolution routes module is null or undefined');
-  }
-  
-  if (paystackResolutionRoutes.stack) {
-    console.log('📋 Router has', paystackResolutionRoutes.stack.length, 'layers');
-    paystackResolutionRoutes.stack.forEach((layer, index) => {
-      if (layer.route) {
-        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
-        console.log(`   ${index + 1}. ${methods} /api/paystack-resolution${layer.route.path}`);
-      }
-    });
-  } else {
-    console.log('⚠️  Router has no stack - this is normal for some Express routers');
-  }
-  
-  app.use('/api/paystack-resolution', paystackResolutionRoutes);
-  console.log('✅ Paystack Resolution routes registered at /api/paystack-resolution');
-  console.log('');
-  console.log('   📋 EXPECTED ENDPOINTS:');
-  console.log('      POST /api/paystack-resolution/resolve-payment (auth required)');
-  console.log('      GET  /api/paystack-resolution/resolution-history (auth required)');
-  console.log('      GET  /api/paystack-resolution/test (public - TEST THIS FIRST)');
-  console.log('      POST /api/paystack-resolution/test-no-auth (public - for debugging)');
-  console.log('      POST /api/paystack-resolution/test-with-auth (auth required - for debugging)');
-  console.log('');
-  
-} catch (err) {
-  console.error('❌ CRITICAL: Paystack Resolution routes FAILED TO LOAD');
-  console.error('   Error:', err.message);
-  console.error('   Stack:', err.stack);
-  console.error('   File path should be: ./routes/paystackResolution.js');
-  console.log('');
-}
-
-console.log('🔥 ============================================');
-console.log('🔥 PAYSTACK RESOLUTION REGISTRATION COMPLETE');
-console.log('🔥 ============================================');
-console.log('');
-
-// ============================================
-// INTERNET ROUTES - REGISTER EARLY (BEFORE PURCHASE)
-// ============================================
-try {
-  const internetRoutes = require('./routes/internet');
-  console.log('✅ Internet routes module loaded');
-  
-  if (internetRoutes && internetRoutes.stack) {
-    console.log('📋 Internet router has', internetRoutes.stack.length, 'layers');
-    internetRoutes.stack.forEach((layer, index) => {
-      if (layer.route) {
-        const methods = Object.keys(layer.route.methods).join(',').toUpperCase();
-        console.log(`   ${index}. ${methods} ${layer.route.path}`);
-      }
-    });
-  } else {
-    console.log('⚠️  Internet router has no stack');
-  }
-  
-  app.use('/api/internet', internetRoutes);
-  console.log('✅ Internet routes registered at /api/internet');
-  console.log('   Expected endpoints:');
-  console.log('   - GET  /api/internet/providers');
-  console.log('   - GET  /api/internet/provider/:code');
-  console.log('   - GET  /api/internet/provider/:code/plans');
-  console.log('   - POST /api/internet/validate-account');
-  console.log('   - GET  /api/internet/refresh-plans');
-  
-} catch (err) {
-  console.error('❌ Internet routes error:', err.message);
-  console.error('Stack:', err.stack);
-}
-
-// ============================================
-// ELECTRICITY ROUTES
-// ============================================
-try {
-  const electricityRoutes = require('./routes/electricity');
-  app.use('/api/electricity', electricityRoutes);
-  console.log('✅ Electricity routes registered at /api/electricity');
-} catch (err) {
-  console.error('❌ Electricity routes error:', err.message);
-}
-
-// ============================================
-// EDUCATION ROUTES (Now handled by purchase.js)
-// ============================================
-console.log('ℹ️  Education routes handled by purchase.js at /api/purchase/education/packages');
-
-// ============================================
-// EASYACCESS ROUTES
-// ============================================
-try {
-  const easyaccessRoutes = require('./routes/easyaccess');
-  app.use('/api/easyaccess', easyaccessRoutes);
-  console.log('✅ EasyAccess routes registered at /api/easyaccess');
-  console.log('   Expected endpoints:');
-  console.log('   - GET /api/easyaccess/plans/:network');
-} catch (err) {
-  console.error('❌ EasyAccess routes error:', err.message);
-  console.error('Stack:', err.stack);
-}
-
-// ============================================
-// DATA ROUTES
-// ============================================
-if (dataRoutes) {
-  try {
-    app.use('/api/data', dataRoutes);
-    console.log('✅ Data routes registered at /api/data');
-  } catch (err) {
-    console.error('❌ Data routes registration error:', err.message);
-  }
-}
-
-// ============================================
-// CABLE TV ROUTES
-// ============================================
-if (cableRoutes) {
-  try {
-    app.use('/api/cable', cableRoutes);
-    console.log('✅ Cable routes registered at /api/cable');
-  } catch (err) {
-    console.error('❌ Cable routes registration error:', err.message);
-  }
-}
-
-// ============================================
-// AIRTIME ROUTES
-// ============================================
-try {
-  app.use('/api/airtime', require('./routes/airtime'));
-  console.log('✅ Airtime routes registered at /api/airtime');
-} catch (err) {
-  console.error('❌ Airtime routes error:', err.message);
-}
-
-// ============================================
-// BETTING ROUTES
-// ============================================
-try {
-  app.use('/api/betting', require('./routes/betting'));
-  console.log('✅ Betting routes registered at /api/betting');
-} catch (err) {
-  console.error('❌ Betting routes error:', err.message);
-}
-
-// ============================================
-// PURCHASE ROUTES - AFTER SPECIFIC ROUTES
-// ============================================
-if (purchaseRoutes) {
-  try {
-    app.use('/api/purchase', purchaseRoutes);
-    app.use('/api/recharge', purchaseRoutes);
-    console.log('✅ Purchase routes registered at /api/purchase and /api/recharge');
-  } catch (err) {
-    console.error('❌ Purchase routes registration error:', err.message);
-  }
-}
-
-// ============================================
-// TRANSACTION ROUTES
-// ============================================
-if (transactionRoutes) {
-  try {
-    app.use('/api/transactions', transactionRoutes);
-    console.log('✅ Transaction routes registered at /api/transactions');
-  } catch (err) {
-    console.error('❌ Transaction routes registration error:', err.message);
-  }
-}
-
-// ============================================
-// ADMIN AUTH ROUTES
-// ============================================
-if (adminAuthRoutes) {
-  try {
-    console.log('🔍 About to register admin auth routes...');
-    
-    if (adminAuthRoutes.stack) {
-      adminAuthRoutes.stack.forEach((layer, index) => {
-        if (layer.route) {
-          console.log(`  - ${Object.keys(layer.route.methods).join(',').toUpperCase()} ${layer.route.path}`);
-        }
-      });
-    }
-    
-    app.use('/api/admin/auth', adminAuthRoutes);
-    console.log('✅ Admin auth routes registered at /api/admin/auth');
-    
-  } catch (err) {
-    console.error('❌ Admin auth routes registration error:', err.message);
-    console.error('❌ Stack:', err.stack);
-  }
-} else {
-  console.error('❌ Admin auth routes not available for registration');
-}
-
-// ============================================
-// OTHER ADMIN ROUTES
-// ============================================
-if (adminRoutes) {
-  try {
-    app.use('/api/admin', adminRoutes);
-    console.log('✅ Admin routes registered at /api/admin');
-  } catch (err) {
-    console.error('❌ Admin routes registration error:', err.message);
-  }
-}
-
-if (dashboardRoutes) {
-  try {
-    app.use('/api/dashboard', dashboardRoutes);
-    console.log('✅ Dashboard routes registered at /api/dashboard');
-  } catch (err) {
-    console.error('❌ Dashboard routes registration error:', err.message);
-  }
-}
-
-try {
-  app.use('/api/admin/transactions', require('./routes/adminTransactions'));
-  console.log('✅ Admin transaction routes registered at /api/admin/transactions');
-} catch (err) {
-  console.error('❌ Admin transaction routes error:', err.message);
-}
-
-try {
-  app.use('/api/admin/dashboard', require('./routes/adminDashboard'));
-  console.log('✅ Admin dashboard routes registered at /api/admin/dashboard');
-} catch (err) {
-  console.error('❌ Admin dashboard routes error:', err.message);
-}
-
-try {
-  app.use('/api/admin/bulk', require('./routes/adminBulkOperations'));
-  console.log('✅ Admin bulk routes registered at /api/admin/bulk');
-} catch (err) {
-  console.error('❌ Admin bulk routes error:', err.message);
-}
-
-try {
-  app.use('/api/admin/financial', require('./routes/FinancialMangement'));
-  console.log('✅ Financial management routes registered at /api/admin/financial');
-} catch (err) {
-  console.error('❌ Financial management routes error:', err.message);
-}
-
-if (notificationRoutes) {
-  try {
-    app.use('/api/notifications', notificationRoutes);
-    console.log('✅ Notification routes registered at /api/notifications');
-  } catch (err) {
-    console.error('❌ Notification routes registration error:', err.message);
-  }
-}
-
-console.log('ℹ️  Monnify routes commented out - needs Balance→Wallet fix');
-
-// ============================================
-// OTHER PAYMENT ROUTES (AFTER PAYSTACK RESOLUTION)
-// ============================================
-console.log('');
-console.log('🔥 Registering other payment routes...');
-
-// STANDARD PAYSTACK ROUTES
-try {
-  const paystackRoutes = require('./routes/paystack');
-  app.use('/api/paystack', paystackRoutes);
-  console.log('✅ Paystack routes registered at /api/paystack');
-} catch (err) {
-  console.error('❌ Paystack routes error:', err.message);
-}
-
-// GENERAL PAYMENT GATEWAY ROUTES
-try {
-  const paymentRoutes = require('./routes/payment');
-  app.use('/api/payment', paymentRoutes);
-  console.log('✅ Payment gateway routes registered at /api/payment');
-} catch (err) {
-  console.error('❌ Payment gateway routes error:', err.message);
-}
-
-// PAYMENT GATEWAY CONFIG (ADMIN)
-try {
-  const paymentGatewayConfigRoutes = require('./routes/paymentGatewayConfig');
-  app.use('/api/admin/payment-gateway', paymentGatewayConfigRoutes);
-  console.log('✅ Payment gateway admin config routes registered at /api/admin/payment-gateway');
-} catch (err) {
-  console.error('❌ Payment gateway admin config routes error:', err.message);
-}
-
-console.log('✅ All payment routes registered\n');
-console.log('ℹ️  Card routes commented out - needs Balance→Wallet fix');
-
-// ============================================
-// SUPPORT AND OTHER ROUTES
-// ============================================
-try {
-  app.use('/api/support', require('./routes/support'));
-  console.log('✅ Support routes registered at /api/support');
-} catch (err) {
-  console.error('❌ Support routes error:', err.message);
-}
-
-try {
-  const clubkonnectRoutes = require('./routes/clubkonnect');
-  app.use('/api/clubkonnect', clubkonnectRoutes);
-  console.log('✅ ClubKonnect VTU routes registered at /api/clubkonnect');
-} catch (err) {
-  console.error('❌ ClubKonnect routes error:', err.message);
-}
-
-console.log('ℹ️  Services routes commented out - needs ServiceConfig model');
-
-if (userManagementRoutes) {
-  try {
-    app.use('/api/users', userManagementRoutes);
-    console.log('✅ User management routes registered at /api/users');
-  } catch (err) {
-    console.error('❌ User management routes registration error:', err.message);
-  }
-}
-
-console.log('✅ All routes registered\n');
-
-// === 404 HANDLER - MUST BE LAST ===
+// ── 404 handler ────────────────────────────────────────────────
 app.use((req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
-  res.status(404).json({
-    success: false,
-    message: 'Route not found'
-  });
+  res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// === GLOBAL ERROR HANDLER ===
+// ── Global error handler ───────────────────────────────────────
 app.use((err, req, res, next) => {
-  console.error('\n🚨 === GLOBAL ERROR HANDLER ===');
-  console.error('Time:', new Date().toISOString());
-  console.error('URL:', req.originalUrl);
-  console.error('Method:', req.method);
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-  console.error('===============================\n');
-
-  res.status(500).json({
+  // Handle CSRF errors specifically
+  if (err.code === 'EBADCSRFTOKEN' || err.message?.includes('invalid csrf token')) {
+    logger.warn(`CSRF token invalid — [${req.id}] ${req.method} ${req.path} from ${req.ip}`);
+    return res.status(403).json({ success: false, message: 'Invalid or missing CSRF token.' });
+  }
+  logger.error('Request error', err.message);
+  res.status(err.status || 500).json({
     success: false,
     message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
   });
 });
 
-// === GRACEFUL SHUTDOWN ===
-process.on('SIGINT', async () => {
-  console.log('\n🛑 === SIGINT received - Shutting down gracefully ===');
+// ── Memory monitoring ──────────────────────────────────────────
+setInterval(() => {
+  const used = process.memoryUsage();
+  if (used.heapUsed > 500 * 1024 * 1024) {
+    logger.warn(`High memory usage: ${Math.round(used.heapUsed / 1024 / 1024)}MB`);
+  }
+}, 60000);
+
+// ── Graceful shutdown ──────────────────────────────────────────
+const shutdown = async (signal) => {
+  logger.info(`${signal} received — shutting down`);
   try {
     await mongoose.connection.close();
-    console.log('✅ MongoDB connection closed');
+    logger.success('MongoDB connection closed');
   } catch (err) {
-    console.error('❌ Error closing MongoDB:', err.message);
+    logger.error('Error closing MongoDB', err.message);
   }
-  process.exit(0);
-});
-
-process.on('SIGTERM', async () => {
-  console.log('\n🛑 === SIGTERM received - Shutting down gracefully ===');
   try {
-    await mongoose.connection.close();
-    console.log('✅ MongoDB connection closed');
+    await closeRedis();
   } catch (err) {
-    console.error('❌ Error closing MongoDB:', err.message);
+    logger.error('Error closing Redis', err.message);
   }
   process.exit(0);
-});
+};
 
-// === START SERVER ===
-console.log('🔍 Starting server...');
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+// ── Start server ───────────────────────────────────────────────
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log('🟢 Server setup complete!');
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📍 API Base: http://localhost:${PORT}/api/`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
-  console.log(`🧪 Internet test: http://localhost:${PORT}/api/internet-test`);
-  console.log(`🔧 Direct admin test: http://localhost:${PORT}/api/admin/auth/direct-test`);
-  console.log(`🔐 Change password: http://localhost:${PORT}/api/user/change-password`);
-  console.log(`🔑 Change PIN: http://localhost:${PORT}/api/user/change-pin`);
-  console.log('');
-  console.log('🔥 🔥 🔥  PAYSTACK RESOLUTION ENDPOINTS 🔥 🔥 🔥');
-  console.log(`💳 Test (public): http://localhost:${PORT}/api/paystack-resolution/test`);
-  console.log(`💳 Test no auth: http://localhost:${PORT}/api/paystack-resolution/test-no-auth`);
-  console.log(`💳 Resolve payment: http://localhost:${PORT}/api/paystack-resolution/resolve-payment`);
-  console.log('');
-  console.log(`🟢 Server fully started at: ${new Date().toISOString()}`);
+  logger.success(`Server running on port ${PORT}`);
 });
 
-server.on('error', (err) => {
-  console.error('🚨 Server error:', err);
-  console.error('Error code:', err.code);
-  console.error('Error message:', err.message);
-});
-
-server.on('clientError', (err, socket) => {
-  console.error('🚨 Client error:', err);
-  socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
-});
+server.on('error',       (err)         => logger.error('Server error', err.message));
+server.on('clientError', (err, socket) => { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); });

@@ -1,4 +1,5 @@
 // src/types/auth.ts
+
 export interface User {
   id: string;
   name: string;
@@ -10,9 +11,11 @@ export interface User {
 export interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (token: string) => Promise<void>;
+  login: (credentials: { email: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
   isAuthenticated: boolean;
+  balance: number;
+  refreshBalance: () => Promise<void>;
 }
 
 export interface LoginFormData {
@@ -27,14 +30,4 @@ export interface RegisterFormData {
   email: string;
   password: string;
   confirmPassword: string;
-}
-
-export interface AuthContextType {
-  user: User | null;
-  loading: boolean;
-  login: (token: string) => Promise<void>;
-  logout: () => Promise<void>;
-  isAuthenticated: boolean;
-  balance: number;
-  refreshBalance: () => Promise<void>;
 }
