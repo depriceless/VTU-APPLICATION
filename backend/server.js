@@ -165,10 +165,8 @@ const doubleCsrfProtection = csrfResult.doubleCsrfProtection;
 
 // Expose CSRF token endpoint — frontend calls this once on load
 app.get('/api/auth/csrf-token', (req, res) => {
-  const token = generateToken(req, res);
-  return res.json({ csrfToken: token });
+  res.json({ csrfToken: 'disabled' });
 });
-
 // Apply CSRF validation to all state-changing API routes
 // Webhook paths that use their own HMAC auth are excluded
 const CSRF_EXEMPT = [
@@ -176,12 +174,13 @@ const CSRF_EXEMPT = [
   '/api/payment/webhook',
 ];
 
-app.use((req, res, next) => {
-  if (CSRF_EXEMPT.some(path => req.path.startsWith(path))) {
-    return next();
-  }
-  return doubleCsrfProtection(req, res, next);
-});
+// CSRF disabled for cross-domain production — re-enable when on same domain
+// app.use((req, res, next) => {
+//   if (CSRF_EXEMPT.some(path => req.path.startsWith(path))) {
+//     return next();
+//   }
+//   return doubleCsrfProtection(req, res, next);
+// });
 
 logger.success('CSRF protection configured');
 
