@@ -11,12 +11,14 @@ export default function RegisterPage() {
   const router = useRouter();
 
   const nameRef            = useRef<HTMLInputElement>(null);
+  const usernameRef        = useRef<HTMLInputElement>(null);
   const emailRef           = useRef<HTMLInputElement>(null);
   const phoneRef           = useRef<HTMLInputElement>(null);
   const passwordRef        = useRef<HTMLInputElement>(null);
   const confirmPasswordRef = useRef<HTMLInputElement>(null);
 
   const [name,            setName]            = useState('');
+  const [username,        setUsername]        = useState('');
   const [email,           setEmail]           = useState('');
   const [phone,           setPhone]           = useState('');
   const [password,        setPassword]        = useState('');
@@ -29,16 +31,23 @@ export default function RegisterPage() {
   const [agreeToTerms,    setAgreeToTerms]    = useState(false);
 
   const [nameError,            setNameError]            = useState('');
+  const [usernameError,        setUsernameError]        = useState('');
   const [emailError,           setEmailError]           = useState('');
   const [phoneError,           setPhoneError]           = useState('');
   const [passwordError,        setPasswordError]        = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
-  // ── Validation ────────────────────────────────────────────────────────────
-
   const validateName = (v: string) => {
     if (!v.trim()) return 'Full name is required';
     if (v.trim().length < 3) return 'Name must be at least 3 characters';
+    return '';
+  };
+
+  const validateUsername = (v: string) => {
+    if (!v.trim()) return 'Username is required';
+    if (v.trim().length < 3) return 'Username must be at least 3 characters';
+    if (v.trim().length > 30) return 'Username must be at most 30 characters';
+    if (!/^[a-zA-Z0-9._-]+$/.test(v.trim())) return 'Only letters, numbers, . _ - allowed';
     return '';
   };
 
@@ -67,8 +76,6 @@ export default function RegisterPage() {
     return '';
   };
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-
   const handleRegister = async (e: FormEvent) => {
     e.preventDefault();
     if (loading) return;
@@ -76,19 +83,21 @@ export default function RegisterPage() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const nameErr    = validateName(name);
-    const emailErr   = validateEmail(email);
-    const phoneErr   = validatePhone(phone);
-    const passErr    = validatePassword(password);
-    const confirmErr = validateConfirmPassword(confirmPassword, password);
+    const nameErr     = validateName(name);
+    const usernameErr = validateUsername(username);
+    const emailErr    = validateEmail(email);
+    const phoneErr    = validatePhone(phone);
+    const passErr     = validatePassword(password);
+    const confirmErr  = validateConfirmPassword(confirmPassword, password);
 
     setNameError(nameErr);
+    setUsernameError(usernameErr);
     setEmailError(emailErr);
     setPhoneError(phoneErr);
     setPasswordError(passErr);
     setConfirmPasswordError(confirmErr);
 
-    if (nameErr || emailErr || phoneErr || passErr || confirmErr) return;
+    if (nameErr || usernameErr || emailErr || phoneErr || passErr || confirmErr) return;
 
     if (!agreeToTerms) {
       setErrorMessage('You must agree to the Terms and Conditions');
@@ -98,29 +107,31 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // ✅ Fix 4: Route matches backend /auth/signup
       await apiClient.post('/auth/signup', {
         name:     name.trim(),
-        email:    email.trim(),
-        phone:    phone.trim(),
+        username: username.trim(),
+        email:    email.trim().toLowerCase(),
+        phone:    phone.trim().replace(/[\s\-\(\)]/g, ''),
         password: password.trim(),
       });
 
-      // ✅ Fix 3: Show success then redirect immediately — no setTimeout
       setSuccessMessage('Account created! Redirecting to login...');
-      // ✅ Fix 2: router.push instead of window.location.href
       router.push('/login');
 
     } catch (error: any) {
-      // ✅ Fix 1: No console.log or console.error
       if (error.response) {
         const status  = error.response.status;
         const message = error.response.data?.message;
+        const errors  = error.response.data?.errors;
 
         if (status === 409) {
-          setErrorMessage(message || 'Email or phone number already exists.');
+          setErrorMessage(message || 'Email, phone, or username already exists.');
         } else if (status === 400 || status === 422) {
-          setErrorMessage(message || 'Invalid input data provided.');
+          if (errors?.length) {
+            setErrorMessage(errors[0].msg || 'Invalid input data provided.');
+          } else {
+            setErrorMessage(message || 'Invalid input data provided.');
+          }
         } else if (status === 429) {
           setErrorMessage('Too many registration attempts. Please try again later.');
         } else if (status >= 500) {
@@ -139,8 +150,6 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
-
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -187,6 +196,27 @@ export default function RegisterPage() {
                 {nameError && <p className="mt-1 text-sm text-red-600 ml-1 font-medium">{nameError}</p>}
               </div>
 
+              {/* Username */}
+              <div>
+                <label htmlFor="username" className="block text-sm font-semibold text-gray-700 mb-2">Username</label>
+                <input
+                  ref={usernameRef}
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => { setUsername(e.target.value); setUsernameError(''); setErrorMessage(''); }}
+                  onBlur={() => setUsernameError(validateUsername(username))}
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  placeholder="Choose a username (e.g. john_doe)"
+                  disabled={loading}
+                  className={`appearance-none block w-full px-4 py-3 border ${usernameError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'} placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}
+                />
+                {usernameError && <p className="mt-1 text-sm text-red-600 ml-1 font-medium">{usernameError}</p>}
+              </div>
+
               {/* Email */}
               <div>
                 <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
@@ -198,6 +228,9 @@ export default function RegisterPage() {
                   onChange={(e) => { setEmail(e.target.value); setEmailError(''); setErrorMessage(''); }}
                   onBlur={() => setEmailError(validateEmail(email))}
                   autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   placeholder="Enter your email address"
                   disabled={loading}
                   className={`appearance-none block w-full px-4 py-3 border ${emailError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'} placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}
@@ -235,6 +268,9 @@ export default function RegisterPage() {
                     onChange={(e) => { setPassword(e.target.value); setPasswordError(''); setErrorMessage(''); }}
                     onBlur={() => setPasswordError(validatePassword(password))}
                     autoComplete="new-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     placeholder="Create a strong password"
                     disabled={loading}
                     className={`appearance-none block w-full px-4 py-3 pr-12 border ${passwordError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'} placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}
@@ -262,6 +298,9 @@ export default function RegisterPage() {
                     onChange={(e) => { setConfirmPassword(e.target.value); setConfirmPasswordError(''); setErrorMessage(''); }}
                     onBlur={() => setConfirmPasswordError(validateConfirmPassword(confirmPassword, password))}
                     autoComplete="new-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     placeholder="Confirm your password"
                     disabled={loading}
                     className={`appearance-none block w-full px-4 py-3 pr-12 border ${confirmPasswordError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'} placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}

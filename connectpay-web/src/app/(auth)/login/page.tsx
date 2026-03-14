@@ -83,12 +83,11 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // login() in AuthContext handles the API call and cookie — just pass credentials
-      await login({ email: emailOrPhone.trim(), password: password.trim() });
+      await login({ email: emailOrPhone.trim().toLowerCase(), password: password.trim() });
 
       if (rememberMe) {
         storage.setItem(REMEMBER_ME_KEY, 'true');
-        storage.setItem(REMEMBERED_EMAIL_KEY, emailOrPhone.trim());
+        storage.setItem(REMEMBERED_EMAIL_KEY, emailOrPhone.trim().toLowerCase());
       } else {
         storage.removeItem(REMEMBER_ME_KEY);
         storage.removeItem(REMEMBERED_EMAIL_KEY);
@@ -144,6 +143,10 @@ export default function LoginPage() {
                   id="emailOrPhone"
                   type="text"
                   autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="email"
                   value={emailOrPhone}
                   onChange={(e) => { setEmailOrPhone(e.target.value); setEmailError(''); setErrorMessage(''); }}
                   onBlur={() => setEmailError(validateEmailOrPhone(emailOrPhone))}
@@ -166,6 +169,9 @@ export default function LoginPage() {
                     id="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={password}
                     onChange={(e) => { setPassword(e.target.value); setPasswordError(''); setErrorMessage(''); }}
                     onBlur={() => setPasswordError(validatePassword(password))}
@@ -221,15 +227,15 @@ export default function LoginPage() {
                 } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors`}
               >
                 {loading ? (
-  <>
-    <span>Authenticating</span>
-    <span className="flex items-center gap-1 mt-1">
-      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-    </span>
-  </>
-) : 'Sign In'}
+                  <>
+                    <span>Authenticating</span>
+                    <span className="flex items-center gap-1 mt-1">
+                      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <span className="w-2.5 h-2.5 bg-white rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </span>
+                  </>
+                ) : 'Sign In'}
               </button>
 
               <div className="text-center pt-2">
