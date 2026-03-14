@@ -66,6 +66,7 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://10.196.79.7:3000',
   'https://admin-connectpay.netlify.app',
+  'https://connectpays.netlify.app', 
   // 'https://connectpay.com.ng',
 ];
 
