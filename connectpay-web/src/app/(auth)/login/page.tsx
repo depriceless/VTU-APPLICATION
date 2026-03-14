@@ -8,30 +8,28 @@ import Footer from '@/components/Footer/page';
 import { storage } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 
-const REMEMBER_ME_KEY = 'rememberMe';
+const REMEMBER_ME_KEY      = 'rememberMe';
 const REMEMBERED_EMAIL_KEY = 'rememberedEmail';
 
 export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
 
-  const emailRef = useRef<HTMLInputElement>(null);
+  const emailRef    = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
-  const [emailOrPhone, setEmailOrPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [emailError, setEmailError] = useState('');
+  const [loading,       setLoading]       = useState(false);
+  const [errorMessage,  setErrorMessage]  = useState('');
+  const [showPassword,  setShowPassword]  = useState(false);
+  const [emailError,    setEmailError]    = useState('');
   const [passwordError, setPasswordError] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
+  const [rememberMe,    setRememberMe]    = useState(false);
 
   useEffect(() => {
-    const isRemembered = storage.getItem(REMEMBER_ME_KEY) === 'true';
+    const isRemembered    = storage.getItem(REMEMBER_ME_KEY) === 'true';
     const rememberedEmail = storage.getItem(REMEMBERED_EMAIL_KEY);
-    if (isRemembered && rememberedEmail) {
-      setEmailOrPhone(rememberedEmail);
+    if (isRemembered && rememberedEmail && emailRef.current) {
+      emailRef.current.value = rememberedEmail;
       setRememberMe(true);
     }
   }, []);
@@ -73,34 +71,48 @@ export default function LoginPage() {
     if (loading) return;
 
     setErrorMessage('');
+    setEmailError('');
+    setPasswordError('');
 
-    const emailValidationError = validateEmailOrPhone(emailOrPhone);
-    const passwordValidationError = validatePassword(password);
-    setEmailError(emailValidationError);
-    setPasswordError(passwordValidationError);
-    if (emailValidationError || passwordValidationError) return;
+    // Read directly from DOM — works with mobile autofill
+    const emailVal = (emailRef.current?.value ?? '').trim().toLowerCase().replace(/\s+/g, '');
+    const passVal  = (passwordRef.current?.value ?? '').trim();
+
+    const emailErr = validateEmailOrPhone(emailVal);
+    const passErr  = validatePassword(passVal);
+    setEmailError(emailErr);
+    setPasswordError(passErr);
+    if (emailErr || passErr) return;
 
     setLoading(true);
 
     try {
-      await login({ email: emailOrPhone.trim().toLowerCase(), password: password.trim() });
+      // login() now returns the user object
+      const loggedInUser = await login({ email: emailVal, password: passVal });
 
       if (rememberMe) {
         storage.setItem(REMEMBER_ME_KEY, 'true');
-        storage.setItem(REMEMBERED_EMAIL_KEY, emailOrPhone.trim().toLowerCase());
+        storage.setItem(REMEMBERED_EMAIL_KEY, emailVal);
       } else {
         storage.removeItem(REMEMBER_ME_KEY);
         storage.removeItem(REMEMBERED_EMAIL_KEY);
       }
 
-      router.replace('/dashboard');
+      // If user hasn't set up PIN yet, send them to pin-setup first
+      if (!loggedInUser?.isPinSetup) {
+        router.replace('/pin-setup');
+      } else {
+        router.replace('/dashboard');
+      }
 
     } catch (error: any) {
-      const status = error?.response?.status;
+      const status  = error?.response?.status;
       const message = error?.response?.data?.message;
 
       if (status === 400 || status === 401) {
         setErrorMessage(message || 'Invalid email/phone or password.');
+      } else if (status === 423) {
+        setErrorMessage('Account temporarily locked. Please try again later.');
       } else if (status === 429) {
         setErrorMessage('Too many login attempts. Please try again later.');
       } else if (status >= 500) {
@@ -122,6 +134,7 @@ export default function LoginPage() {
       <main className="flex-grow flex items-center justify-center pt-32 sm:pt-35 pb-8 px-4 sm:px-6 lg:px-8">
         <div className="w-full max-w-md mx-auto">
           <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 sm:p-8">
+
             <div className="text-center mb-8">
               <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Welcome Back</h2>
               <p className="text-sm sm:text-base text-gray-600">Sign in to your account</p>
@@ -134,6 +147,8 @@ export default function LoginPage() {
             )}
 
             <form onSubmit={handleLogin} className="space-y-5">
+
+              {/* Email / Phone — uncontrolled so mobile autofill works */}
               <div>
                 <label htmlFor="emailOrPhone" className="block text-sm font-semibold text-gray-700 mb-2">
                   Email or Phone Number
@@ -141,15 +156,15 @@ export default function LoginPage() {
                 <input
                   ref={emailRef}
                   id="emailOrPhone"
+                  name="email"
                   type="text"
-                  autoComplete="username"
+                  autoComplete="email"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
                   inputMode="email"
-                  value={emailOrPhone}
-                  onChange={(e) => { setEmailOrPhone(e.target.value); setEmailError(''); setErrorMessage(''); }}
-                  onBlur={() => setEmailError(validateEmailOrPhone(emailOrPhone))}
+                  onChange={() => { setEmailError(''); setErrorMessage(''); }}
+                  onBlur={() => setEmailError(validateEmailOrPhone(emailRef.current?.value ?? ''))}
                   className={`appearance-none block w-full px-4 py-3 border ${
                     emailError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'
                   } placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}
@@ -159,6 +174,7 @@ export default function LoginPage() {
                 {emailError && <p className="mt-1 text-sm text-red-600 ml-1 font-medium">{emailError}</p>}
               </div>
 
+              {/* Password — uncontrolled */}
               <div>
                 <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-2">
                   Password
@@ -167,14 +183,14 @@ export default function LoginPage() {
                   <input
                     ref={passwordRef}
                     id="password"
+                    name="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
                     autoCapitalize="none"
                     autoCorrect="off"
                     spellCheck={false}
-                    value={password}
-                    onChange={(e) => { setPassword(e.target.value); setPasswordError(''); setErrorMessage(''); }}
-                    onBlur={() => setPasswordError(validatePassword(password))}
+                    onChange={() => { setPasswordError(''); setErrorMessage(''); }}
+                    onBlur={() => setPasswordError(validatePassword(passwordRef.current?.value ?? ''))}
                     className={`appearance-none block w-full px-4 py-3 pr-12 border ${
                       passwordError ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'
                     } placeholder-gray-500 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-base transition-colors`}
@@ -246,6 +262,7 @@ export default function LoginPage() {
                   </Link>
                 </p>
               </div>
+
             </form>
           </div>
         </div>

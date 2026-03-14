@@ -37,7 +37,7 @@ async function isTokenBlacklisted(token) {
 
 router.isTokenBlacklisted = isTokenBlacklisted;
 
-// ── Cookie config (kept for backwards compat) ──────────────────
+// ── Cookie config ──────────────────────────────────────────────
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure:   process.env.NODE_ENV === 'production',
@@ -59,17 +59,18 @@ const signupValidation = [
     .matches(/[0-9]/).withMessage('Password must contain a number'),
 ];
 
+// Accepts either 'email' or 'emailOrPhone' field name from frontend
 const loginValidation = [
-  body('email')
-    .trim()
-    .notEmpty().withMessage('Email or phone is required')
-    .custom((value) => {
-      const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-      const isPhone = /^[\+]?\d{7,15}$/.test(value.replace(/[\s\-\(\)]/g, ''));
-      if (!isEmail && !isPhone) throw new Error('Please provide a valid email or phone number');
-      return true;
-    }),
   body('password').notEmpty().withMessage('Password is required'),
+  body().custom((_, { req }) => {
+    const value = (req.body.email || req.body.emailOrPhone || '').trim();
+    if (!value) throw new Error('Email or phone is required');
+    const cleaned = value.replace(/\s+/g, '').replace(/[\-\(\)]/g, '');
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+    const isPhone = /^[\+]?\d{7,15}$/.test(cleaned);
+    if (!isEmail && !isPhone) throw new Error('Please provide a valid email or phone number');
+    return true;
+  }),
 ];
 
 const profileUpdateValidation = [
@@ -90,9 +91,33 @@ router.post('/signup', signupValidation, async (req, res) => {
 
     const { name, username, email, phone, password } = req.body;
 
-    const existingUser = await User.findOne({ $or: [{ email }, { username }, { phone }] });
-    if (existingUser) {
-      return res.status(409).json({ success: false, message: 'Account already exists.' });
+    // Check each field individually — tell user exactly which one is taken
+    const [emailExists, usernameExists, phoneExists] = await Promise.all([
+      User.findOne({ email }),
+      User.findOne({ username }),
+      User.findOne({ phone }),
+    ]);
+
+    if (emailExists) {
+      return res.status(409).json({
+        success: false,
+        field:   'email',
+        message: 'This email address is already registered.',
+      });
+    }
+    if (usernameExists) {
+      return res.status(409).json({
+        success: false,
+        field:   'username',
+        message: 'This username is already taken.',
+      });
+    }
+    if (phoneExists) {
+      return res.status(409).json({
+        success: false,
+        field:   'phone',
+        message: 'This phone number is already registered.',
+      });
     }
 
     const user = new User({ name, username, email, phone, password, registrationIP: req.ip });
@@ -106,7 +131,13 @@ router.post('/signup', signupValidation, async (req, res) => {
       success: true,
       message: 'Account created successfully.',
       token,
-      user: { id: user._id, name: user.name, username: user.username, email: user.email },
+      user: {
+        id:         user._id,
+        name:       user.name,
+        username:   user.username,
+        email:      user.email,
+        isPinSetup: false, // always false on fresh signup
+      },
     });
   } catch (error) {
     logger.error('Signup error', error.message);
@@ -119,14 +150,16 @@ router.post('/login', loginValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
+      return res.status(400).json({ success: false, message: errors.array()[0].msg });
     }
 
-    const { email: emailOrPhone, password } = req.body;
+    // Accept either field name — works with any frontend version
+    const rawInput = (req.body.email || req.body.emailOrPhone || '').trim().toLowerCase().replace(/\s+/g, '');
+    const password = req.body.password;
 
-    const clean   = emailOrPhone.replace(/[\s\-\(\)]/g, '');
-    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailOrPhone);
-    const query   = isEmail ? { email: emailOrPhone.toLowerCase() } : { phone: clean };
+    const clean   = rawInput.replace(/[\-\(\)]/g, '');
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawInput);
+    const query   = isEmail ? { email: rawInput } : { phone: clean };
 
     const user = await User.findOne(query).select('+password');
 
@@ -174,7 +207,9 @@ router.post('/login', loginValidation, async (req, res) => {
         name:            user.name,
         username:        user.username,
         email:           user.email,
-        isEmailVerified: user.isEmailVerified,
+        phone:           user.phone,
+        isEmailVerified: user.isEmailVerified ?? false,
+        isPinSetup:      user.isPinSetup ?? false,  // ← NOW INCLUDED
       },
     });
   } catch (error) {
@@ -228,7 +263,20 @@ router.get('/me', authenticate, async (req, res) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
 
-    return res.json({ success: true, user, balance: wallet?.balance ?? 0 });
+    // Return explicit fields so isPinSetup is always present
+    return res.json({
+      success: true,
+      user: {
+        id:              user._id,
+        name:            user.name,
+        username:        user.username,
+        email:           user.email,
+        phone:           user.phone,
+        isEmailVerified: user.isEmailVerified ?? false,
+        isPinSetup:      user.isPinSetup ?? false,  // ← NOW INCLUDED
+      },
+      balance: wallet?.balance ?? 0,
+    });
   } catch (error) {
     logger.error('Me endpoint error', error.message);
     return res.status(500).json({ success: false, message: 'Server error.' });
@@ -332,7 +380,6 @@ router.post('/forgot-password', [
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
 
-    // TODO: send resetToken via email
     logger.info('Password reset requested');
     return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
   } catch (error) {

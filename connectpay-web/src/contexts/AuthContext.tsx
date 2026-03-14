@@ -155,39 +155,49 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // ── Login ─────────────────────────────────────────────────────────────────
 
-  const login = async (credentials: { email: string; password: string }) => {
+  const login = async (credentials: { email: string; password: string }): Promise<User> => {
     try {
-      const loginResponse = await apiClient.post('/auth/login', credentials);
+      const cleanEmail    = credentials.email.trim().toLowerCase().replace(/\s+/g, '');
+      const cleanPassword = credentials.password.trim();
+
+      // Step 1 — authenticate and get token
+      const loginResponse = await apiClient.post('/auth/login', {
+        emailOrPhone: cleanEmail,
+        password:     cleanPassword,
+      });
 
       if (!loginResponse.data?.success) {
         throw new Error(loginResponse.data?.message || 'Login failed');
       }
 
-      // Save token to localStorage
       if (loginResponse.data?.token) {
         setToken(loginResponse.data.token);
       }
 
-      if (loginResponse.data?.user) {
-        setUser(loginResponse.data.user);
-        await refreshBalance();
-        resetInactivityTimer(true);
-        return;
-      }
-
+      // Step 2 — ALWAYS call /me to get fresh user data including isPinSetup
+      // This guarantees isPinSetup is accurate regardless of what the login
+      // response returns — fixes mobile autofill / caching issues
       const meResponse = await apiClient.get('/auth/me');
-      if (meResponse.data?.user) {
-        setUser(meResponse.data.user);
-        const raw = meResponse.data.balance;
-        if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
-          setBalance(raw);
-        } else {
-          await refreshBalance();
-        }
-        resetInactivityTimer(true);
-      } else {
+
+      if (!meResponse.data?.user) {
         throw new Error('Failed to fetch user profile after login');
       }
+
+      const freshUser = meResponse.data.user;
+      setUser(freshUser);
+
+      const raw = meResponse.data.balance;
+      if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
+        setBalance(raw);
+      } else {
+        await refreshBalance();
+      }
+
+      resetInactivityTimer(true);
+
+      // Return the fresh user so the login page can check isPinSetup
+      return freshUser;
+
     } catch (error: any) {
       removeToken();
       setUser(null);
@@ -203,7 +213,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     if (user) {
       try {
-        await apiClient.post('/auth/logout');
+        await apiClient.post('/auth/logout', {});
       } catch {
         // Non-critical
       }

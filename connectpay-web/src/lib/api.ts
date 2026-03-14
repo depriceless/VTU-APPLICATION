@@ -41,20 +41,27 @@ export function initCsrf(): void {
 }
 
 // ── API Configuration ─────────────────────────────────────────────────────────
-const API_CONFIG = {
-  development: 'http://localhost:5000/api',
-  production:  'https://vtu-application.onrender.com/api',
+const getBaseURL = (): string => {
+  if (typeof window !== 'undefined') {
+    if (window.location.hostname === '10.196.79.7') {
+      return 'http://10.196.79.7:5000/api';
+    }
+  }
+  if (process.env.NODE_ENV === 'development') {
+    return 'http://localhost:5000/api';
+  }
+  return 'https://vtu-application.onrender.com/api';
 };
 
 const isDevelopment = process.env.NODE_ENV === 'development';
-export const API_BASE_URL = isDevelopment ? API_CONFIG.development : API_CONFIG.production;
+export const API_BASE_URL = getBaseURL();
 
 // ── Pending requests map for deduplication ────────────────────────────────────
 const pendingRequests = new Map<string, AbortController>();
 
 // ── Axios instance ────────────────────────────────────────────────────────────
 export const apiClient: AxiosInstance = axios.create({
-  baseURL:         API_BASE_URL,
+  baseURL:         getBaseURL(),
   timeout:         30000,
   withCredentials: false,
   headers: {

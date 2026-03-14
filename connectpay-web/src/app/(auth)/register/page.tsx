@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Header from '@/components/Header/page';
 import Footer from '@/components/Footer/page';
-import apiClient from '@/lib/api';
+import apiClient, { setToken } from '@/lib/api';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -107,7 +107,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await apiClient.post('/auth/signup', {
+      const response = await apiClient.post('/auth/signup', {
         name:     name.trim(),
         username: username.trim(),
         email:    email.trim().toLowerCase(),
@@ -115,17 +115,41 @@ export default function RegisterPage() {
         password: password.trim(),
       });
 
-      setSuccessMessage('Account created! Redirecting to login...');
-      router.push('/login');
+      // Save token just like the React Native app does
+      if (response.data?.token) {
+        setToken(response.data.token);
+      }
+
+      setSuccessMessage('Account created! Redirecting...');
+
+      // Navigate to pin-setup so user sets their PIN before going to dashboard
+      router.push('/pin-setup');
 
     } catch (error: any) {
       if (error.response) {
         const status  = error.response.status;
         const message = error.response.data?.message;
+        const field   = error.response.data?.field;   // 'email' | 'username' | 'phone'
         const errors  = error.response.data?.errors;
 
         if (status === 409) {
-          setErrorMessage(message || 'Email, phone, or username already exists.');
+          // Show error directly under the exact field that's already taken
+          switch (field) {
+            case 'email':
+              setEmailError(message || 'This email is already registered.');
+              emailRef.current?.focus();
+              break;
+            case 'username':
+              setUsernameError(message || 'This username is already taken.');
+              usernameRef.current?.focus();
+              break;
+            case 'phone':
+              setPhoneError(message || 'This phone number is already registered.');
+              phoneRef.current?.focus();
+              break;
+            default:
+              setErrorMessage(message || 'Account already exists.');
+          }
         } else if (status === 400 || status === 422) {
           if (errors?.length) {
             setErrorMessage(errors[0].msg || 'Invalid input data provided.');

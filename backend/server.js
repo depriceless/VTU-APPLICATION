@@ -23,6 +23,7 @@ process.on('unhandledRejection', (reason) => {
 logger.info(`Server starting — Node ${process.version} — ${process.env.NODE_ENV || 'development'}`);
 
 const app  = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 5000;
 
 // ── Route imports ──────────────────────────────────────────────
