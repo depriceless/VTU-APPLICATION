@@ -9,10 +9,6 @@ const { getRedisClient } = require('../utils/redis');
 const router = express.Router();
 
 // ── Token blacklist (Redis-backed) ─────────────────────────────
-// Tokens are stored in Redis with a TTL matching their remaining
-// lifetime — expired tokens are cleaned up automatically.
-// Falls back gracefully if Redis is unavailable (logs a warning).
-
 const BLACKLIST_PREFIX = 'blacklist:';
 
 async function blacklistToken(token) {
@@ -20,7 +16,7 @@ async function blacklistToken(token) {
     const decoded = jwt.decode(token);
     if (!decoded?.exp) return;
     const ttl = decoded.exp - Math.floor(Date.now() / 1000);
-    if (ttl <= 0) return; // Already expired — no need to store
+    if (ttl <= 0) return;
     const redis = getRedisClient();
     await redis.set(`${BLACKLIST_PREFIX}${token}`, '1', 'EX', ttl);
   } catch (err) {
@@ -35,19 +31,18 @@ async function isTokenBlacklisted(token) {
     return result !== null;
   } catch (err) {
     logger.warn('Redis blacklist read failed — allowing token through', err.message);
-    return false; // Fail open: don't lock out users if Redis is down
+    return false;
   }
 }
 
-// Export so authenticate middleware can check it
 router.isTokenBlacklisted = isTokenBlacklisted;
 
-// ── Cookie config ──────────────────────────────────────────────
+// ── Cookie config (kept for backwards compat) ──────────────────
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure:   process.env.NODE_ENV === 'production',
   sameSite: 'strict',
-  maxAge:   7 * 24 * 60 * 60 * 1000, // 7 days
+  maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
 // ── Validation rules ───────────────────────────────────────────
@@ -110,6 +105,7 @@ router.post('/signup', signupValidation, async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Account created successfully.',
+      token,
       user: { id: user._id, name: user.name, username: user.username, email: user.email },
     });
   } catch (error) {
@@ -134,7 +130,6 @@ router.post('/login', loginValidation, async (req, res) => {
 
     const user = await User.findOne(query).select('+password');
 
-    // Always return the same message — prevents email/phone enumeration
     if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
     }
@@ -173,6 +168,7 @@ router.post('/login', loginValidation, async (req, res) => {
     return res.json({
       success: true,
       message: 'Login successful.',
+      token,
       user: {
         id:              user._id,
         name:            user.name,
@@ -289,8 +285,6 @@ router.post('/setup-pin', authenticate, [
 });
 
 // ── POST /verify-pin ───────────────────────────────────────────
-// Note: PIN attempts for purchases are tracked in purchase.js
-// This endpoint is for standalone PIN verification only
 router.post('/verify-pin', authenticate, [
   body('pin').matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits'),
 ], async (req, res) => {
@@ -328,7 +322,6 @@ router.post('/forgot-password', [
     }
 
     const user = await User.findOne({ email: req.body.email });
-    // Always return success — never reveal if email is registered
     if (!user) {
       return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
     }

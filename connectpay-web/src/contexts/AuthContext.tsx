@@ -10,14 +10,9 @@ import React, {
   useCallback,
 } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import apiClient, { getCsrfToken } from '@/lib/api';
+import apiClient, { setToken, removeToken, getToken } from '@/lib/api';
 import { User, AuthContextType } from '@/types/auth';
 import { logger } from '@/lib/logger';
-
-// ── Token is now an httpOnly cookie set by the backend ────────────────────────
-// The frontend never reads or writes the token directly.
-// The browser attaches it automatically to every request via withCredentials.
-// ─────────────────────────────────────────────────────────────────────────────
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -39,13 +34,10 @@ const PROTECTED_ROUTES = [
   '/transaction-history',
 ];
 
-// ── Provider ──────────────────────────────────────────────────────────────────
-
 export function AuthProvider({ children }: AuthProviderProps) {
-  const [user, setUser]         = useState<User | null>(null);
-  const [balance, setBalance]   = useState<number>(0);
-  const [loading, setLoading]   = useState(true);
-  const [csrfReady, setCsrfReady] = useState(false);
+  const [user, setUser]       = useState<User | null>(null);
+  const [balance, setBalance] = useState<number>(0);
+  const [loading, setLoading] = useState(true);
 
   const router   = useRouter();
   const pathname = usePathname();
@@ -53,19 +45,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const isProtectedRoute = PROTECTED_ROUTES.some(r => pathname?.startsWith(r));
-
-  // ── CSRF init ─────────────────────────────────────────────────────────────
-  // Fetch CSRF token once on mount before any state-changing requests fire.
-  // checkAuth (GET) is safe without it, but login/logout (POST) need it.
-
-  useEffect(() => {
-    getCsrfToken()
-      .then(() => setCsrfReady(true))
-      .catch(() => {
-        // Still mark ready — api.ts will retry on 403
-        setCsrfReady(true);
-      });
-  }, []);
 
   // ── Balance ───────────────────────────────────────────────────────────────
 
@@ -76,8 +55,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const raw = response.data.balance;
         if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
           setBalance(raw);
-        } else {
-          logger.warn('Unexpected balance shape from API');
         }
       }
     } catch {
@@ -92,6 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!loggedIn) return;
 
     inactivityTimerRef.current = setTimeout(() => {
+      removeToken();
       setUser(null);
       setBalance(0);
       router.push('/login?reason=inactivity');
@@ -111,10 +89,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [user, resetInactivityTimer]);
 
   // ── Initial auth check ────────────────────────────────────────────────────
-  // GET /auth/me is CSRF-safe (read-only) — fires immediately on mount.
-  // No need to wait for csrfReady here.
 
   const checkAuth = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     try {
       const response = await apiClient.get('/auth/me');
 
@@ -127,11 +109,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
           await refreshBalance();
         }
       } else {
+        removeToken();
         setUser(null);
         setBalance(0);
       }
     } catch {
-      // 401 means no valid cookie — user is not logged in, that's fine
+      removeToken();
       setUser(null);
       setBalance(0);
     } finally {
@@ -143,7 +126,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     checkAuth();
   }, [checkAuth]);
 
-  // Periodic session check (every 60s) — re-validates cookie server-side
+  // Periodic session check (every 60s)
   useEffect(() => {
     const interval = setInterval(async () => {
       if (!user) return;
@@ -151,6 +134,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         await apiClient.get('/auth/me');
       } catch (error: any) {
         if (error.response?.status === 401) {
+          removeToken();
           setUser(null);
           setBalance(0);
           if (isProtectedRoute) router.replace('/login?reason=expired');
@@ -170,19 +154,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, [user, loading, isProtectedRoute, pathname, router]);
 
   // ── Login ─────────────────────────────────────────────────────────────────
-  // Waits for CSRF token to be ready before posting credentials.
 
   const login = async (credentials: { email: string; password: string }) => {
-    // Ensure CSRF token is available before POSTing
-    if (!csrfReady) {
-      await getCsrfToken().catch(() => null);
-    }
-
     try {
       const loginResponse = await apiClient.post('/auth/login', credentials);
 
       if (!loginResponse.data?.success) {
         throw new Error(loginResponse.data?.message || 'Login failed');
+      }
+
+      // Save token to localStorage
+      if (loginResponse.data?.token) {
+        setToken(loginResponse.data.token);
       }
 
       if (loginResponse.data?.user) {
@@ -206,6 +189,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw new Error('Failed to fetch user profile after login');
       }
     } catch (error: any) {
+      removeToken();
       setUser(null);
       setBalance(0);
       throw error;
@@ -213,21 +197,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   // ── Logout ────────────────────────────────────────────────────────────────
-  // Skips the POST if there's no active session — prevents CSRF warning
-  // on page load when the old session has already expired server-side.
 
   const logout = async () => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
 
-    // Only call the logout endpoint if we have an active session
     if (user) {
       try {
         await apiClient.post('/auth/logout');
       } catch {
-        // Non-critical — session already expired or network issue
+        // Non-critical
       }
     }
 
+    removeToken();
     setUser(null);
     setBalance(0);
     router.push('/login');
