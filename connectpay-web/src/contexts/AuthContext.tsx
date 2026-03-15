@@ -40,7 +40,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const pathname = usePathname();
 
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const routerRef          = useRef(router);
+  const userRef            = useRef(user);
   const isProtectedRoute   = pathname?.startsWith('/dashboard') ?? false;
+
+  // Keep refs in sync without causing re-renders or effect re-runs
+  useEffect(() => { routerRef.current = router; }, [router]);
+  useEffect(() => { userRef.current = user; }, [user]);
 
   const refreshBalance = useCallback(async () => {
     try {
@@ -54,30 +60,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, []);
 
-  // ── Inactivity timer ────────────────────────────────────────────
-  const resetInactivityTimer = useCallback((loggedIn: boolean) => {
+  // ── Inactivity timer — stable, never recreated ─────────────────
+  // Uses refs so this function never changes identity, meaning the
+  // activity useEffect never re-runs on navigation (the bug fix)
+  const resetInactivityTimer = useCallback(() => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-    if (!loggedIn) return;
+
     inactivityTimerRef.current = setTimeout(() => {
       removeToken();
       removeAuthCookie();
       setUser(null);
       setBalance(0);
-      router.push('/login?reason=inactivity');
+      routerRef.current.push('/login?reason=inactivity');
     }, INACTIVITY_TIMEOUT);
-  }, [router]);
+  }, []); // ← no dependencies = never recreated
 
+  // ── Attach activity listeners once when user logs in ───────────
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // User logged out — clear timer
+      if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+      return;
+    }
+
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    const handler = () => resetInactivityTimer(true);
-    events.forEach(e => document.addEventListener(e, handler));
-    resetInactivityTimer(true);
+    events.forEach(e => document.addEventListener(e, resetInactivityTimer));
+    resetInactivityTimer(); // start timer immediately on login
+
     return () => {
-      events.forEach(e => document.removeEventListener(e, handler));
+      events.forEach(e => document.removeEventListener(e, resetInactivityTimer));
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     };
-  }, [user, resetInactivityTimer]);
+  }, [user, resetInactivityTimer]); // resetInactivityTimer is stable so this only runs when user changes
 
   // ── Initial auth check ──────────────────────────────────────────
   const checkAuth = useCallback(async () => {
@@ -114,10 +128,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => { checkAuth(); }, [checkAuth]);
 
-  // ── Periodic session check ──────────────────────────────────────
+  // ── Periodic session check every 60s ───────────────────────────
   useEffect(() => {
     const interval = setInterval(async () => {
-      if (!user) return;
+      if (!userRef.current) return;
       try {
         await apiClient.get('/auth/me');
       } catch (error: any) {
@@ -126,12 +140,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
           removeAuthCookie();
           setUser(null);
           setBalance(0);
-          if (isProtectedRoute) router.replace('/login?reason=expired');
+          if (pathname?.startsWith('/dashboard')) {
+            routerRef.current.replace('/login?reason=expired');
+          }
         }
       }
     }, 60_000);
     return () => clearInterval(interval);
-  }, [user, isProtectedRoute, router]);
+  }, []); // ← runs once, uses refs internally
 
   // ── Login ───────────────────────────────────────────────────────
   const login = async (credentials: { email: string; password: string }): Promise<User> => {
@@ -151,7 +167,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const token = loginResponse.data?.token;
       if (token) {
         setToken(token);
-        setAuthCookie(token); // must be set BEFORE navigating to dashboard
+        setAuthCookie(token);
       }
 
       const meResponse = await apiClient.get('/auth/me');
@@ -164,7 +180,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (typeof raw === 'number' && isFinite(raw) && raw >= 0) setBalance(raw);
       else await refreshBalance();
 
-      resetInactivityTimer(true);
       return freshUser;
 
     } catch (error: any) {
