@@ -20,19 +20,16 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-const INACTIVITY_TIMEOUT = 30 * 60 * 1000;
+const INACTIVITY_TIMEOUT = 3 * 60 * 1000; // 3 minutes
 
-const PROTECTED_ROUTES = [
-  '/dashboard',
-  '/profile',
-  '/settings',
-  '/buy-airtime',
-  '/buy-data',
-  '/cable-tv',
-  '/electricity',
-  '/wallet-summary',
-  '/transaction-history',
-];
+function setAuthCookie(token: string) {
+  const maxAge = 7 * 24 * 60 * 60;
+  document.cookie = `authToken=${token}; path=/; max-age=${maxAge}; SameSite=Lax`;
+}
+
+function removeAuthCookie() {
+  document.cookie = 'authToken=; path=/; max-age=0; SameSite=Lax';
+}
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser]       = useState<User | null>(null);
@@ -43,33 +40,27 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const pathname = usePathname();
 
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const isProtectedRoute = PROTECTED_ROUTES.some(r => pathname?.startsWith(r));
-
-  // ── Balance ───────────────────────────────────────────────────────────────
+  const isProtectedRoute   = pathname?.startsWith('/dashboard') ?? false;
 
   const refreshBalance = useCallback(async () => {
     try {
       const response = await apiClient.get('/balance');
       if (response.data?.success) {
         const raw = response.data.balance;
-        if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
-          setBalance(raw);
-        }
+        if (typeof raw === 'number' && isFinite(raw) && raw >= 0) setBalance(raw);
       }
     } catch {
       logger.error('Failed to fetch balance');
     }
   }, []);
 
-  // ── Inactivity timer ──────────────────────────────────────────────────────
-
+  // ── Inactivity timer ────────────────────────────────────────────
   const resetInactivityTimer = useCallback((loggedIn: boolean) => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     if (!loggedIn) return;
-
     inactivityTimerRef.current = setTimeout(() => {
       removeToken();
+      removeAuthCookie();
       setUser(null);
       setBalance(0);
       router.push('/login?reason=inactivity');
@@ -79,42 +70,41 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     if (!user) return;
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-    const handleActivity = () => resetInactivityTimer(true);
-    events.forEach(e => document.addEventListener(e, handleActivity));
+    const handler = () => resetInactivityTimer(true);
+    events.forEach(e => document.addEventListener(e, handler));
     resetInactivityTimer(true);
     return () => {
-      events.forEach(e => document.removeEventListener(e, handleActivity));
+      events.forEach(e => document.removeEventListener(e, handler));
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
     };
   }, [user, resetInactivityTimer]);
 
-  // ── Initial auth check ────────────────────────────────────────────────────
-
+  // ── Initial auth check ──────────────────────────────────────────
   const checkAuth = useCallback(async () => {
     const token = getToken();
     if (!token) {
+      removeAuthCookie();
       setLoading(false);
       return;
     }
 
     try {
       const response = await apiClient.get('/auth/me');
-
       if (response.data?.user) {
         setUser(response.data.user);
+        setAuthCookie(token);
         const raw = response.data.balance;
-        if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
-          setBalance(raw);
-        } else {
-          await refreshBalance();
-        }
+        if (typeof raw === 'number' && isFinite(raw) && raw >= 0) setBalance(raw);
+        else await refreshBalance();
       } else {
         removeToken();
+        removeAuthCookie();
         setUser(null);
         setBalance(0);
       }
     } catch {
       removeToken();
+      removeAuthCookie();
       setUser(null);
       setBalance(0);
     } finally {
@@ -122,11 +112,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [refreshBalance]);
 
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+  useEffect(() => { checkAuth(); }, [checkAuth]);
 
-  // Periodic session check (every 60s)
+  // ── Periodic session check ──────────────────────────────────────
   useEffect(() => {
     const interval = setInterval(async () => {
       if (!user) return;
@@ -135,6 +123,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       } catch (error: any) {
         if (error.response?.status === 401) {
           removeToken();
+          removeAuthCookie();
           setUser(null);
           setBalance(0);
           if (isProtectedRoute) router.replace('/login?reason=expired');
@@ -144,23 +133,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
     return () => clearInterval(interval);
   }, [user, isProtectedRoute, router]);
 
-  // ── Route guard ───────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    if (loading) return;
-    if (!isProtectedRoute) return;
-    if (user) return;
-    router.replace('/login');
-  }, [user, loading, isProtectedRoute, pathname, router]);
-
-  // ── Login ─────────────────────────────────────────────────────────────────
-
+  // ── Login ───────────────────────────────────────────────────────
   const login = async (credentials: { email: string; password: string }): Promise<User> => {
     try {
       const cleanEmail    = credentials.email.trim().toLowerCase().replace(/\s+/g, '');
       const cleanPassword = credentials.password.trim();
 
-      // Step 1 — authenticate and get token
       const loginResponse = await apiClient.post('/auth/login', {
         emailOrPhone: cleanEmail,
         password:     cleanPassword,
@@ -170,78 +148,54 @@ export function AuthProvider({ children }: AuthProviderProps) {
         throw new Error(loginResponse.data?.message || 'Login failed');
       }
 
-      if (loginResponse.data?.token) {
-        setToken(loginResponse.data.token);
+      const token = loginResponse.data?.token;
+      if (token) {
+        setToken(token);
+        setAuthCookie(token); // must be set BEFORE navigating to dashboard
       }
 
-      // Step 2 — ALWAYS call /me to get fresh user data including isPinSetup
-      // This guarantees isPinSetup is accurate regardless of what the login
-      // response returns — fixes mobile autofill / caching issues
       const meResponse = await apiClient.get('/auth/me');
-
-      if (!meResponse.data?.user) {
-        throw new Error('Failed to fetch user profile after login');
-      }
+      if (!meResponse.data?.user) throw new Error('Failed to fetch user profile');
 
       const freshUser = meResponse.data.user;
       setUser(freshUser);
 
       const raw = meResponse.data.balance;
-      if (typeof raw === 'number' && isFinite(raw) && raw >= 0) {
-        setBalance(raw);
-      } else {
-        await refreshBalance();
-      }
+      if (typeof raw === 'number' && isFinite(raw) && raw >= 0) setBalance(raw);
+      else await refreshBalance();
 
       resetInactivityTimer(true);
-
-      // Return the fresh user so the login page can check isPinSetup
       return freshUser;
 
     } catch (error: any) {
       removeToken();
+      removeAuthCookie();
       setUser(null);
       setBalance(0);
       throw error;
     }
   };
 
-  // ── Logout ────────────────────────────────────────────────────────────────
-
+  // ── Logout ──────────────────────────────────────────────────────
   const logout = async () => {
     if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
-
     if (user) {
-      try {
-        await apiClient.post('/auth/logout', {});
-      } catch {
-        // Non-critical
-      }
+      try { await apiClient.post('/auth/logout', {}); } catch {}
     }
-
     removeToken();
+    removeAuthCookie();
     setUser(null);
     setBalance(0);
     router.push('/login');
   };
 
-  // ── Context value ─────────────────────────────────────────────────────────
-
   const value: AuthContextType = {
-    user,
-    loading,
-    login,
-    logout,
+    user, loading, login, logout,
     isAuthenticated: !!user,
-    balance,
-    refreshBalance,
+    balance, refreshBalance,
   };
 
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(): AuthContextType {

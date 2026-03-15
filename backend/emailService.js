@@ -1,65 +1,100 @@
-// Install required packages first:
 // npm install nodemailer
-
 const nodemailer = require('nodemailer');
 
-// Email configuration - Add these to your .env file
-const EMAIL_CONFIG = {
-  service: process.env.EMAIL_SERVICE || 'gmail', // or 'outlook', 'yahoo', etc.
-  user: process.env.EMAIL_USER, // your email address
-  pass: process.env.EMAIL_PASS, // your email password or app password
-  from: process.env.EMAIL_FROM || process.env.EMAIL_USER
-};
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS, // Gmail App Password (not your real password)
+  },
+});
 
-// Create email transporter
-const createEmailTransporter = () => {
-  if (!EMAIL_CONFIG.user || !EMAIL_CONFIG.pass) {
-    console.warn('Email credentials not configured. Email notifications disabled.');
-    return null;
+transporter.verify((err) => {
+  if (err) {
+    console.warn('Email transporter not ready — check EMAIL_USER / EMAIL_PASS in .env:', err.message);
+  } else {
+    console.log('Gmail email service ready');
   }
+});
 
-  try {
-    return nodemailer.createTransporter({
-      service: EMAIL_CONFIG.service,
-      auth: {
-        user: EMAIL_CONFIG.user,
-        pass: EMAIL_CONFIG.pass
-      }
-    });
-  } catch (error) {
-    console.error('Error creating email transporter:', error.message);
-    return null;
-  }
-};
+const APP_NAME = 'ConnectPay';
 
-const emailTransporter = createEmailTransporter();
-
-// Send email utility function
+// ── Core send utility ──────────────────────────────────────────
 const sendEmail = async (to, subject, htmlContent, textContent) => {
-  if (!emailTransporter) {
-    console.log(`Email not sent (no transporter): ${subject} to ${to}`);
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    console.log(`Email skipped (not configured): ${subject} to ${to}`);
     return { success: false, message: 'Email service not configured' };
   }
 
   try {
-    const mailOptions = {
-      from: `"Support Team" <${EMAIL_CONFIG.from}>`,
-      to: to,
-      subject: subject,
-      html: htmlContent,
-      text: textContent || htmlContent.replace(/<[^>]*>/g, '') // Strip HTML for text version
-    };
-
-    const result = await emailTransporter.sendMail(mailOptions);
-    console.log(`Email sent successfully to ${to}: ${subject}`);
-    return { success: true, messageId: result.messageId };
+    await transporter.sendMail({
+      from:    `"${APP_NAME}" <${process.env.EMAIL_USER}>`,
+      to,
+      subject,
+      html:    htmlContent,
+      text:    textContent || htmlContent.replace(/<[^>]*>/g, ''),
+    });
+    console.log(`Email sent to ${to}: ${subject}`);
+    return { success: true };
   } catch (error) {
-    console.error(`Email sending failed to ${to}:`, error.message);
+    console.error(`Email failed to ${to}:`, error.message);
     return { success: false, message: error.message };
   }
 };
 
-// Email templates
+// ── Password Reset Email ───────────────────────────────────────
+const sendPasswordResetEmail = async (to, name, resetToken) => {
+  const resetUrl = `${process.env.FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #ff3b30; color: white; padding: 24px 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .header h2 { margin: 0; font-size: 22px; }
+        .content { background: #f9f9f9; padding: 30px 24px; border-radius: 0 0 8px 8px; }
+        .btn { display: inline-block; background: #ff3b30; color: white !important; text-decoration: none; padding: 14px 32px; border-radius: 8px; font-weight: bold; font-size: 16px; margin: 20px 0; }
+        .warning { background: #fff8e1; border-left: 4px solid #ffc107; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 24px; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #999; }
+        .divider { border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>🔐 Password Reset Request</h2>
+        </div>
+        <div class="content">
+          <p>Hi <strong>${name}</strong>,</p>
+          <p>We received a request to reset the password for your ${APP_NAME} account. Click the button below to set a new password:</p>
+          <div style="text-align: center;">
+            <a href="${resetUrl}" class="btn">Reset My Password</a>
+          </div>
+          <hr class="divider" />
+          <p style="font-size: 13px; color: #666;">If the button doesn't work, copy and paste this link into your browser:</p>
+          <p style="font-size: 13px; word-break: break-all; color: #ff3b30;">${resetUrl}</p>
+          <div class="warning">
+            ⚠️ This link expires in <strong>1 hour</strong>. If you did not request a password reset, you can safely ignore this email — your password will not be changed.
+          </div>
+        </div>
+        <div class="footer">
+          <p>© ${new Date().getFullYear()} ${APP_NAME}. All rights reserved.</p>
+          <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `Hi ${name},\n\nReset your ${APP_NAME} password here: ${resetUrl}\n\nThis link expires in 1 hour. If you did not request this, ignore this email.\n\n© ${new Date().getFullYear()} ${APP_NAME}`;
+
+  return sendEmail(to, `Reset Your ${APP_NAME} Password`, html, text);
+};
+
+// ── Support ticket emails ──────────────────────────────────────
 const createTicketConfirmationEmail = (ticket) => {
   const html = `
     <!DOCTYPE html>
@@ -76,53 +111,26 @@ const createTicketConfirmationEmail = (ticket) => {
     </head>
     <body>
       <div class="container">
-        <div class="header">
-          <h2>Support Ticket Received</h2>
-        </div>
+        <div class="header"><h2>Support Ticket Received</h2></div>
         <div class="content">
           <p>Hello,</p>
           <p>Thank you for contacting our support team. We have received your support ticket and will respond as soon as possible.</p>
-          
-          <div class="ticket-id">
-            <strong>Ticket ID:</strong> ${ticket.ticketId}
-          </div>
-          
+          <div class="ticket-id"><strong>Ticket ID:</strong> ${ticket.ticketId}</div>
           <p><strong>Subject:</strong> ${ticket.subject}</p>
           <p><strong>Category:</strong> ${ticket.category}</p>
           <p><strong>Priority:</strong> ${ticket.priority}</p>
           <p><strong>Submitted:</strong> ${new Date(ticket.createdAt).toLocaleString()}</p>
-          
           <hr>
           <p><strong>Your Message:</strong></p>
           <p style="background: white; padding: 15px; border-radius: 5px;">${ticket.comment}</p>
-          
-          <p>We typically respond within 24 hours. You can reference this ticket using the Ticket ID: <strong>${ticket.ticketId}</strong></p>
+          <p>We typically respond within 24 hours. Reference Ticket ID: <strong>${ticket.ticketId}</strong></p>
         </div>
-        <div class="footer">
-          <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
+        <div class="footer"><p>This is an automated message. Please do not reply to this email.</p></div>
       </div>
     </body>
     </html>
   `;
-
-  const text = `
-    Support Ticket Received
-    
-    Thank you for contacting our support team. We have received your support ticket and will respond as soon as possible.
-    
-    Ticket ID: ${ticket.ticketId}
-    Subject: ${ticket.subject}
-    Category: ${ticket.category}
-    Priority: ${ticket.priority}
-    Submitted: ${new Date(ticket.createdAt).toLocaleString()}
-    
-    Your Message:
-    ${ticket.comment}
-    
-    We typically respond within 24 hours. You can reference this ticket using the Ticket ID: ${ticket.ticketId}
-  `;
-
+  const text = `Support Ticket Received\n\nTicket ID: ${ticket.ticketId}\nSubject: ${ticket.subject}\nCategory: ${ticket.category}\nPriority: ${ticket.priority}\nSubmitted: ${new Date(ticket.createdAt).toLocaleString()}\n\nYour Message:\n${ticket.comment}`;
   return { html, text };
 };
 
@@ -143,73 +151,29 @@ const createAdminResponseEmail = (ticket, response) => {
     </head>
     <body>
       <div class="container">
-        <div class="header">
-          <h2>Support Team Response</h2>
-        </div>
+        <div class="header"><h2>Support Team Response</h2></div>
         <div class="content">
           <p>Hello,</p>
-          <p>Our support team has responded to your ticket. Please find the details below:</p>
-          
-          <div class="ticket-id">
-            <strong>Ticket ID:</strong> ${ticket.ticketId}
-          </div>
-          
+          <p>Our support team has responded to your ticket:</p>
+          <div class="ticket-id"><strong>Ticket ID:</strong> ${ticket.ticketId}</div>
           <p><strong>Subject:</strong> ${ticket.subject}</p>
           <p><strong>Status:</strong> ${ticket.status}</p>
           <p><strong>Response Date:</strong> ${new Date().toLocaleString()}</p>
-          
-          <div class="response">
-            <p><strong>Support Team Response:</strong></p>
-            <p>${response}</p>
-          </div>
-          
-          <p>If you have any further questions, please reply to this ticket or create a new support request.</p>
+          <div class="response"><p><strong>Support Team Response:</strong></p><p>${response}</p></div>
         </div>
-        <div class="footer">
-          <p>This is an automated message. Please do not reply to this email.</p>
-        </div>
+        <div class="footer"><p>This is an automated message. Please do not reply to this email.</p></div>
       </div>
     </body>
     </html>
   `;
-
-  const text = `
-    Support Team Response
-    
-    Our support team has responded to your ticket. Please find the details below:
-    
-    Ticket ID: ${ticket.ticketId}
-    Subject: ${ticket.subject}
-    Status: ${ticket.status}
-    Response Date: ${new Date().toLocaleString()}
-    
-    Support Team Response:
-    ${response}
-    
-    If you have any further questions, please reply to this ticket or create a new support request.
-  `;
-
+  const text = `Support Team Response\n\nTicket ID: ${ticket.ticketId}\nSubject: ${ticket.subject}\nStatus: ${ticket.status}\n\nResponse:\n${response}`;
   return { html, text };
 };
 
-// Updated email functions for your support route
 const sendUserConfirmationEmail = async (ticket) => {
   try {
     const emailContent = createTicketConfirmationEmail(ticket);
-    const result = await sendEmail(
-      ticket.email,
-      `Support Ticket Received - ${ticket.ticketId}`,
-      emailContent.html,
-      emailContent.text
-    );
-    
-    if (result.success) {
-      console.log(`Confirmation email sent to ${ticket.email} for ticket ${ticket.ticketId}`);
-    } else {
-      console.error(`Failed to send confirmation email to ${ticket.email}:`, result.message);
-    }
-    
-    return result;
+    return await sendEmail(ticket.email, `Support Ticket Received - ${ticket.ticketId}`, emailContent.html, emailContent.text);
   } catch (error) {
     console.error('Error in sendUserConfirmationEmail:', error.message);
     return { success: false, message: error.message };
@@ -219,33 +183,16 @@ const sendUserConfirmationEmail = async (ticket) => {
 const sendUserResponseNotification = async (ticket, response) => {
   try {
     const emailContent = createAdminResponseEmail(ticket, response);
-    const result = await sendEmail(
-      ticket.email,
-      `Support Update - ${ticket.ticketId}`,
-      emailContent.html,
-      emailContent.text
-    );
-    
-    if (result.success) {
-      console.log(`Response notification sent to ${ticket.email} for ticket ${ticket.ticketId}`);
-    } else {
-      console.error(`Failed to send response notification to ${ticket.email}:`, result.message);
-    }
-    
-    return result;
+    return await sendEmail(ticket.email, `Support Update - ${ticket.ticketId}`, emailContent.html, emailContent.text);
   } catch (error) {
     console.error('Error in sendUserResponseNotification:', error.message);
     return { success: false, message: error.message };
   }
 };
 
-// Admin notification email (optional - for notifying admin team about new tickets)
 const sendAdminNotificationEmail = async (ticket) => {
   const adminEmail = process.env.ADMIN_EMAIL;
-  if (!adminEmail) {
-    console.log('Admin email not configured, skipping admin notification');
-    return { success: false, message: 'Admin email not configured' };
-  }
+  if (!adminEmail) return { success: false, message: 'Admin email not configured' };
 
   try {
     const html = `
@@ -256,28 +203,62 @@ const sendAdminNotificationEmail = async (ticket) => {
       <p><strong>Category:</strong> ${ticket.category}</p>
       <p><strong>Priority:</strong> ${ticket.priority}</p>
       <p><strong>Message:</strong></p>
-      <div style="background: #f5f5f5; padding: 15px; border-radius: 5px;">
-        ${ticket.comment}
-      </div>
-      <p><a href="http://localhost:3000/admin/support/tickets/${ticket.ticketId}">View Ticket</a></p>
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 5px;">${ticket.comment}</div>
+      <p><a href="${process.env.FRONTEND_URL}/admin/support/tickets/${ticket.ticketId}">View Ticket</a></p>
     `;
-
-    const result = await sendEmail(
-      adminEmail,
-      `New Support Ticket: ${ticket.subject}`,
-      html
-    );
-    
-    return result;
+    return await sendEmail(adminEmail, `New Support Ticket: ${ticket.subject}`, html);
   } catch (error) {
     console.error('Error in sendAdminNotificationEmail:', error.message);
     return { success: false, message: error.message };
   }
 };
 
+const sendPasswordChangedEmail = async (to, name) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: #28a745; color: white; padding: 24px 20px; border-radius: 8px 8px 0 0; text-align: center; }
+        .header h2 { margin: 0; font-size: 22px; }
+        .content { background: #f9f9f9; padding: 30px 24px; border-radius: 0 0 8px 8px; }
+        .warning { background: #fff8e1; border-left: 4px solid #ffc107; padding: 12px 16px; border-radius: 4px; font-size: 13px; margin-top: 24px; }
+        .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #999; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h2>✅ Password Changed Successfully</h2>
+        </div>
+        <div class="content">
+          <p>Hi <strong>${name}</strong>,</p>
+          <p>Your ConnectPay account password has been changed successfully.</p>
+          <div class="warning">
+            ⚠️ If you did not make this change, please contact our support team immediately or reset your password right away.
+          </div>
+        </div>
+        <div class="footer">
+          <p>© ${new Date().getFullYear()} ConnectPay. All rights reserved.</p>
+          <p>This is an automated message. Please do not reply to this email.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const text = `Hi ${name},\n\nYour ConnectPay password has been changed successfully.\n\nIf you did not make this change, contact support immediately.\n\n© ${new Date().getFullYear()} ConnectPay`;
+
+  return sendEmail(to, 'Your Password Has Been Changed', html, text);
+};
+
 module.exports = {
   sendEmail,
+  sendPasswordResetEmail,
+   sendPasswordChangedEmail,   
   sendUserConfirmationEmail,
   sendUserResponseNotification,
-  sendAdminNotificationEmail
+  sendAdminNotificationEmail,
 };

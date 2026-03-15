@@ -1,10 +1,13 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { authenticate } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 const { getRedisClient } = require('../utils/redis');
+const { sendPasswordResetEmail, sendPasswordChangedEmail } = require('../emailService');
 
 const router = express.Router();
 
@@ -45,6 +48,32 @@ const COOKIE_OPTIONS = {
   maxAge:   7 * 24 * 60 * 60 * 1000,
 };
 
+// ── Rate limiters ──────────────────────────────────────────────
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many accounts created from this IP. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many password reset requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Validation rules ───────────────────────────────────────────
 const signupValidation = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 100 }),
@@ -59,7 +88,6 @@ const signupValidation = [
     .matches(/[0-9]/).withMessage('Password must contain a number'),
 ];
 
-// Accepts either 'email' or 'emailOrPhone' field name from frontend
 const loginValidation = [
   body('password').notEmpty().withMessage('Password is required'),
   body().custom((_, { req }) => {
@@ -82,7 +110,7 @@ const profileUpdateValidation = [
 ];
 
 // ── POST /signup ───────────────────────────────────────────────
-router.post('/signup', signupValidation, async (req, res) => {
+router.post('/signup', signupLimiter, signupValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -91,7 +119,6 @@ router.post('/signup', signupValidation, async (req, res) => {
 
     const { name, username, email, phone, password } = req.body;
 
-    // Check each field individually — tell user exactly which one is taken
     const [emailExists, usernameExists, phoneExists] = await Promise.all([
       User.findOne({ email }),
       User.findOne({ username }),
@@ -99,25 +126,13 @@ router.post('/signup', signupValidation, async (req, res) => {
     ]);
 
     if (emailExists) {
-      return res.status(409).json({
-        success: false,
-        field:   'email',
-        message: 'This email address is already registered.',
-      });
+      return res.status(409).json({ success: false, field: 'email', message: 'This email address is already registered.' });
     }
     if (usernameExists) {
-      return res.status(409).json({
-        success: false,
-        field:   'username',
-        message: 'This username is already taken.',
-      });
+      return res.status(409).json({ success: false, field: 'username', message: 'This username is already taken.' });
     }
     if (phoneExists) {
-      return res.status(409).json({
-        success: false,
-        field:   'phone',
-        message: 'This phone number is already registered.',
-      });
+      return res.status(409).json({ success: false, field: 'phone', message: 'This phone number is already registered.' });
     }
 
     const user = new User({ name, username, email, phone, password, registrationIP: req.ip });
@@ -136,7 +151,7 @@ router.post('/signup', signupValidation, async (req, res) => {
         name:       user.name,
         username:   user.username,
         email:      user.email,
-        isPinSetup: false, // always false on fresh signup
+        isPinSetup: false,
       },
     });
   } catch (error) {
@@ -146,14 +161,13 @@ router.post('/signup', signupValidation, async (req, res) => {
 });
 
 // ── POST /login ────────────────────────────────────────────────
-router.post('/login', loginValidation, async (req, res) => {
+router.post('/login', loginLimiter, loginValidation, async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({ success: false, message: errors.array()[0].msg });
     }
 
-    // Accept either field name — works with any frontend version
     const rawInput = (req.body.email || req.body.emailOrPhone || '').trim().toLowerCase().replace(/\s+/g, '');
     const password = req.body.password;
 
@@ -168,10 +182,7 @@ router.post('/login', loginValidation, async (req, res) => {
     }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
-      return res.status(423).json({
-        success: false,
-        message: 'Account temporarily locked. Please try again later.',
-      });
+      return res.status(423).json({ success: false, message: 'Account temporarily locked. Please try again later.' });
     }
 
     const isMatch = await user.comparePassword(password);
@@ -209,7 +220,7 @@ router.post('/login', loginValidation, async (req, res) => {
         email:           user.email,
         phone:           user.phone,
         isEmailVerified: user.isEmailVerified ?? false,
-        isPinSetup:      user.isPinSetup ?? false,  // ← NOW INCLUDED
+        isPinSetup:      user.isPinSetup ?? false,
       },
     });
   } catch (error) {
@@ -263,7 +274,6 @@ router.get('/me', authenticate, async (req, res) => {
 
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
 
-    // Return explicit fields so isPinSetup is always present
     return res.json({
       success: true,
       user: {
@@ -273,7 +283,7 @@ router.get('/me', authenticate, async (req, res) => {
         email:           user.email,
         phone:           user.phone,
         isEmailVerified: user.isEmailVerified ?? false,
-        isPinSetup:      user.isPinSetup ?? false,  // ← NOW INCLUDED
+        isPinSetup:      user.isPinSetup ?? false,
       },
       balance: wallet?.balance ?? 0,
     });
@@ -360,8 +370,8 @@ router.post('/verify-pin', authenticate, [
 });
 
 // ── POST /forgot-password ──────────────────────────────────────
-router.post('/forgot-password', [
-  body('email').isEmail().normalizeEmail(),
+router.post('/forgot-password', forgotPasswordLimiter, [
+  body('email').notEmpty().withMessage('Email is required'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -369,19 +379,25 @@ router.post('/forgot-password', [
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const user = await User.findOne({ email: req.body.email });
-    if (!user) {
-      return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
-    }
+    const genericResponse = { success: true, message: 'If an account exists for that email, a reset link has been sent.' };
 
-    const crypto     = require('crypto');
+    const user = await User.findOne({ email: req.body.email.trim().toLowerCase() });
+    if (!user) return res.json(genericResponse);
+
     const resetToken = crypto.randomBytes(32).toString('hex');
     user.resetPasswordToken   = crypto.createHash('sha256').update(resetToken).digest('hex');
     user.resetPasswordExpires = new Date(Date.now() + 60 * 60 * 1000);
     await user.save();
 
-    logger.info('Password reset requested');
-    return res.json({ success: true, message: 'If that email exists, a reset link has been sent.' });
+    const emailResult = await sendPasswordResetEmail(user.email, user.name, resetToken);
+
+    if (!emailResult.success) {
+      logger.error('Password reset email failed to send', emailResult.message);
+    } else {
+      logger.info(`Password reset email sent to ${user.email}`);
+    }
+
+    return res.json(genericResponse);
   } catch (error) {
     logger.error('Forgot password error', error.message);
     return res.status(500).json({ success: false, message: 'Server error.' });
@@ -401,7 +417,6 @@ router.post('/reset-password', [
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const crypto      = require('crypto');
     const hashedToken = crypto.createHash('sha256').update(req.body.token).digest('hex');
     const user        = await User.findOne({
       resetPasswordToken:   hashedToken,
@@ -416,6 +431,11 @@ router.post('/reset-password', [
     user.resetPasswordToken   = undefined;
     user.resetPasswordExpires = undefined;
     await user.save();
+
+    // Send confirmation email — non-blocking
+    sendPasswordChangedEmail(user.email, user.name).catch(err =>
+      logger.error('Password changed email failed', err.message)
+    );
 
     return res.json({ success: true, message: 'Password reset successfully.' });
   } catch (error) {

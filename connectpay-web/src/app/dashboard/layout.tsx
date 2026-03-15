@@ -20,53 +20,47 @@ export default function DashboardLayout({
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // ── Mobile detection — only updates isMobile, never touches isSidebarOpen ──
   useEffect(() => {
     const mobile = window.innerWidth <= 768;
     setIsMobile(mobile);
-    setIsSidebarOpen(!mobile); // set ONCE on mount only
-
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth <= 768);
-    };
+    setIsSidebarOpen(!mobile);
+    const checkMobile = () => setIsMobile(window.innerWidth <= 768);
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // ── Close sidebar on route change (mobile only) ──────────────────────────────
   useEffect(() => {
-    if (window.innerWidth <= 768) {
-      setIsSidebarOpen(false);
-    }
+    if (window.innerWidth <= 768) setIsSidebarOpen(false);
   }, [pathname]);
 
-  // ── Toggle sidebar ───────────────────────────────────────────────────────────
-  const handleToggleSidebar = () => {
-    if (window.innerWidth <= 768) {
-      setIsSidebarOpen(prev => !prev);
-    } else {
-      setIsCollapsed(prev => !prev);
+  // Redirect to login only after loading is done and user is not authenticated
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      router.replace('/login');
     }
+  }, [loading, isAuthenticated, router]);
+
+  const handleToggleSidebar = () => {
+    if (window.innerWidth <= 768) setIsSidebarOpen(prev => !prev);
+    else setIsCollapsed(prev => !prev);
   };
 
   const handleNavigate = (path: string) => router.push(path);
+  const handleLogout = async () => { try { await logout(); } catch {} };
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch {
-      // logout errors are handled in AuthContext
-    }
-  };
-
-  // ── Loading state ─────────────────────────────────────────────────────────────
-  if (loading || !isAuthenticated) {
+  // Only show spinner while the auth check is in progress
+  if (loading) {
     return (
       <div className="dl-loading">
         <div className="dl-spinner" />
-        <p>Loading…</p>
+        <p>Loading...</p>
       </div>
     );
+  }
+
+  // Auth check done but no user — return null, redirect fires via useEffect above
+  if (!isAuthenticated) {
+    return null;
   }
 
   return (
@@ -80,7 +74,6 @@ export default function DashboardLayout({
         onNavigate={handleNavigate}
         onLogout={handleLogout}
       />
-
       <Sidebar
         isOpen={isSidebarOpen}
         setIsOpen={setIsSidebarOpen}
@@ -93,12 +86,7 @@ export default function DashboardLayout({
         balance={balance}
         contextUser={user}
       />
-
-      <main
-        className={`main-content ${isCollapsed ? 'collapsed' : ''} ${
-          !isSidebarOpen && isMobile ? 'no-sidebar' : ''
-        }`}
-      >
+      <main className={`main-content ${isCollapsed ? 'collapsed' : ''} ${!isSidebarOpen && isMobile ? 'no-sidebar' : ''}`}>
         {children}
       </main>
     </div>

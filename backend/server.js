@@ -67,7 +67,7 @@ const allowedOrigins = [
   'http://localhost:5173',
   'http://10.196.79.7:3000',
   'https://admin-connectpay.netlify.app',
-  'https://connectpays.netlify.app', 
+  'https://connectpays.netlify.app',
   // 'https://connectpay.com.ng',
 ];
 
@@ -114,7 +114,6 @@ app.use(cookieParser());
 logger.success('Cookie parser configured');
 
 // ── Request ID (correlation ID for tracing) ────────────────────
-// Placed before CSRF so req.id is available in CSRF error logs
 const { randomUUID } = require('crypto');
 app.use((req, res, next) => {
   req.id = randomUUID();
@@ -123,17 +122,6 @@ app.use((req, res, next) => {
 });
 
 // ── CSRF protection ────────────────────────────────────────────
-// Uses the double-submit cookie pattern:
-//   1. GET /api/auth/csrf-token → sets a signed __Host-csrf cookie + returns token in JSON
-//   2. Frontend includes the token as X-CSRF-Token header on every state-changing request
-//   3. doubleCsrfProtection middleware validates the header matches the cookie on POST/PUT/PATCH/DELETE
-//
-// sameSite: 'strict' on auth cookies already blocks most CSRF, but this
-// adds a second layer for defence-in-depth.
-//
-// Exemptions: Paystack webhooks (/api/paystack/webhook) use HMAC signatures
-// instead of CSRF tokens — they are excluded below.
-
 if (!process.env.CSRF_SECRET) {
   logger.warn('CSRF_SECRET not set in .env — CSRF protection is disabled. Set a strong random secret.');
 }
@@ -142,8 +130,6 @@ const CSRF_COOKIE_NAME = process.env.NODE_ENV === 'production' ? '__Host-csrf' :
 
 const csrfResult = doubleCsrf({
   getSecret:            () => process.env.CSRF_SECRET || 'dev-csrf-secret-change-in-production',
-  // For stateless JWT auth, use the auth token as the session identifier.
-  // Falls back to a fixed string for unauthenticated requests (e.g. login page).
   getSessionIdentifier: (req) =>
     req.cookies?.token ||
     req.header('Authorization')?.replace('Bearer ', '') ||
@@ -160,16 +146,13 @@ const csrfResult = doubleCsrf({
     req.headers['x-csrf-token'] || req.body?._csrf,
 });
 
-// csrf-csrf v4 exports generateCsrfToken
 const generateToken        = csrfResult.generateCsrfToken ?? csrfResult.generateToken;
 const doubleCsrfProtection = csrfResult.doubleCsrfProtection;
 
-// Expose CSRF token endpoint — frontend calls this once on load
 app.get('/api/auth/csrf-token', (req, res) => {
   res.json({ csrfToken: 'disabled' });
 });
-// Apply CSRF validation to all state-changing API routes
-// Webhook paths that use their own HMAC auth are excluded
+
 const CSRF_EXEMPT = [
   '/api/paystack/webhook',
   '/api/payment/webhook',
@@ -177,9 +160,7 @@ const CSRF_EXEMPT = [
 
 // CSRF disabled for cross-domain production — re-enable when on same domain
 // app.use((req, res, next) => {
-//   if (CSRF_EXEMPT.some(path => req.path.startsWith(path))) {
-//     return next();
-//   }
+//   if (CSRF_EXEMPT.some(path => req.path.startsWith(path))) return next();
 //   return doubleCsrfProtection(req, res, next);
 // });
 
@@ -197,8 +178,18 @@ const globalLimiter = rateLimit({
 });
 app.use('/api/', globalLimiter);
 
-// Auth: 10 attempts per 15 min (failed attempts only)
-const authLimiter = rateLimit({
+// Signup: 5 new accounts per IP per hour — was missing, allowed mass registration
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many accounts created from this IP. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/signup', signupLimiter);
+
+// Login: 10 attempts per 15 min (failed only)
+const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   message: { success: false, message: 'Too many login attempts. Try again in 15 minutes.' },
@@ -206,8 +197,17 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
-app.use('/api/auth/login',    authLimiter);
-app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/login', loginLimiter);
+
+// Forgot password: 5 per hour per IP
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { success: false, message: 'Too many password reset requests. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/forgot-password', forgotPasswordLimiter);
 
 // Purchase (transactional): 20 req per 15 min
 const purchaseLimiter = rateLimit({
@@ -271,9 +271,6 @@ const adminLimiter = rateLimit({
 app.use('/api/admin', adminLimiter);
 
 // ── Body parser ────────────────────────────────────────────────
-// The verify callback captures the raw body buffer for the Paystack
-// webhook route only — needed for correct HMAC signature validation.
-// All other routes are unaffected.
 app.use(express.json({
   limit: '100kb',
   verify: (req, res, buf) => {
@@ -294,8 +291,6 @@ app.use(mongoSanitize({
   },
 }));
 logger.success('MongoDB sanitization configured');
-
-// ── Request ID moved — see above (before CSRF) ────────────────
 
 // ── Content-Type enforcement on POST/PUT/PATCH ─────────────────
 app.use((req, res, next) => {
@@ -415,7 +410,6 @@ app.use((req, res) => {
 
 // ── Global error handler ───────────────────────────────────────
 app.use((err, req, res, next) => {
-  // Handle CSRF errors specifically
   if (err.code === 'EBADCSRFTOKEN' || err.message?.includes('invalid csrf token')) {
     logger.warn(`CSRF token invalid — [${req.id}] ${req.method} ${req.path} from ${req.ip}`);
     return res.status(403).json({ success: false, message: 'Invalid or missing CSRF token.' });
