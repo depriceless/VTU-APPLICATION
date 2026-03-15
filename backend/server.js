@@ -404,6 +404,12 @@ for (const [path, routePath] of dynamicRoutes) {
 logger.success('All routes registered');
 
 // ── 404 handler ────────────────────────────────────────────────
+// ── Loader.io verification ─────────────────────────────────────
+app.get('/loaderio-214388c4adaf4313bee9a2e56505a732', (req, res) => {
+  res.send('loaderio-214388c4adaf4313bee9a2e56505a732');
+});
+
+// ── 404 handler ────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });

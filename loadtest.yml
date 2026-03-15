@@ -1,0 +1,28 @@
+config:
+  target: 'https://vtu-application.onrender.com'
+  phases:
+    - duration: 60
+      arrivalRate: 5
+  defaults:
+    headers:
+      Content-Type: application/json
+
+scenarios:
+  - name: "Auth and Plans"
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            emailOrPhone: "Mutiuridwan0@gmail.com"
+            password: "Depriceless12@"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/balance"
+          headers:
+            Authorization: "Bearer {{ token }}"
+      - get:
+          url: "/api/easyaccess/plans/mtn"
+          headers:
+            Authorization: "Bearer {{ token }}"
