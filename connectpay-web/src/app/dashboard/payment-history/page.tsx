@@ -152,49 +152,37 @@ export default function PaymentHistory() {
     router.push(`/dashboard/transaction-details?data=${encodeURIComponent(JSON.stringify(transaction))}`);
   };
 
-  if (isLoading) {
-    return (
-      <div className="page-container">
-        <div className="loading-wrapper">
-          <div className="spinner"></div>
-          <p className="loading-text">Loading payment history...</p>
-        </div>
-        <style jsx>{`
-          .page-container {
-            padding: 16px 24px;
-            max-width: 1400px;
-            margin: 0 auto;
-            min-height: 400px;
-          }
-          .loading-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 400px;
-            flex-direction: column;
-            gap: 16px;
-          }
-          .spinner {
-            width: 48px;
-            height: 48px;
-            border: 4px solid #e5e7eb;
-            border-top-color: #22c55e;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-          }
-          .loading-text {
-            color: #6b7280;
-            font-size: 14px;
-            font-weight: 500;
-          }
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
+if (isLoading) {
+  return (
+    <div style={{ padding: '16px 24px', maxWidth: 1400, margin: '0 auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <div style={{ height: 36, width: 36, background: '#e5e7eb', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 24, width: 180, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 36, width: 36, background: '#e5e7eb', borderRadius: 8, marginLeft: 'auto', animation: 'pulse 1.5s infinite' }} />
       </div>
-    );
-  }
-
+      <div style={{ background: 'white', borderRadius: 12, padding: '20px 24px', marginBottom: 24, border: '1px solid #e5e7eb' }}>
+        <div style={{ height: 18, width: '70%', background: '#e5e7eb', borderRadius: 6, margin: '0 auto', animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <div style={{ background: 'white', borderRadius: 12, border: '1px solid #e5e7eb', overflow: 'hidden' }}>
+        <div style={{ background: '#f9fafb', padding: '16px 12px', borderBottom: '2px solid #e5e7eb', display: 'flex', gap: 16 }}>
+          {[40, 80, 160, 80, 120, 80].map((w, i) => (
+            <div key={i} style={{ height: 13, width: w, background: '#e5e7eb', borderRadius: 4, animation: 'pulse 1.5s infinite' }} />
+          ))}
+        </div>
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{ padding: '14px 12px', borderBottom: '1px solid #f3f4f6', display: 'flex', gap: 16, alignItems: 'center' }}>
+            {[40, 80, 160, 80, 120, 70].map((w, j) => (
+              <div key={j} style={{ height: 14, width: w, background: '#f3f4f6', borderRadius: 4, animation: 'pulse 1.5s infinite', animationDelay: `${i * 0.05}s` }} />
+            ))}
+          </div>
+        ))}
+      </div>
+      <style jsx>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
+    </div>
+  );
+}
   return (
     <div className="page-container">
       <div className="header-section">

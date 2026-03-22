@@ -6,6 +6,13 @@ import apiClient from '@/lib/api';
 import { DataSuccessModal } from '@/components/SuccessModal/page';
 import { logger } from '@/lib/logger';
 
+// FIX: simple UUID generator — no external package needed
+const generateRequestId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+
 interface DataPlan {
   id: string;
   planId: string;
@@ -68,13 +75,13 @@ export default function BuyDataPage() {
 
   const detectNetwork = (phoneNumber: string): string | null => {
     const prefix = phoneNumber.substring(0, 4);
-    const mtnPrefixes     = ['0803','0806','0703','0706','0813','0816','0810','0814','0903','0906','0913','0916'];
-    const airtelPrefixes  = ['0802','0808','0812','0701','0902','0907','0901','0904','0912'];
-    const gloPrefixes     = ['0805','0807','0815','0811','0705','0905','0915'];
+    const mtnPrefixes        = ['0803','0806','0703','0706','0813','0816','0810','0814','0903','0906','0913','0916'];
+    const airtelPrefixes     = ['0802','0808','0812','0701','0902','0907','0901','0904','0912'];
+    const gloPrefixes        = ['0805','0807','0815','0811','0705','0905','0915'];
     const nineMobilePrefixes = ['0809','0818','0817','0909','0908'];
-    if (mtnPrefixes.includes(prefix))      return 'mtn';
-    if (airtelPrefixes.includes(prefix))   return 'airtel';
-    if (gloPrefixes.includes(prefix))      return 'glo';
+    if (mtnPrefixes.includes(prefix))        return 'mtn';
+    if (airtelPrefixes.includes(prefix))     return 'airtel';
+    if (gloPrefixes.includes(prefix))        return 'glo';
     if (nineMobilePrefixes.includes(prefix)) return '9mobile';
     return null;
   };
@@ -88,7 +95,7 @@ export default function BuyDataPage() {
 
   const categorizedPlans = categorizePlans(dataPlans);
   const displayPlans     = categorizedPlans[selectedCategory];
-  const isPhoneValid     = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
+  const isPhoneValid     = phone.length === 11 && /^0[789]\d{9}$/.test(phone); // FIX: updated regex
   const hasEnoughBalance = selectedPlan ? selectedPlan.customerPrice <= balance : true;
   const canProceed       = isPhoneValid && selectedNetwork && selectedPlan;
 
@@ -113,15 +120,15 @@ export default function BuyDataPage() {
       const response = await apiClient.get(`/easyaccess/plans/${network}?t=${Date.now()}`);
       if (response.data.success && response.data.plans) {
         const plans: DataPlan[] = response.data.plans.map((plan: any) => ({
-          id: plan.id != null ? String(plan.id) : String(plan.planId),
-          planId: plan.planId != null ? String(plan.planId) : String(plan.id),
-          name: plan.name ?? 'Unknown Plan',
-          dataSize: plan.dataSize ?? '',
+          id:            plan.id != null ? String(plan.id) : String(plan.planId),
+          planId:        plan.planId != null ? String(plan.planId) : String(plan.id),
+          name:          plan.name ?? 'Unknown Plan',
+          dataSize:      plan.dataSize ?? '',
           customerPrice: plan.customerPrice != null ? Number(plan.customerPrice) : 0,
-          amount: plan.providerCost != null ? Number(plan.providerCost) : (plan.amount != null ? Number(plan.amount) : 0),
-          validity: plan.validity ?? '',
-          network: plan.network ?? network,
-          type: (plan.type as PlanCategory) ?? 'regular',
+          amount:        plan.providerCost != null ? Number(plan.providerCost) : (plan.amount != null ? Number(plan.amount) : 0),
+          validity:      plan.validity ?? '',
+          network:       plan.network ?? network,
+          type:          (plan.type as PlanCategory) ?? 'regular',
         }));
         if (isMountedRef.current) setDataPlans(plans);
       } else { if (isMountedRef.current) setDataPlans([]); }
@@ -153,11 +160,11 @@ export default function BuyDataPage() {
 
   useEffect(() => { if (showPinModal) setTimeout(() => pinInputRef.current?.focus(), 100); }, [showPinModal]);
 
-  const handleNetworkSelect  = (id: string) => { setSelectedNetwork(id); setDropdownOpen(false); };
-  const handlePlanSelect     = (plan: DataPlan) => setSelectedPlan(plan);
+  const handleNetworkSelect   = (id: string) => { setSelectedNetwork(id); setDropdownOpen(false); };
+  const handlePlanSelect      = (plan: DataPlan) => setSelectedPlan(plan);
   const handleProceedToReview = () => {
     if (!canProceed) {
-      if (!isPhoneValid)    alert('Please enter a valid 11-digit phone number');
+      if (!isPhoneValid)         alert('Please enter a valid 11-digit phone number');
       else if (!selectedNetwork) alert('Please select a network');
       else if (!selectedPlan)    alert('Please select a data plan');
       return;
@@ -168,49 +175,94 @@ export default function BuyDataPage() {
   const handleProceedToPinEntry = () => { setPin(''); setPinError(''); setShowPinModal(true); };
 
   const handleBuyData = async () => {
+    // FIX: block if already processing
+    if (isProcessing) return;
     try {
       if (pin.length !== 4) { setPinError('Please enter a 4-digit PIN'); return; }
       if (!selectedNetwork || !phone || phone.length !== 11 || !selectedPlan) { setPinError('Invalid purchase details'); return; }
-      setIsProcessing(true); setPinError('');
+      setIsProcessing(true);
+      setPinError('');
+
+      // FIX: generate unique request ID for idempotency
+      const clientRequestId = generateRequestId();
+
       const response = await apiClient.post('/purchase', {
-        type: 'data', network: selectedNetwork, phone, planId: selectedPlan.planId,
-        plan: selectedPlan.name, amount: selectedPlan.customerPrice, pin,
+        type:    'data',
+        network: selectedNetwork,
+        phone,
+        planId:  selectedPlan.planId,
+        plan:    selectedPlan.name,
+        amount:  selectedPlan.customerPrice,
+        pin,
+        clientRequestId, // FIX: send to backend
       });
+
       if (response.data?.success) {
         const networkName = networks.find(n => n.id === selectedNetwork)?.label || selectedNetwork.toUpperCase();
-        setSuccessData({ transaction: response.data.transaction || {}, networkName, phone, amount: response.data.transaction?.amount || selectedPlan?.customerPrice, dataPlan: selectedPlan?.name, dataSize: selectedPlan?.dataSize, validity: selectedPlan?.validity, newBalance: response.data.newBalance || response.data.balance });
+        setSuccessData({
+          transaction: response.data.transaction || {},
+          networkName, phone,
+          amount:    response.data.transaction?.amount || selectedPlan?.customerPrice,
+          dataPlan:  selectedPlan?.name,
+          dataSize:  selectedPlan?.dataSize,
+          validity:  selectedPlan?.validity,
+          newBalance: response.data.newBalance || response.data.balance,
+        });
         if (response.data.newBalance !== undefined) setBalance(extractBalance(response.data.newBalance));
         else if (response.data.balance !== undefined) setBalance(extractBalance(response.data.balance));
         else await fetchBalance();
         setPhone(''); setSelectedNetwork(''); setSelectedPlan(null); setDataPlans([]); setPin(''); setCurrentStep(1);
         setShowPinModal(false);
         setTimeout(() => setShowSuccessModal(true), 200);
-      } else { setPinError(response.data?.message || 'Transaction failed. Please try again.'); }
+      } else {
+        setPinError(response.data?.message || 'Transaction failed. Please try again.');
+      }
     } catch (error: any) {
-      if (error.response?.data?.message) setPinError(error.response.data.message);
-      else if (error.message) setPinError(error.message);
-      else setPinError('Unable to process payment. Please try again.');
-    } finally { setIsProcessing(false); }
+      // FIX: handle new backend error codes properly
+      const status  = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 423) {
+        setPinError(message || 'Account locked due to too many failed PIN attempts.');
+      } else if (status === 400 && message?.includes('Daily limit')) {
+        setPinError(message);
+      } else if (message) {
+        setPinError(message);
+      } else if (error.message) {
+        setPinError(error.message);
+      } else {
+        setPinError('Unable to process payment. Please try again.');
+      }
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const handleClosePinModal   = () => { if (!isProcessing) { setShowPinModal(false); setPin(''); setPinError(''); } };
+  const handleClosePinModal     = () => { if (!isProcessing) { setShowPinModal(false); setPin(''); setPinError(''); } };
   const handleCloseSuccessModal = () => { setShowSuccessModal(false); setSuccessData(null); };
-  const handleBuyMoreData     = () => { setShowSuccessModal(false); setSuccessData(null); setCurrentStep(1); };
-  const handleBackToForm      = () => setCurrentStep(1);
+  const handleBuyMoreData       = () => { setShowSuccessModal(false); setSuccessData(null); setCurrentStep(1); };
+  const handleBackToForm        = () => setCurrentStep(1);
 
-  const netColor = NETWORK_COLORS[selectedNetwork] || NETWORK_COLORS['airtel'];
-
-  if (isLoading) {
-    return (
-      <div className="page-container">
-        <div className="loading-container">
-          <div className="spinner" />
-          <p className="loading-text">Loading...</p>
-        </div>
-        <style jsx>{sharedStyles}</style>
+ if (isLoading) {
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div style={{ height: 24, width: 120, background: '#e5e7eb', borderRadius: 6, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 14, width: 100, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
       </div>
-    );
-  }
+      <div className="card">
+        <div style={{ height: 48, background: '#f3f4f6', borderRadius: 8, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{ marginBottom: 18 }}>
+            <div style={{ height: 13, width: 100, background: '#e5e7eb', borderRadius: 4, marginBottom: 7, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ height: 44, background: '#f3f4f6', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+          </div>
+        ))}
+        <div style={{ height: 48, background: '#e5e7eb', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <style jsx>{sharedStyles}</style>
+    </div>
+  );
+}
 
   return (
     <div className="page-container">
@@ -229,7 +281,8 @@ export default function BuyDataPage() {
           <div className="balance-header">
             <div className="wallet-badge">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
-                <path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/><path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
+                <path d="M20 12V22H4V12"/><path d="M22 7H2v5h20V7z"/><path d="M12 22V7"/>
+                <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
               </svg>
               <span>₦{balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
@@ -287,7 +340,6 @@ export default function BuyDataPage() {
             {selectedNetwork && (
               <div className="form-group">
                 <label>Select Data Plan</label>
-
                 {isLoadingPlans ? (
                   <div className="loading-plans">
                     <div className="spinner-small" />
@@ -295,7 +347,6 @@ export default function BuyDataPage() {
                   </div>
                 ) : dataPlans.length > 0 ? (
                   <>
-                    {/* Category tabs */}
                     <div className="category-tabs">
                       {([
                         { key: 'regular' as PlanCategory, label: 'Regular' },
@@ -310,8 +361,6 @@ export default function BuyDataPage() {
                         </button>
                       ))}
                     </div>
-
-                    {/* Plan grid */}
                     {displayPlans.length > 0 ? (
                       <div className="plans-grid">
                         {displayPlans.map((plan, index) => {
@@ -320,40 +369,24 @@ export default function BuyDataPage() {
                             <div key={`${plan.network}-${plan.id}-${index}`}
                               className={`plan-card ${isSelected ? 'selected' : ''}`}
                               onClick={() => handlePlanSelect(plan)}
-                              style={isSelected ? {
-                                borderColor: '#d1d5db',
-                                background: '#f9fafb',
-                              } : {}}>
-
-                              {/* Selected checkmark */}
+                              style={isSelected ? { borderColor: '#d1d5db', background: '#f9fafb' } : {}}>
                               {isSelected && (
                                 <div className="plan-selected-badge" style={{background: '#dc2626'}}>
                                   <Check size={10} color="white" strokeWidth={3} />
                                 </div>
                               )}
-
-                              {/* Data size pill */}
-                              <div className="plan-size-pill" style={isSelected ? {
-                                background: '#fee2e2',
-                                color: '#dc2626',
-                              } : {}}>
+                              <div className="plan-size-pill" style={isSelected ? { background: '#fee2e2', color: '#dc2626' } : {}}>
                                 {plan.dataSize}
                               </div>
-
-                              {/* Price */}
                               <div className="plan-price" style={isSelected ? { color: '#dc2626' } : {}}>
                                 ₦{plan.customerPrice.toLocaleString()}
                               </div>
-
-                              {/* Validity */}
                               <div className="plan-validity-row">
                                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                   <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
                                 </svg>
                                 {plan.validity}
                               </div>
-
-                              {/* Plan type label */}
                               <div className="plan-type-label">{plan.name}</div>
                             </div>
                           );
@@ -386,6 +419,7 @@ export default function BuyDataPage() {
             )}
           </div>
 
+          {/* FIX: disabled while processing */}
           <button onClick={handleProceedToReview} className="submit-btn" disabled={!canProceed || isProcessing}>
             {!canProceed
               ? 'Complete Form to Continue'
@@ -434,6 +468,7 @@ export default function BuyDataPage() {
               </div>
             </div>
             {pinError && <div className="pin-error-message">{pinError}</div>}
+            {/* FIX: disabled while processing to prevent double click */}
             <button onClick={handleBuyData} className="submit-btn" disabled={pin.length !== 4 || isProcessing}>
               {isProcessing ? 'Processing…' : 'Confirm Purchase'}
             </button>
@@ -470,10 +505,7 @@ const sharedStyles = `
   .breadcrumb-link:hover { color: #dc2626; }
   .breadcrumb-separator { color: #9ca3af; }
   .breadcrumb-current { color: #1f2937; font-weight: 500; }
-
   .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); border: 1px solid #e5e7eb; max-width: 700px; margin: 0 auto; }
-
-  /* Balance */
   .balance-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 12px 14px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
   .wallet-badge { display: flex; align-items: center; gap: 8px; }
   .wallet-badge span { font-size: 15px; font-weight: 700; color: #16a34a; }
@@ -482,8 +514,6 @@ const sharedStyles = `
   .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .spinning { animation: spin 0.8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  /* Form */
   .form { display: flex; flex-direction: column; gap: 18px; margin-bottom: 18px; }
   .form-group { display: flex; flex-direction: column; }
   .form-group label { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 7px; letter-spacing: 0.01em; }
@@ -494,8 +524,6 @@ const sharedStyles = `
   .text-input::placeholder { color: #9ca3af; font-weight: 400; }
   .validation-success { margin-top: 7px; display: flex; align-items: center; gap: 5px; color: #16a34a; font-size: 12px; font-weight: 500; }
   .validation-error { margin-top: 7px; color: #dc2626; font-size: 12px; font-weight: 500; }
-
-  /* Network dropdown */
   .custom-select-wrapper { position: relative; }
   .custom-select-trigger { width: 100%; padding: 11px 14px; font-size: 14px; border: 1.5px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; transition: all 0.2s; display: flex; justify-content: space-between; align-items: center; user-select: none; }
   .custom-select-trigger:hover { border-color: #9ca3af; }
@@ -509,107 +537,27 @@ const sharedStyles = `
   .custom-select-option:hover { background: #fef2f2; color: #dc2626; }
   .custom-select-option.selected { background: #dc2626; color: white; font-weight: 600; }
   .net-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-
-  /* Loading */
   .loading-plans { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 28px; color: #6b7280; font-size: 13px; }
   .spinner-small { width: 16px; height: 16px; border: 2px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
-
-  /* Category tabs */
   .category-tabs { display: flex; gap: 4px; margin-bottom: 14px; background: #f3f4f6; border-radius: 10px; padding: 4px; }
   .category-tab { flex: 1; padding: 8px 6px; border-radius: 7px; background: transparent; border: none; font-size: 12px; font-weight: 600; color: #6b7280; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 5px; }
   .category-tab.active { background: white; color: #dc2626; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
-  .tab-count { font-size: 10px; font-weight: 700; background: #e5e7eb; color: #6b7280; border-radius: 20px; padding: 1px 6px; line-height: 1.4; }
-  .tab-count.active { background: #fef2f2; color: #dc2626; }
-
-  /* ── PLAN GRID ── */
-  .plans-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-    gap: 10px;
-    max-height: 420px;
-    overflow-y: auto;
-    padding: 2px 2px 4px;
-  }
+  .plans-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; max-height: 420px; overflow-y: auto; padding: 2px 2px 4px; }
   .plans-grid::-webkit-scrollbar { width: 5px; }
   .plans-grid::-webkit-scrollbar-track { background: #f3f4f6; border-radius: 3px; }
   .plans-grid::-webkit-scrollbar-thumb { background: #fca5a5; border-radius: 3px; }
   .plans-grid::-webkit-scrollbar-thumb:hover { background: #dc2626; }
-
-  .plan-card {
-    position: relative;
-    background: #fafafa;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 14px 12px 12px;
-    cursor: pointer;
-    transition: all 0.2s;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    overflow: hidden;
-  }
+  .plan-card { position: relative; background: #fafafa; border: 1.5px solid #e5e7eb; border-radius: 12px; padding: 14px 12px 12px; cursor: pointer; transition: all 0.2s; display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
   .plan-card:hover { border-color: #fca5a5; background: #fff; box-shadow: 0 4px 12px rgba(220,38,38,0.08); transform: translateY(-1px); }
   .plan-card.selected { box-shadow: 0 4px 16px rgba(220,38,38,0.15); transform: translateY(-1px); }
-
-  .plan-selected-badge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .plan-size-pill {
-    display: inline-block;
-    font-size: 15px;
-    font-weight: 800;
-    color: #1f2937;
-    background: #f3f4f6;
-    padding: 3px 10px;
-    border-radius: 20px;
-    letter-spacing: -0.3px;
-    transition: all 0.2s;
-    width: fit-content;
-  }
-
-  .plan-price {
-    font-size: 17px;
-    font-weight: 800;
-    color: #16a34a;
-    letter-spacing: -0.5px;
-    transition: color 0.2s;
-  }
-
-  .plan-validity-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    color: #9ca3af;
-    font-weight: 500;
-  }
-
-  .plan-type-label {
-    font-size: 10px;
-    color: #9ca3af;
-    font-weight: 500;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Empty state */
+  .plan-selected-badge { position: absolute; top: 8px; right: 8px; width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+  .plan-size-pill { display: inline-block; font-size: 15px; font-weight: 800; color: #1f2937; background: #f3f4f6; padding: 3px 10px; border-radius: 20px; letter-spacing: -0.3px; transition: all 0.2s; width: fit-content; }
+  .plan-price { font-size: 17px; font-weight: 800; color: #16a34a; letter-spacing: -0.5px; transition: color 0.2s; }
+  .plan-validity-row { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #9ca3af; font-weight: 500; }
+  .plan-type-label { font-size: 10px; color: #9ca3af; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 40px 20px; color: #9ca3af; font-size: 13px; text-align: center; }
   .empty-state p { margin: 0; }
-
-  /* Warnings */
   .insufficient-warning { margin-top: 12px; padding: 10px 14px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #dc2626; font-size: 13px; font-weight: 500; }
-
-  /* Review */
   .review-title { font-size: 18px; font-weight: 700; color: #1f2937; margin: 0 0 16px 0; }
   .summary-card { background: #f9fafb; border-radius: 10px; padding: 16px; margin-bottom: 16px; border: 1px solid #e5e7eb; }
   .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
@@ -620,8 +568,6 @@ const sharedStyles = `
   .summary-row.total { padding: 14px; background: #fef2f2; margin: 8px -16px -16px; border-radius: 0 0 10px 10px; border-bottom: none; }
   .summary-row.total span:first-child { color: #1f2937; font-size: 14px; font-weight: 600; }
   .summary-row.total span:last-child { color: #dc2626; font-size: 22px; font-weight: 800; }
-
-  /* Buttons */
   .submit-btn { width: 100%; padding: 13px; background: #dc2626; color: white; font-size: 15px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s; letter-spacing: 0.01em; }
   .submit-btn:hover:not(:disabled) { background: #b91c1c; box-shadow: 0 4px 14px rgba(220,38,38,0.3); }
   .submit-btn:disabled { background: #d1d5db; cursor: not-allowed; }
@@ -631,13 +577,9 @@ const sharedStyles = `
   .cancel-btn { width: 100%; padding: 13px; background: white; color: #6b7280; font-size: 15px; font-weight: 600; border: 1.5px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
   .cancel-btn:hover:not(:disabled) { border-color: #9ca3af; color: #374151; background: #f9fafb; }
   .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  /* Loading screen */
   .loading-container { display: flex; justify-content: center; align-items: center; min-height: 400px; flex-direction: column; gap: 14px; }
   .spinner { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 0.8s linear infinite; }
   .loading-text { color: #6b7280; font-size: 13px; font-weight: 500; }
-
-  /* Modal */
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; animation: fadeIn 0.2s ease-out; backdrop-filter: blur(2px); }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .modal-content { background: white; border-radius: 16px; padding: 28px 24px; max-width: 500px; width: 100%; position: relative; box-shadow: 0 24px 48px rgba(0,0,0,0.15); animation: slideUp 0.25s ease-out; }
@@ -656,14 +598,7 @@ const sharedStyles = `
   .pin-dot.error { background: #ef4444; animation: shake 0.3s; }
   @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
   .pin-error-message { background: #fef2f2; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; text-align: center; margin-bottom: 14px; border: 1px solid #fecaca; }
-
-  @media (max-width: 768px) {
-    .page-container { padding: 12px; }
-    .plans-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
-    .modal-content { padding: 24px 18px; }
-  }
-  @media (max-width: 480px) {
-    .plans-grid { grid-template-columns: repeat(2, 1fr); }
-    .category-tab { font-size: 11px; }
-  }
+  @media (max-width: 768px) { .page-container { padding: 12px; } .plans-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; } .modal-content { padding: 24px 18px; } }
+  @media (max-width: 480px) { .plans-grid { grid-template-columns: repeat(2, 1fr); } .category-tab { font-size: 11px; } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 `;

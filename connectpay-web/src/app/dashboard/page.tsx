@@ -191,16 +191,43 @@ export default function DashboardPage() {
     { icon: HelpCircle,    label: 'Support',         bg: '#0ea5e9', path: '/dashboard/need-help' },
   ];
 
-  if (isLoading) {
-    return (
-      <div className={s.dashboardContent}>
-        <div className={s.loadingWrapper}>
-          <div className={s.spinner} />
-          <p style={{ color: '#6b7280', fontSize: 14, fontWeight: 500 }}>Loading dashboard...</p>
-        </div>
+if (isLoading) {
+  return (
+    <div className={s.dashboardContent}>
+      <div className={s.balanceCardsRow}>
+        {[0, 1].map(i => (
+          <div key={i} className={s.balanceCard}>
+            <div style={{ height: 14, width: '60%', background: '#e5e7eb', borderRadius: 6, marginBottom: 12, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ height: 32, width: '80%', background: '#e5e7eb', borderRadius: 6, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ height: 12, width: '40%', background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+          </div>
+        ))}
       </div>
-    );
-  }
+      <div className={s.fundingSection}>
+        <div style={{ height: 16, width: '40%', background: '#e5e7eb', borderRadius: 6, marginBottom: 16, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 56, background: '#f3f4f6', borderRadius: 10, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 56, background: '#f3f4f6', borderRadius: 10, animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <div className={s.quickActionsGrid}>
+        {Array(9).fill(0).map((_, i) => (
+          <div key={i} style={{ height: 80, background: '#e5e7eb', borderRadius: 12, animation: 'pulse 1.5s infinite', animationDelay: `${i * 0.05}s` }} />
+        ))}
+      </div>
+      <div className={s.recentTransactionsSection}>
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid #f3f4f6' }}>
+            <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#e5e7eb', flexShrink: 0, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ height: 14, width: '60%', background: '#e5e7eb', borderRadius: 6, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+              <div style={{ height: 11, width: '35%', background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+            </div>
+            <div style={{ height: 16, width: 70, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
   return (
     <div className={s.dashboardContent}>
@@ -298,10 +325,10 @@ export default function DashboardPage() {
             </div>
           </>
         ) : (
-          <div className={s.loadingAccount}>
-            <div className={s.spinner} style={{ width: 24, height: 24, borderWidth: 3 }} />
-            <p style={{ margin: 0, fontSize: 13, color: '#9ca3af' }}>Loading account details...</p>
-          </div>
+          <div>
+  <div style={{ height: 56, background: '#f3f4f6', borderRadius: 10, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+  <div style={{ height: 56, background: '#f3f4f6', borderRadius: 10, animation: 'pulse 1.5s infinite' }} />
+</div>
         )}
       </div>
 

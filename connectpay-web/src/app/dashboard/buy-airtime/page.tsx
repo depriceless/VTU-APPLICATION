@@ -8,6 +8,12 @@ import apiClient, { storage } from '@/lib/api';
 import { AirtimeSuccessModal } from '@/components/SuccessModal/page';
 import { logger } from '@/lib/logger';
 
+const generateRequestId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+
 export default function BuyAirtimePage() {
   const router = useRouter();
   const { user: contextUser, isAuthenticated } = useAuth();
@@ -106,14 +112,17 @@ export default function BuyAirtimePage() {
   };
 
   const handleBuyAirtime = async () => {
+    if (isProcessing) return;
     try {
       if (pin.length !== 4) { setPinError('Please enter a 4-digit PIN'); return; }
       setIsProcessing(true);
       setPinError('');
       const amountNum = parseFloat(amount);
+      const clientRequestId = generateRequestId();
       logger.info('Airtime purchase attempt started');
       const response = await apiClient.post('/purchase', {
         type: 'airtime', network: selectedNetwork, phone, amount: amountNum, pin,
+        clientRequestId,
       });
       logger.info('Purchase response received');
       if (response.data?.success) {
@@ -136,9 +145,19 @@ export default function BuyAirtimePage() {
       }
     } catch (error: any) {
       logger.error('Purchase failed');
-      if (error.response?.data?.message) setPinError(error.response.data.message);
-      else if (error.message) setPinError(error.message);
-      else setPinError('Unable to process payment. Please try again.');
+      const status = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 423) {
+        setPinError(message || 'Account locked due to too many failed PIN attempts.');
+      } else if (status === 400 && message?.includes('Daily limit')) {
+        setPinError(message);
+      } else if (message) {
+        setPinError(message);
+      } else if (error.message) {
+        setPinError(error.message);
+      } else {
+        setPinError('Unable to process payment. Please try again.');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -150,12 +169,23 @@ export default function BuyAirtimePage() {
   const handleCloseSuccessModal = () => { setShowSuccessModal(false); setSuccessData(null); };
   const handleBuyMoreAirtime = () => { setShowSuccessModal(false); setSuccessData(null); };
 
+  // FIX: skeleton loading instead of spinner
   if (isLoading) {
     return (
       <div className="page-container">
-        <div className="loading-container">
-          <div className="spinner" />
-          <p className="loading-text">Loading...</p>
+        <div className="page-header">
+          <div style={{ height: 24, width: 160, background: '#e5e7eb', borderRadius: 6, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+          <div style={{ height: 14, width: 120, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+        </div>
+        <div className="card">
+          <div style={{ height: 48, background: '#f3f4f6', borderRadius: 8, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+          {[0, 1, 2].map(i => (
+            <div key={i} style={{ marginBottom: 16 }}>
+              <div style={{ height: 13, width: 100, background: '#e5e7eb', borderRadius: 4, marginBottom: 7, animation: 'pulse 1.5s infinite' }} />
+              <div style={{ height: 44, background: '#f3f4f6', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+            </div>
+          ))}
+          <div style={{ height: 48, background: '#e5e7eb', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
         </div>
         <style jsx>{styles}</style>
       </div>
@@ -174,7 +204,6 @@ export default function BuyAirtimePage() {
       </div>
 
       <div className="card">
-        {/* ── Wallet balance row ── */}
         <div className="balance-header">
           <div className="wallet-badge">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}>
@@ -190,7 +219,6 @@ export default function BuyAirtimePage() {
         </div>
 
         <div className="form">
-          {/* Network */}
           <div className="form-group">
             <label htmlFor="network">Select Network</label>
             <div className="custom-select-wrapper" ref={dropdownRef}>
@@ -214,7 +242,6 @@ export default function BuyAirtimePage() {
             </div>
           </div>
 
-          {/* Amount */}
           <div className="form-group">
             <label htmlFor="amount">Airtime Amount (₦)</label>
             <input id="amount" type="number" value={amount}
@@ -223,7 +250,6 @@ export default function BuyAirtimePage() {
               className="text-input" disabled={isProcessing} />
           </div>
 
-          {/* Phone */}
           <div className="form-group">
             <label htmlFor="phone">Receiver's Phone Number</label>
             <input id="phone" type="tel" value={phone}
@@ -237,7 +263,6 @@ export default function BuyAirtimePage() {
           Continue
         </button>
 
-        {/* Check Airtime Balance */}
         <div className="balance-check-section">
           <div className="balance-check-card">
             <h3 className="balance-check-title">Check Airtime Balance</h3>
@@ -249,7 +274,6 @@ export default function BuyAirtimePage() {
         </div>
       </div>
 
-      {/* PIN Modal */}
       {showPinModal && (
         <div className="modal-overlay" onClick={handleClosePinModal}>
           <div className="modal-content pin-modal-content" onClick={e => e.stopPropagation()}>
@@ -302,10 +326,7 @@ const styles = `
   .breadcrumb-link:hover { color: #dc2626; }
   .breadcrumb-separator { color: #9ca3af; }
   .breadcrumb-current { color: #1f2937; font-weight: 500; }
-
   .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04); border: 1px solid #e5e7eb; max-width: 600px; margin: 0 auto; }
-
-  /* ── Wallet bar ── */
   .balance-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 12px 14px; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb; }
   .wallet-badge { display: flex; align-items: center; gap: 8px; }
   .wallet-badge span { font-size: 15px; font-weight: 700; color: #16a34a; }
@@ -313,11 +334,9 @@ const styles = `
   .refresh-btn:hover:not(:disabled) { border-color: #dc2626; color: #dc2626; background: #fef2f2; }
   .refresh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .spinning { animation: spin 0.8s linear infinite; }
-
   .form { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
   .form-group { display: flex; flex-direction: column; }
   .form-group label { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 7px; letter-spacing: 0.01em; }
-
   .custom-select-wrapper { position: relative; }
   .custom-select-trigger { width: 100%; padding: 11px 14px; font-size: 14px; border: 1.5px solid #d1d5db; border-radius: 8px; background: white; cursor: pointer; transition: all 0.2s; display: flex; justify-content: space-between; align-items: center; user-select: none; }
   .custom-select-trigger:hover { border-color: #9ca3af; }
@@ -330,21 +349,17 @@ const styles = `
   .custom-select-option { padding: 11px 14px; font-size: 14px; color: #1f2937; font-weight: 500; cursor: pointer; transition: all 0.15s; }
   .custom-select-option:hover { background: #fef2f2; color: #dc2626; }
   .custom-select-option.selected { background: #dc2626; color: white; font-weight: 600; }
-
   .text-input { width: 100%; padding: 11px 14px; font-size: 14px; border: 1.5px solid #d1d5db; border-radius: 8px; transition: all 0.2s; color: #1f2937; font-weight: 500; background: #fff; }
   .text-input:hover { border-color: #9ca3af; }
   .text-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.08); }
   .text-input:disabled { background: #f3f4f6; cursor: not-allowed; }
   .text-input::placeholder { color: #9ca3af; font-weight: 400; }
-
   .submit-btn { width: 100%; padding: 13px; background: #dc2626; color: white; font-size: 15px; font-weight: 700; border: none; border-radius: 8px; cursor: pointer; transition: all 0.2s; margin-bottom: 20px; letter-spacing: 0.01em; }
   .submit-btn:hover:not(:disabled) { background: #b91c1c; box-shadow: 0 4px 14px rgba(220,38,38,0.3); }
   .submit-btn:disabled { background: #d1d5db; cursor: not-allowed; }
-
   .cancel-btn { width: 100%; padding: 13px; background: white; color: #6b7280; font-size: 15px; font-weight: 600; border: 1.5px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
   .cancel-btn:hover:not(:disabled) { border-color: #9ca3af; color: #374151; background: #f9fafb; }
   .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
   .balance-check-section { margin-top: 4px; }
   .balance-check-card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; transition: all 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.04); }
   .balance-check-card:hover { border-color: #fca5a5; box-shadow: 0 4px 12px rgba(220,38,38,0.08); }
@@ -352,11 +367,6 @@ const styles = `
   .balance-check-content { display: flex; flex-direction: column; align-items: center; gap: 6px; }
   .balance-check-label { font-size: 12px; font-weight: 500; color: #6b7280; margin: 0; }
   .balance-check-code { font-size: 20px; font-weight: 700; color: #dc2626; background: #fef2f2; padding: 10px 16px; border-radius: 6px; border: 1px solid #fecaca; width: 100%; text-align: center; letter-spacing: 1px; font-family: 'Courier New', monospace; }
-
-  .loading-container { display: flex; justify-content: center; align-items: center; min-height: 400px; flex-direction: column; gap: 14px; }
-  .spinner { width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 0.8s linear infinite; }
-  .loading-text { color: #6b7280; font-size: 13px; font-weight: 500; }
-
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; animation: fadeIn 0.2s ease-out; backdrop-filter: blur(2px); }
   @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
   .modal-content { background: white; border-radius: 16px; padding: 28px 24px; max-width: 500px; width: 100%; position: relative; box-shadow: 0 24px 48px rgba(0,0,0,0.15); animation: slideUp 0.25s ease-out; }
@@ -375,17 +385,8 @@ const styles = `
   .pin-dot.error { background: #ef4444; animation: shake 0.3s; }
   @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
   .pin-error-message { background: #fef2f2; color: #dc2626; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; text-align: center; margin-bottom: 14px; border: 1px solid #fecaca; }
-
   @keyframes spin { to { transform: rotate(360deg); } }
-
-  @media (max-width: 768px) {
-    .page-container { padding: 12px; }
-    .card { padding: 16px; }
-    .modal-content { padding: 24px 18px; }
-  }
-  @media (max-width: 480px) {
-    .pin-dots { gap: 12px; padding: 20px; }
-    .pin-dot { width: 12px; height: 12px; }
-    .balance-check-code { font-size: 18px; }
-  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  @media (max-width: 768px) { .page-container { padding: 12px; } .card { padding: 16px; } .modal-content { padding: 24px 18px; } }
+  @media (max-width: 480px) { .pin-dots { gap: 12px; padding: 20px; } .pin-dot { width: 12px; height: 12px; } .balance-check-code { font-size: 18px; } }
 `;

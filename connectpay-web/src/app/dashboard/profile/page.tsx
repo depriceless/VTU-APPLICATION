@@ -158,22 +158,41 @@ export default function ProfilePage() {
   };
 
   if (isLoading) {
-    return (
-      <div className="page-container">
-        <div className="loading-wrapper">
-          <div className="spinner"></div>
-          <p className="loading-text">Loading profile...</p>
-        </div>
-        <style jsx>{`
-          .page-container { padding: 16px 24px; max-width: 1400px; margin: 0 auto; min-height: 400px; }
-          .loading-wrapper { display: flex; justify-content: center; align-items: center; min-height: 400px; flex-direction: column; gap: 16px; }
-          .spinner { width: 48px; height: 48px; border: 4px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 1s linear infinite; }
-          .loading-text { color: #6b7280; font-size: 14px; font-weight: 500; }
-          @keyframes spin { to { transform: rotate(360deg); } }
-        `}</style>
+  return (
+    <div style={{ padding: '16px 24px', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ height: 24, width: 100, background: '#e5e7eb', borderRadius: 6, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 14, width: 140, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
       </div>
-    );
-  }
+      <div style={{ background: 'white', borderRadius: 10, padding: 20, border: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+          <div style={{ height: 22, width: 80, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+          <div style={{ height: 36, width: 36, background: '#e5e7eb', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+        </div>
+        <div style={{ display: 'flex', gap: 24, marginBottom: 32, paddingBottom: 24, borderBottom: '1px solid #e5e7eb' }}>
+          <div style={{ width: 100, height: 100, borderRadius: '50%', background: '#e5e7eb', flexShrink: 0, animation: 'pulse 1.5s infinite' }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ height: 14, width: 160, background: '#e5e7eb', borderRadius: 6, marginBottom: 12, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ display: 'flex', gap: 12 }}>
+              <div style={{ flex: 1, height: 40, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+              <div style={{ flex: 1, height: 40, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+              <div style={{ width: 80, height: 40, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+            </div>
+          </div>
+        </div>
+        {[0, 1, 2, 3, 4].map(i => (
+          <div key={i} style={{ padding: '18px 0', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ height: 13, width: 160, background: '#e5e7eb', borderRadius: 4, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ height: 40, background: '#f3f4f6', borderRadius: 8, animation: 'pulse 1.5s infinite' }} />
+          </div>
+        ))}
+      </div>
+      <style jsx>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
+    </div>
+  );
+}
 
   return (
     <div className="page-container">

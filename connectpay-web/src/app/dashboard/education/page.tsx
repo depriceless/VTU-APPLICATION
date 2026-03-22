@@ -6,6 +6,13 @@ import apiClient from '@/lib/api';
 import { EducationSuccessModal } from '@/components/SuccessModal/page';
 import { logger } from '@/lib/logger';
 
+// FIX: simple UUID generator — no external package needed
+const generateRequestId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+
 interface ExamCard {
   id: string;
   name: string;
@@ -41,17 +48,18 @@ export default function BuyEducation() {
     { id: 'secondary', name: 'Secondary' },
   ];
 
-  const filteredExams = activeCategory === 'all' 
-    ? examCards 
+  const filteredExams = activeCategory === 'all'
+    ? examCards
     : examCards.filter(exam => exam.category === activeCategory);
 
-  const quantityNum = parseInt(quantity) || 1;
-  const totalAmount = selectedExam ? selectedExam.price * quantityNum : 0;
-  const isQuantityValid = quantityNum >= 1 && quantityNum <= 10;
-  const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
+  const quantityNum      = parseInt(quantity) || 1;
+  const totalAmount      = selectedExam ? selectedExam.price * quantityNum : 0;
+  const isQuantityValid  = quantityNum >= 1 && quantityNum <= 10;
+  // FIX: updated phone regex to cover all valid Nigerian numbers
+  const isPhoneValid     = phone.length === 11 && /^0[789]\d{9}$/.test(phone);
   const hasEnoughBalance = totalAmount <= balance;
-  const canProceed = selectedExam && isQuantityValid && hasEnoughBalance && isPhoneValid;
-  const isPinValid = pin.length === 4 && /^\d{4}$/.test(pin);
+  const canProceed       = selectedExam && isQuantityValid && hasEnoughBalance && isPhoneValid;
+  const isPinValid       = pin.length === 4 && /^\d{4}$/.test(pin);
 
   const extractBalance = (balanceData: any): number => {
     if (balanceData === null || balanceData === undefined) return 0;
@@ -83,74 +91,32 @@ export default function BuyEducation() {
     try {
       logger.info('Fetching education packages');
       const response = await apiClient.get('/purchase/education/packages');
-      
+
       if (response.data?.success && response.data.data) {
         const transformedCards: ExamCard[] = [];
         const packagesData = response.data.data;
 
-        // Process WAEC packages
-        if (packagesData.waec && Array.isArray(packagesData.waec)) {
-          packagesData.waec.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description || pkg.name,
-              examBody: 'waec',
-              validity: pkg.validity || '1 year',
-              category: 'secondary'
+        const processPackages = (packages: any[], examBody: string) => {
+          if (packages && Array.isArray(packages)) {
+            packages.forEach((pkg: any) => {
+              transformedCards.push({
+                id:          pkg.id || pkg.code,
+                name:        pkg.name,
+                code:        pkg.code,
+                price:       pkg.price,
+                description: pkg.description || pkg.name,
+                examBody,
+                validity:    pkg.validity || '1 year',
+                category:    'secondary',
+              });
             });
-          });
-        }
+          }
+        };
 
-        // Process NECO packages
-        if (packagesData.neco && Array.isArray(packagesData.neco)) {
-          packagesData.neco.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description || pkg.name,
-              examBody: 'neco',
-              validity: pkg.validity || '1 year',
-              category: 'secondary'
-            });
-          });
-        }
-
-        // Process NABTEB packages
-        if (packagesData.nabteb && Array.isArray(packagesData.nabteb)) {
-          packagesData.nabteb.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description || pkg.name,
-              examBody: 'nabteb',
-              validity: pkg.validity || '1 year',
-              category: 'secondary'
-            });
-          });
-        }
-
-        // Process NBAIS packages
-        if (packagesData.nbais && Array.isArray(packagesData.nbais)) {
-          packagesData.nbais.forEach((pkg: any) => {
-            transformedCards.push({
-              id: pkg.id || pkg.code,
-              name: pkg.name,
-              code: pkg.code,
-              price: pkg.price,
-              description: pkg.description || pkg.name,
-              examBody: 'nbais',
-              validity: pkg.validity || '1 year',
-              category: 'secondary'
-            });
-          });
-        }
+        processPackages(packagesData.waec,   'waec');
+        processPackages(packagesData.neco,   'neco');
+        processPackages(packagesData.nabteb, 'nabteb');
+        processPackages(packagesData.nbais,  'nbais');
 
         setExamCards(transformedCards);
         logger.success(`Loaded ${transformedCards.length} education packages`);
@@ -168,130 +134,94 @@ export default function BuyEducation() {
     fetchEducationPackages();
   }, []);
 
-  useEffect(() => {
-    if (currentStep === 2) {
-      fetchBalance();
-    }
-  }, [currentStep]);
-
-  useEffect(() => {
-    if (showPinModal) {
-      setTimeout(() => pinInputRef.current?.focus(), 100);
-    }
-  }, [showPinModal]);
+  useEffect(() => { if (currentStep === 2) fetchBalance(); }, [currentStep]);
+  useEffect(() => { if (showPinModal) setTimeout(() => pinInputRef.current?.focus(), 100); }, [showPinModal]);
 
   const handleQuantityChange = (text: string) => {
-    if (text === '') {
-      setQuantity('');
-      return;
-    }
+    if (text === '') { setQuantity(''); return; }
     const numericValue = text.replace(/[^0-9]/g, '');
-    if (numericValue === '' || numericValue === '0') {
-      setQuantity('1');
-    } else if (parseInt(numericValue) > 10) {
-      setQuantity('10');
-    } else {
-      setQuantity(numericValue);
-    }
+    if (numericValue === '' || numericValue === '0') setQuantity('1');
+    else if (parseInt(numericValue) > 10) setQuantity('10');
+    else setQuantity(numericValue);
   };
 
-  const handleProceedToPinEntry = () => {
-    setPin('');
-    setPinError('');
-    setShowPinModal(true);
-  };
+  const handleProceedToPinEntry = () => { setPin(''); setPinError(''); setShowPinModal(true); };
 
   const handleBuyEducation = async () => {
-    if (!isPinValid) {
-      setPinError('PIN must be exactly 4 digits');
-      return;
-    }
+    // FIX: block if already processing
+    if (isProcessing) return;
 
-    if (!hasEnoughBalance) {
-      setPinError('Insufficient balance for this transaction');
-      return;
-    }
+    if (!isPinValid) { setPinError('PIN must be exactly 4 digits'); return; }
+    if (!hasEnoughBalance) { setPinError('Insufficient balance for this transaction'); return; }
 
     setIsProcessing(true);
     setPinError('');
 
     try {
       logger.info('Education purchase attempt started');
-      
-      // Log the exact request payload for debugging
-      const requestPayload = {
-        type: 'education',
-        provider: selectedExam?.examBody,
-        examType: selectedExam?.code,
-        phone: phone,
-        amount: totalAmount,
-        quantity: quantityNum,
-        pin: pin,
-      };
-      
-      console.log('📤 Request Payload:', requestPayload);
 
-      const response = await apiClient.post('/purchase', requestPayload);
+      // FIX: generate unique request ID for idempotency
+      const clientRequestId = generateRequestId();
+
+      const response = await apiClient.post('/purchase', {
+        type:      'education',
+        provider:  selectedExam?.examBody,
+        examType:  selectedExam?.code,
+        phone,
+        amount:    totalAmount,
+        quantity:  quantityNum,
+        pin,
+        clientRequestId, // FIX: send to backend
+      });
 
       logger.info('Purchase response received');
 
       if (response.data?.success) {
         setSuccessData({
           transaction: response.data.transaction || {},
-          examName: selectedExam?.name || 'Exam Card',
-          quantity: quantityNum,
-          amount: response.data.transaction?.amount || totalAmount,
-          newBalance: response.data.newBalance || response.data.balance,
-          pins: response.data.transaction?.pins || []
+          examName:    selectedExam?.name || 'Exam Card',
+          quantity:    quantityNum,
+          amount:      response.data.transaction?.amount || totalAmount,
+          newBalance:  response.data.newBalance || response.data.balance,
+          pins:        response.data.transaction?.pins || [],
         });
 
-        if (response.data.newBalance !== undefined) {
-          setBalance(extractBalance(response.data.newBalance));
-        } else if (response.data.balance !== undefined) {
-          setBalance(extractBalance(response.data.balance));
-        } else {
-          await fetchBalance();
-        }
+        if (response.data.newBalance !== undefined) setBalance(extractBalance(response.data.newBalance));
+        else if (response.data.balance !== undefined) setBalance(extractBalance(response.data.balance));
+        else await fetchBalance();
 
-        setPhone('');
-        setSelectedExam(null);
-        setQuantity('1');
-        setPin('');
-        setCurrentStep(1);
-
+        setPhone(''); setSelectedExam(null); setQuantity('1'); setPin(''); setCurrentStep(1);
         setShowPinModal(false);
         setTimeout(() => setShowSuccessModal(true), 200);
-        
         logger.success('Education purchase completed');
       } else {
         setPinError(response.data?.message || 'Transaction failed. Please try again.');
       }
     } catch (error: any) {
-      logger.error('Purchase failed');
-      setPinError(error.message || 'Unable to process payment. Please try again.');
+      // FIX: handle new backend error codes properly
+      const status  = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 423) {
+        setPinError(message || 'Account locked due to too many failed PIN attempts.');
+      } else if (status === 400 && message?.includes('Daily limit')) {
+        setPinError(message);
+      } else if (message) {
+        setPinError(message);
+      } else if (error.message) {
+        setPinError(error.message);
+      } else {
+        setPinError('Unable to process payment. Please try again.');
+      }
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleClosePinModal = () => {
-    if (!isProcessing) {
-      setShowPinModal(false);
-      setPin('');
-      setPinError('');
-    }
+    if (!isProcessing) { setShowPinModal(false); setPin(''); setPinError(''); }
   };
-
-  const handleCloseSuccessModal = () => {
-    setShowSuccessModal(false);
-    setSuccessData(null);
-  };
-
-  const handleBuyMore = () => {
-    setShowSuccessModal(false);
-    setSuccessData(null);
-    setCurrentStep(1);
-  };
+  const handleCloseSuccessModal = () => { setShowSuccessModal(false); setSuccessData(null); };
+  const handleBuyMore = () => { setShowSuccessModal(false); setSuccessData(null); setCurrentStep(1); };
 
   if (isLoading) {
     return (
@@ -326,40 +256,31 @@ export default function BuyEducation() {
             </button>
           </div>
 
-          {/* Category Filter */}
           <div className="form-section">
             <label className="section-label">Filter by Category</label>
             <div className="category-row">
               {categories.map((category) => (
-                <button
-                  key={category.id}
+                <button key={category.id}
                   className={`category-btn ${activeCategory === category.id ? 'active' : ''}`}
-                  onClick={() => setActiveCategory(category.id)}
-                >
+                  onClick={() => setActiveCategory(category.id)}>
                   {category.name}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Exam Selection */}
           <div className="form-section">
             <label className="section-label">Select Exam Card</label>
             {isLoadingPackages ? (
-              <div className="loading-plans">
-                <div className="spinner-small"></div>
-                <span>Loading packages...</span>
-              </div>
+              <div className="loading-plans"><div className="spinner-small"></div><span>Loading packages...</span></div>
             ) : filteredExams.length === 0 ? (
               <div className="empty-state">No packages available for this category</div>
             ) : (
               <div className="exam-grid">
                 {filteredExams.map((exam) => (
-                  <div
-                    key={exam.id}
+                  <div key={exam.id}
                     className={`exam-card ${selectedExam?.id === exam.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedExam(exam)}
-                  >
+                    onClick={() => setSelectedExam(exam)}>
                     <div className="exam-info">
                       <div className="exam-name">{exam.name}</div>
                       <div className="exam-desc">{exam.description}</div>
@@ -373,48 +294,28 @@ export default function BuyEducation() {
             )}
           </div>
 
-          {/* Quantity */}
           {selectedExam && (
             <div className="form-section">
               <label className="section-label">Quantity (Max 10)</label>
               <div className="quantity-container">
-                <button
-                  className="quantity-btn"
+                <button className="quantity-btn"
                   onClick={() => quantityNum > 1 && setQuantity((quantityNum - 1).toString())}
-                  disabled={quantityNum <= 1}
-                >
-                  -
-                </button>
-                <input
-                  type="text"
-                  className="quantity-input"
-                  value={quantity}
-                  onChange={(e) => handleQuantityChange(e.target.value)}
-                  maxLength={2}
-                />
-                <button
-                  className="quantity-btn"
+                  disabled={quantityNum <= 1}>-</button>
+                <input type="text" className="quantity-input" value={quantity}
+                  onChange={(e) => handleQuantityChange(e.target.value)} maxLength={2} />
+                <button className="quantity-btn"
                   onClick={() => quantityNum < 10 && setQuantity((quantityNum + 1).toString())}
-                  disabled={quantityNum >= 10}
-                >
-                  +
-                </button>
+                  disabled={quantityNum >= 10}>+</button>
               </div>
             </div>
           )}
 
-          {/* Phone Number */}
           {selectedExam && (
             <div className="form-section">
               <label className="section-label">Recipient Phone Number</label>
-              <input
-                type="tel"
-                className="text-input"
-                placeholder="08012345678"
-                maxLength={11}
-                value={phone}
-                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-              />
+              <input type="tel" className="text-input" placeholder="08012345678"
+                maxLength={11} value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))} />
               <div className="input-help">PIN details will be sent to this number via SMS</div>
               {phone !== '' && !isPhoneValid && (
                 <div className="validation-error">Enter valid 11-digit number starting with 070, 080, 081, or 090</div>
@@ -425,7 +326,6 @@ export default function BuyEducation() {
             </div>
           )}
 
-          {/* Total Amount */}
           {selectedExam && quantity && (
             <div className="form-section">
               <label className="section-label">Total Amount</label>
@@ -438,7 +338,8 @@ export default function BuyEducation() {
             </div>
           )}
 
-          <button className="submit-btn" disabled={!canProceed} onClick={() => setCurrentStep(2)}>
+          {/* FIX: disabled while processing */}
+          <button className="submit-btn" disabled={!canProceed || isProcessing} onClick={() => setCurrentStep(2)}>
             {!hasEnoughBalance ? 'Insufficient Balance' :
              canProceed ? `Review Purchase • ₦${totalAmount.toLocaleString()}` :
              'Complete Form to Continue'}
@@ -447,47 +348,24 @@ export default function BuyEducation() {
       ) : (
         <div className="card">
           <h2 className="review-title">Review Purchase</h2>
-
           <div className="summary-card">
-            <div className="summary-row">
-              <span>Exam Card</span>
-              <span>{selectedExam?.name}</span>
-            </div>
-            <div className="summary-row">
-              <span>Description</span>
-              <span>{selectedExam?.description}</span>
-            </div>
-            <div className="summary-row">
-              <span>Phone Number</span>
-              <span>{phone}</span>
-            </div>
-            <div className="summary-row">
-              <span>Unit Price</span>
-              <span>₦{selectedExam?.price.toLocaleString()}</span>
-            </div>
-            <div className="summary-row">
-              <span>Quantity</span>
-              <span>{quantity} card{quantityNum > 1 ? 's' : ''}</span>
-            </div>
+            <div className="summary-row"><span>Exam Card</span><span>{selectedExam?.name}</span></div>
+            <div className="summary-row"><span>Description</span><span>{selectedExam?.description}</span></div>
+            <div className="summary-row"><span>Phone Number</span><span>{phone}</span></div>
+            <div className="summary-row"><span>Unit Price</span><span>₦{selectedExam?.price.toLocaleString()}</span></div>
+            <div className="summary-row"><span>Quantity</span><span>{quantity} card{quantityNum > 1 ? 's' : ''}</span></div>
             <div className="summary-divider"></div>
-            <div className="summary-row total">
-              <span>Total Amount</span>
-              <span>₦{totalAmount.toLocaleString()}</span>
-            </div>
+            <div className="summary-row total"><span>Total Amount</span><span>₦{totalAmount.toLocaleString()}</span></div>
           </div>
-
-          {!hasEnoughBalance && (
-            <div className="insufficient-warning">Insufficient balance for this transaction</div>
-          )}
-
-          <button className="submit-btn" disabled={!hasEnoughBalance} onClick={handleProceedToPinEntry}>
+          {!hasEnoughBalance && <div className="insufficient-warning">Insufficient balance for this transaction</div>}
+          {/* FIX: disabled while processing */}
+          <button className="submit-btn" disabled={!hasEnoughBalance || isProcessing} onClick={handleProceedToPinEntry}>
             {hasEnoughBalance ? 'Proceed to Payment' : 'Insufficient Balance'}
           </button>
-          <button className="secondary-btn" onClick={() => setCurrentStep(1)}>Back to Form</button>
+          <button className="secondary-btn" disabled={isProcessing} onClick={() => setCurrentStep(1)}>Back to Form</button>
         </div>
       )}
 
-      {/* PIN Modal */}
       {showPinModal && (
         <div className="modal-overlay" onClick={handleClosePinModal}>
           <div className="modal-content pin-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -496,31 +374,18 @@ export default function BuyEducation() {
             </button>
             <h2 className="pin-modal-title">Enter Transaction PIN</h2>
             <p className="pin-modal-subtitle">Enter your 4-digit PIN to complete the purchase</p>
-
             <div className="pin-input-container">
-              <input
-                ref={pinInputRef}
-                type="password"
-                inputMode="numeric"
-                maxLength={4}
-                value={pin}
-                onChange={(e) => {
-                  setPin(e.target.value.replace(/\D/g, ''));
-                  setPinError('');
-                }}
-                placeholder="****"
-                className="pin-input"
-                disabled={isProcessing}
-              />
+              <input ref={pinInputRef} type="password" inputMode="numeric" maxLength={4}
+                value={pin} onChange={(e) => { setPin(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+                placeholder="****" className="pin-input" disabled={isProcessing} />
               <div className="pin-dots">
                 {[0, 1, 2, 3].map((index) => (
                   <div key={index} className={`pin-dot ${pin.length > index ? 'filled' : ''} ${pinError ? 'error' : ''}`} />
                 ))}
               </div>
             </div>
-
             {pinError && <div className="pin-error-message">{pinError}</div>}
-
+            {/* FIX: disabled while processing to prevent double click */}
             <button className="submit-btn" disabled={!isPinValid || isProcessing} onClick={handleBuyEducation}>
               {isProcessing ? 'Processing...' : 'Confirm Purchase'}
             </button>
@@ -550,7 +415,7 @@ export default function BuyEducation() {
         .breadcrumb-link { color: #6b7280; font-weight: 500; cursor: pointer; }
         .breadcrumb-separator { color: #9ca3af; }
         .breadcrumb-current { color: #1f2937; font-weight: 500; }
-        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); border: 1px solid #e5e7eb; max-width: 700px; margin: 0 auto; }
+        .card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; max-width: 700px; margin: 0 auto; }
         .balance-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         .wallet-badge { background: white; border: 1px solid #d1d5db; padding: 10px 14px; border-radius: 6px; flex: 1; }
         .wallet-badge span { font-size: 13px; font-weight: 700; color: #16a34a; }
@@ -580,10 +445,9 @@ export default function BuyEducation() {
         .quantity-btn { width: 40px; height: 40px; border-radius: 50%; background: #dc2626; color: white; border: none; font-size: 18px; font-weight: 600; cursor: pointer; }
         .quantity-btn:disabled { background: #d1d5db; cursor: not-allowed; }
         .quantity-input { width: 60px; height: 40px; text-align: center; border: 2px solid #d1d5db; border-radius: 6px; font-size: 16px; font-weight: 600; color: #1f2937; background: white; outline: none; }
-        .quantity-input:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
-        .quantity-input::-webkit-inner-spin-button, .quantity-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        .quantity-input:focus { border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
         .text-input { width: 100%; padding: 12px 14px; font-size: 15px; border: 1px solid #d1d5db; border-radius: 6px; color: #1f2937; font-weight: 500; }
-        .text-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.1); }
+        .text-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
         .input-help { font-size: 12px; color: #999; margin-top: 6px; }
         .validation-error { margin-top: 8px; color: #dc2626; font-size: 13px; font-weight: 500; }
         .validation-success { margin-top: 8px; padding: 6px 12px; background: #dcfce7; border-radius: 6px; color: #16a34a; font-size: 13px; font-weight: 500; display: inline-block; }
@@ -593,6 +457,7 @@ export default function BuyEducation() {
         .submit-btn:hover:not(:disabled) { background: #b91c1c; }
         .submit-btn:disabled { background: #d1d5db; cursor: not-allowed; }
         .secondary-btn { width: 100%; padding: 14px; background: white; color: #6b7280; font-size: 16px; font-weight: 600; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; margin-top: 12px; }
+        .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .review-title { font-size: 18px; font-weight: 700; color: #1f2937; margin: 0 0 16px 0; }
         .summary-card { background: #f9fafb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
         .summary-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
@@ -606,9 +471,9 @@ export default function BuyEducation() {
         .loading-container { display: flex; justify-content: center; align-items: center; min-height: 400px; flex-direction: column; gap: 16px; }
         .spinner { width: 48px; height: 48px; border: 4px solid #e5e7eb; border-top-color: #dc2626; border-radius: 50%; animation: spin 1s linear infinite; }
         .loading-text { color: #6b7280; font-size: 14px; }
-        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; animation: fadeIn 0.2s ease-out; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .modal-content { background: white; border-radius: 16px; padding: 32px 24px; max-width: 500px; width: 100%; position: relative; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); animation: slideUp 0.3s ease-out; }
+        .modal-content { background: white; border-radius: 16px; padding: 32px 24px; max-width: 500px; width: 100%; position: relative; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); animation: slideUp 0.3s ease-out; }
         @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .pin-modal-content { max-width: 400px; }
         .modal-close { position: absolute; top: 16px; right: 16px; background: #f3f4f6; border: none; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
@@ -623,25 +488,13 @@ export default function BuyEducation() {
         .pin-dot { width: 16px; height: 16px; border-radius: 50%; background: #e5e7eb; transition: all 0.2s; }
         .pin-dot.filled { background: #dc2626; transform: scale(1.1); }
         .pin-dot.error { background: #ef4444; animation: shake 0.3s; }
-        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+        @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-4px)} 75%{transform:translateX(4px)} }
         .pin-error-message { background: #fef2f2; color: #dc2626; padding: 12px; border-radius: 6px; font-size: 14px; font-weight: 500; text-align: center; margin-bottom: 16px; border: 1px solid #fecaca; }
         .cancel-btn { width: 100%; padding: 14px; background: white; color: #6b7280; font-size: 16px; font-weight: 600; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; margin-top: 12px; }
         .cancel-btn:hover:not(:disabled) { background: #f9fafb; }
         .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        @media (max-width: 768px) {
-          .page-container { padding: 12px; }
-          .page-title { font-size: 18px; }
-          .card { padding: 16px; }
-          .modal-content { padding: 24px 20px; }
-          .pin-modal-title { font-size: 20px; }
-        }
-        @media (max-width: 480px) {
-         
-          .pin-dots { gap: 12px; padding: 20px; }
-          .pin-dot { width: 14px; height: 14px; }
-          .exam-grid { gap: 8px; }
-          .category-btn { font-size: 12px; padding: 6px 12px; }
-        }
+        @media (max-width: 768px) { .page-container { padding: 12px; } .page-title { font-size: 18px; } .card { padding: 16px; } .modal-content { padding: 24px 20px; } .pin-modal-title { font-size: 20px; } }
+        @media (max-width: 480px) { .pin-dots { gap: 12px; padding: 20px; } .pin-dot { width: 14px; height: 14px; } .exam-grid { gap: 8px; } .category-btn { font-size: 12px; padding: 6px 12px; } }
       `}</style>
     </div>
   );

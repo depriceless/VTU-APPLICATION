@@ -6,6 +6,13 @@ import apiClient from '@/lib/api';
 import { CableTVSuccessModal } from '@/components/SuccessModal/page';
 import { logger } from '@/lib/logger';
 
+// FIX: simple UUID generator — no external package needed
+const generateRequestId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+
 // ── Customer Verified Modal ───────────────────────────────────────────────────
 function CustomerVerifiedModal({ isOpen, onConfirm, onClose, customerName, smartCardNumber, operatorName }) {
   useEffect(() => {
@@ -27,7 +34,6 @@ function CustomerVerifiedModal({ isOpen, onConfirm, onClose, customerName, smart
         boxShadow: '0 32px 64px rgba(0,0,0,0.18)',
         animation: 'cvPopIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1)'
       }}>
-        {/* Green header */}
         <div style={{ background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', padding: '24px 20px 20px', textAlign: 'center', position: 'relative' }}>
           <button onClick={onClose} style={{ position: 'absolute', top: 12, right: 12, width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}>
             <X size={14} />
@@ -38,10 +44,7 @@ function CustomerVerifiedModal({ isOpen, onConfirm, onClose, customerName, smart
           <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'white' }}>Card Verified</p>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.8)' }}>Please confirm customer details</p>
         </div>
-
-        {/* Body */}
         <div style={{ padding: '20px' }}>
-          {/* Customer Name */}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px', background: '#f9fafb', borderRadius: 10, marginBottom: 8, border: '1px solid #f3f4f6' }}>
             <div style={{ width: 32, height: 32, borderRadius: 8, flexShrink: 0, background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <User size={15} color="#16a34a" />
@@ -51,8 +54,6 @@ function CustomerVerifiedModal({ isOpen, onConfirm, onClose, customerName, smart
               <p style={{ margin: '2px 0 0', fontSize: 16, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>{customerName}</p>
             </div>
           </div>
-
-          {/* Smart Card + Operator row */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
             <div style={{ flex: 1, padding: '10px 12px', background: '#f9fafb', borderRadius: 10, border: '1px solid #f3f4f6' }}>
               <p style={{ margin: 0, fontSize: 10, color: '#9ca3af', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Smart Card</p>
@@ -63,31 +64,16 @@ function CustomerVerifiedModal({ isOpen, onConfirm, onClose, customerName, smart
               <p style={{ margin: '2px 0 0', fontSize: 13, fontWeight: 700, color: '#111827' }}>{operatorName}</p>
             </div>
           </div>
-
-          {/* Confirm */}
-          <button
-            onClick={onConfirm}
-            style={{ width: '100%', padding: '13px', background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: 'white', fontSize: 15, fontWeight: 700, border: 'none', borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(22,163,74,0.3)' }}
-          >
+          <button onClick={onConfirm} style={{ width: '100%', padding: '13px', background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', color: 'white', fontSize: 15, fontWeight: 700, border: 'none', borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, boxShadow: '0 4px 14px rgba(22,163,74,0.3)' }}>
             <Check size={16} strokeWidth={3} />
             Yes, this is correct
           </button>
-
-          <button
-            onClick={onClose}
-            style={{ width: '100%', padding: '11px', background: 'transparent', color: '#6b7280', fontSize: 14, fontWeight: 500, border: 'none', borderRadius: 10, cursor: 'pointer', marginTop: 8 }}
-          >
+          <button onClick={onClose} style={{ width: '100%', padding: '11px', background: 'transparent', color: '#6b7280', fontSize: 14, fontWeight: 500, border: 'none', borderRadius: 10, cursor: 'pointer', marginTop: 8 }}>
             Wrong card? Go back
           </button>
         </div>
       </div>
-
-      <style>{`
-        @keyframes cvPopIn {
-          from { opacity: 0; transform: translate(-50%, -48%) scale(0.92) }
-          to   { opacity: 1; transform: translate(-50%, -50%) scale(1) }
-        }
-      `}</style>
+      <style>{`@keyframes cvPopIn { from { opacity: 0; transform: translate(-50%, -48%) scale(0.92) } to { opacity: 1; transform: translate(-50%, -50%) scale(1) } }`}</style>
     </>
   );
 }
@@ -106,18 +92,12 @@ function PackageBottomSheet({ isOpen, onClose, packages, selectedPackage, onSele
   }, []);
 
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-      setSearch('');
-    }
+    if (isOpen) { document.body.style.overflow = 'hidden'; }
+    else { document.body.style.overflow = ''; setSearch(''); }
     return () => { document.body.style.overflow = ''; };
   }, [isOpen]);
 
-  const filtered = packages.filter(pkg =>
-    pkg.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = packages.filter(pkg => pkg.name.toLowerCase().includes(search.toLowerCase()));
 
   if (!isOpen) return null;
 
@@ -155,14 +135,7 @@ function PackageBottomSheet({ isOpen, onClose, packages, selectedPackage, onSele
         <div style={{ padding: '12px 16px' }}>
           <div style={{ position: 'relative' }}>
             <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', pointerEvents: 'none' }} />
-            <input
-              ref={searchRef}
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search packages..."
-              autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
-              style={{ width: '100%', padding: '9px 12px 9px 34px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 16, outline: 'none', background: '#f9fafb', boxSizing: 'border-box', color: '#111827' }}
-            />
+            <input ref={searchRef} value={search} onChange={e => setSearch(e.target.value)} placeholder="Search packages..." autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} style={{ width: '100%', padding: '9px 12px 9px 34px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 16, outline: 'none', background: '#f9fafb', boxSizing: 'border-box', color: '#111827' }} />
           </div>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '0 12px 20px' }}>
@@ -206,8 +179,8 @@ export default function BuyCableTV() {
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [smartCardNumber, setSmartCardNumber] = useState('');
   const [customerName, setCustomerName] = useState('');
-  const [customerConfirmed, setCustomerConfirmed] = useState(false); // ✅ NEW
-  const [showCustomerModal, setShowCustomerModal] = useState(false); // ✅ NEW
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [balance, setBalance] = useState(0);
@@ -286,11 +259,11 @@ export default function BuyCableTV() {
     setCustomerConfirmed(false);
     try {
       const response = await apiClient.post('/cable/validate-smartcard', {
-        smartCardNumber, operator: selectedOperator
+        smartCardNumber, operator: selectedOperator,
       });
       if (response.data?.success) {
         setCustomerName(response.data.customerName || 'Verified Customer');
-        setShowCustomerModal(true); // ✅ show modal instead of inline text
+        setShowCustomerModal(true);
       } else {
         setCardError(response.data?.message || 'Validation failed');
       }
@@ -301,13 +274,11 @@ export default function BuyCableTV() {
     }
   };
 
-  // ✅ User confirmed in modal
   const handleCustomerConfirm = () => {
     setCustomerConfirmed(true);
     setShowCustomerModal(false);
   };
 
-  // ✅ User tapped "Wrong card? Go back"
   const handleCustomerModalClose = () => {
     setShowCustomerModal(false);
     setCustomerName('');
@@ -317,23 +288,34 @@ export default function BuyCableTV() {
   };
 
   const handlePurchase = async () => {
+    // FIX: block if already processing
+    if (isProcessing) return;
     if (pin.length !== 4) { setPinError('Please enter a 4-digit PIN'); return; }
     setIsProcessing(true);
     setPinError('');
     try {
+      // FIX: generate unique request ID for idempotency
+      const clientRequestId = generateRequestId();
+
       const response = await apiClient.post('/purchase', {
-        type: 'cable_tv', operator: selectedOperator,
-        packageId: selectedPackage?.id, smartCardNumber, phone,
-        amount: selectedPackage?.customerPrice, pin,
+        type:        'cable_tv',
+        operator:    selectedOperator,
+        packageId:   selectedPackage?.id,
+        smartCardNumber,
+        phone,
+        amount:      selectedPackage?.customerPrice,
+        pin,
+        clientRequestId, // FIX: send to backend
       });
+
       if (response.data?.success) {
         setSuccessData({
-          transaction: response.data.transaction || {},
+          transaction:  response.data.transaction || {},
           operatorName: operators.find(op => op.id === selectedOperator)?.label,
           phone, smartCardNumber, customerName,
-          amount: response.data.transaction?.amount || selectedPackage?.customerPrice,
+          amount:      response.data.transaction?.amount || selectedPackage?.customerPrice,
           packageName: selectedPackage?.name,
-          newBalance: response.data.newBalance
+          newBalance:  response.data.newBalance,
         });
         if (response.data.newBalance) setBalance(extractBalance(response.data.newBalance));
         setShowPinModal(false);
@@ -341,8 +323,21 @@ export default function BuyCableTV() {
       } else {
         setPinError(response.data?.message || 'Transaction failed');
       }
-    } catch (error) {
-      setPinError(error.message || 'Unable to process payment');
+    } catch (error: any) {
+      // FIX: handle new backend error codes properly
+      const status  = error.response?.status;
+      const message = error.response?.data?.message;
+      if (status === 423) {
+        setPinError(message || 'Account locked due to too many failed PIN attempts.');
+      } else if (status === 400 && message?.includes('Daily limit')) {
+        setPinError(message);
+      } else if (message) {
+        setPinError(message);
+      } else if (error.message) {
+        setPinError(error.message);
+      } else {
+        setPinError('Unable to process payment. Please try again.');
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -373,26 +368,40 @@ export default function BuyCableTV() {
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
   }, []);
-  useEffect(() => {
-    if (showPinModal) setTimeout(() => pinInputRef.current?.focus(), 100);
-  }, [showPinModal]);
+  useEffect(() => { if (showPinModal) setTimeout(() => pinInputRef.current?.focus(), 100); }, [showPinModal]);
 
-  const isPhoneValid = phone.length === 11 && /^0[789][01]\d{8}$/.test(phone);
-  const isShowmax = selectedOperator === 'showmax';
-  const isSmartCardValid = smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber);
-  // ✅ For non-Showmax: must be confirmed in modal. For Showmax: just valid card number.
-  const isCardVerified = isShowmax ? isSmartCardValid : (isSmartCardValid && customerConfirmed);
-  const hasEnoughBalance = selectedPackage ? selectedPackage.customerPrice <= balance : true;
-  const canProceed = isPhoneValid && selectedOperator && selectedPackage && isCardVerified;
-  const selectedOp = operators.find(o => o.id === selectedOperator);
+  // FIX: updated phone regex to cover all valid Nigerian numbers
+  const isPhoneValid      = phone.length === 11 && /^0[789]\d{9}$/.test(phone);
+  const isShowmax         = selectedOperator === 'showmax';
+  const isSmartCardValid  = smartCardNumber.length >= 10 && /^\d+$/.test(smartCardNumber);
+  const isCardVerified    = isShowmax ? isSmartCardValid : (isSmartCardValid && customerConfirmed);
+  const hasEnoughBalance  = selectedPackage ? selectedPackage.customerPrice <= balance : true;
+  const canProceed        = isPhoneValid && selectedOperator && selectedPackage && isCardVerified;
+  const selectedOp        = operators.find(o => o.id === selectedOperator);
 
-  if (isLoading) {
-    return (
-      <div className="page-container">
-        <div className="loading-container"><div className="spinner" /><p>Loading...</p></div>
+if (isLoading) {
+  return (
+    <div className="page-container">
+      <div className="page-header">
+        <div style={{ height: 24, width: 140, background: '#e5e7eb', borderRadius: 6, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 14, width: 110, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
       </div>
-    );
-  }
+      <div style={{ background: 'white', borderRadius: 10, padding: 20, maxWidth: 600, margin: '0 auto', border: '1px solid #e5e7eb' }}>
+        <div style={{ height: 40, background: '#f3f4f6', borderRadius: 6, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} style={{ marginBottom: 20 }}>
+            <div style={{ height: 13, width: 120, background: '#e5e7eb', borderRadius: 4, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+            <div style={{ height: 44, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+          </div>
+        ))}
+        <div style={{ height: 50, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <style jsx>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
+    </div>
+  );
+}
 
   return (
     <div className="page-container">
@@ -411,28 +420,21 @@ export default function BuyCableTV() {
             <span>Wallet Bal.: ₦{balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
 
-          {/* Phone */}
           <div className="form-group">
             <label htmlFor="phone">Recipient Phone Number</label>
-            <input
-              id="phone" type="tel" value={phone}
+            <input id="phone" type="tel" value={phone}
               onChange={e => setPhone(e.target.value.replace(/\D/g, ''))}
-              placeholder="08012345678" maxLength={11} className="text-input"
-            />
+              placeholder="08012345678" maxLength={11} className="text-input" />
             {phone && !isPhoneValid && <div className="validation-error">Enter valid 11-digit number</div>}
           </div>
 
-          {/* Operator */}
           <div className="form-group">
             <label>Cable TV Operator</label>
             <div className="custom-select-wrapper" ref={operatorDropdownRef}>
               <div className="custom-select-trigger" onClick={() => setOperatorDropdownOpen(!operatorDropdownOpen)}>
                 <span className={selectedOperator ? 'selected' : 'placeholder'}>
                   {selectedOp
-                    ? <span className="operator-display">
-                        <img src={selectedOp.logo} alt="" className="operator-logo" />
-                        {selectedOp.label}
-                      </span>
+                    ? <span className="operator-display"><img src={selectedOp.logo} alt="" className="operator-logo" />{selectedOp.label}</span>
                     : '----------'}
                 </span>
                 <ChevronDown className={`dropdown-icon ${operatorDropdownOpen ? 'open' : ''}`} />
@@ -446,8 +448,7 @@ export default function BuyCableTV() {
                         setOperatorDropdownOpen(false);
                         setSmartCardNumber(''); setCustomerName('');
                         setCustomerConfirmed(false); setCardError('');
-                      }}
-                    >
+                      }}>
                       <img src={op.logo} alt={op.label} className="operator-logo" />
                       {op.label}
                     </div>
@@ -457,7 +458,6 @@ export default function BuyCableTV() {
             </div>
           </div>
 
-          {/* Package */}
           {selectedOperator && (
             <div className="form-group">
               <label>Select Package</label>
@@ -481,17 +481,12 @@ export default function BuyCableTV() {
             </div>
           )}
 
-          {/* Smart card */}
           {selectedOperator && (
             <div className="form-group">
               <label>{isShowmax ? 'Showmax Account Number' : 'Smart Card / IUC Number'}</label>
               <div className="input-with-indicator">
-                <input
-                  type="text" value={smartCardNumber}
-                  onChange={e => {
-                    setSmartCardNumber(e.target.value.replace(/\D/g, ''));
-                    setCustomerName(''); setCustomerConfirmed(false); setCardError('');
-                  }}
+                <input type="text" value={smartCardNumber}
+                  onChange={e => { setSmartCardNumber(e.target.value.replace(/\D/g, '')); setCustomerName(''); setCustomerConfirmed(false); setCardError(''); }}
                   placeholder={isShowmax ? 'Enter Showmax account number' : 'Enter smart card / IUC number'}
                   maxLength={15}
                   className={`text-input ${cardError ? 'error' : ''} ${(customerConfirmed || (isShowmax && isSmartCardValid)) ? 'success' : ''}`}
@@ -502,15 +497,11 @@ export default function BuyCableTV() {
               {isShowmax && isSmartCardValid && !cardError && (
                 <div className="validation-success">✓ Account number entered</div>
               )}
-              {/* ✅ Compact confirmed chip — replaces inline success text */}
               {!isShowmax && customerConfirmed && customerName && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, padding: '8px 12px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#15803d' }}>
                   <ShieldCheck size={13} color="#16a34a" />
                   <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{customerName}</span>
-                  <button
-                    onClick={() => setShowCustomerModal(true)}
-                    style={{ marginLeft: 'auto', fontSize: 11, color: '#16a34a', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', flexShrink: 0 }}
-                  >
+                  <button onClick={() => setShowCustomerModal(true)} style={{ marginLeft: 'auto', fontSize: 11, color: '#16a34a', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600, textDecoration: 'underline', flexShrink: 0 }}>
                     View
                   </button>
                 </div>
@@ -518,7 +509,8 @@ export default function BuyCableTV() {
             </div>
           )}
 
-          <button onClick={() => setCurrentStep(2)} className="submit-btn" disabled={!canProceed}>
+          {/* FIX: also disabled while processing */}
+          <button onClick={() => setCurrentStep(2)} className="submit-btn" disabled={!canProceed || isProcessing}>
             {canProceed && selectedPackage
               ? `Review Purchase • ₦${selectedPackage.customerPrice.toLocaleString()}`
               : 'Complete Form to Continue'}
@@ -552,20 +544,16 @@ export default function BuyCableTV() {
               </div>
             )}
           </div>
-          {!hasEnoughBalance && (
-            <div className="insufficient-warning">Insufficient balance. Please fund your wallet.</div>
-          )}
+          {!hasEnoughBalance && <div className="insufficient-warning">Insufficient balance. Please fund your wallet.</div>}
           <button
             onClick={() => { if (!hasEnoughBalance) { alert('Insufficient balance.'); return; } setShowPinModal(true); }}
-            className="submit-btn" disabled={!hasEnoughBalance}
-          >
+            className="submit-btn" disabled={!hasEnoughBalance || isProcessing}>
             {hasEnoughBalance ? 'Proceed to Payment' : 'Insufficient Balance'}
           </button>
-          <button onClick={() => setCurrentStep(1)} className="secondary-btn">Back to Form</button>
+          <button onClick={() => setCurrentStep(1)} className="secondary-btn" disabled={isProcessing}>Back to Form</button>
         </div>
       )}
 
-      {/* PIN modal */}
       {showPinModal && (
         <div className="modal-overlay" onClick={() => !isProcessing && setShowPinModal(false)}>
           <div className="modal-content pin-modal-content" onClick={e => e.stopPropagation()}>
@@ -583,6 +571,7 @@ export default function BuyCableTV() {
               </div>
             </div>
             {pinError && <div className="pin-error-message">{pinError}</div>}
+            {/* FIX: disabled while processing to prevent double click */}
             <button onClick={handlePurchase} className="submit-btn" disabled={pin.length !== 4 || isProcessing}>
               {isProcessing ? 'Processing...' : 'Confirm Purchase'}
             </button>
@@ -591,7 +580,6 @@ export default function BuyCableTV() {
         </div>
       )}
 
-      {/* ✅ Customer Verified Modal */}
       <CustomerVerifiedModal
         isOpen={showCustomerModal}
         onConfirm={handleCustomerConfirm}
@@ -667,6 +655,7 @@ export default function BuyCableTV() {
         .submit-btn:hover:not(:disabled) { background: #b91c1c; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.3); }
         .submit-btn:disabled { background: #d1d5db; cursor: not-allowed; transform: none; box-shadow: none; }
         .cancel-btn { width: 100%; padding: 14px; background: white; color: #6b7280; font-size: 16px; font-weight: 600; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; margin-top: 12px; }
+        .cancel-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .review-title { font-size: 18px; font-weight: 700; color: #1f2937; margin: 0 0 16px 0; }
         .summary-card { background: #f9fafb; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
         .summary-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; font-size: 14px; }
@@ -680,11 +669,13 @@ export default function BuyCableTV() {
         .summary-row.total span:last-child { color: #dc2626; font-size: 24px; font-weight: 700; }
         .insufficient-warning { padding: 10px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; color: #dc2626; font-size: 13px; font-weight: 500; text-align: center; margin-bottom: 16px; }
         .secondary-btn { width: 100%; padding: 14px; background: white; color: #6b7280; font-size: 16px; font-weight: 600; border: 1px solid #e5e7eb; border-radius: 6px; cursor: pointer; margin-top: 12px; }
-        .secondary-btn:hover { background: #f9fafb; }
+        .secondary-btn:hover:not(:disabled) { background: #f9fafb; }
+        .secondary-btn:disabled { opacity: 0.5; cursor: not-allowed; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
         .modal-content { background: white; border-radius: 16px; padding: 32px 24px; max-width: 500px; width: 100%; position: relative; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
         .pin-modal-content { max-width: 400px; }
         .modal-close { position: absolute; top: 16px; right: 16px; background: #f3f4f6; border: none; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: #6b7280; }
+        .modal-close:disabled { opacity: 0.5; cursor: not-allowed; }
         .pin-modal-title { font-size: 22px; font-weight: 700; text-align: center; margin-bottom: 8px; color: #1f2937; }
         .pin-modal-subtitle { font-size: 14px; color: #6b7280; text-align: center; margin-bottom: 24px; }
         .pin-input-container { position: relative; margin-bottom: 20px; cursor: text; }

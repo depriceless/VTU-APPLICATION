@@ -14,6 +14,10 @@
   }
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background: var(--background);
   color: var(--foreground);
@@ -23,7 +27,6 @@ body {
 /* ✅ FIXED: Works on desktop + mobile Chrome/Safari */
 html {
   overflow-x: clip;
-  scroll-behavior: auto !important;
   min-height: 100%;
 }
 
@@ -71,4 +74,10 @@ img {
 /* ✅ Prevent scroll during page transitions */
 .page-transitioning {
   overflow: hidden !important;
+}
+
+/* ✅ Skeleton loading pulse animation — used across all pages */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
 }

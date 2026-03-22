@@ -7,20 +7,20 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const SERVICES_CONFIG = [
-  { icon: Wifi,          name: 'Data Bundles',      desc: 'Affordable data plans',       href: '#services' },
-  { icon: Tv,            name: 'Cable TV',           desc: 'DSTV, GOTV subscriptions',    href: '#services' },
-  { icon: Zap,           name: 'Electricity',        desc: 'Pay electricity bills',        href: '#services' },
-  { icon: Printer,       name: 'Print Recharge',     desc: 'Generate recharge pins',       href: '#services' },
-  { icon: Globe,         name: 'Internet',           desc: 'Internet subscriptions',       href: '#services' },
-  { icon: GraduationCap, name: 'Education',          desc: 'WAEC, NECO, JAMB',            href: '#services' },
-  { icon: DollarSign,    name: 'Betting & Transfer', desc: 'Fund wallets & transfers',     href: '#services' },
+  { icon: Wifi,          name: 'Data Bundles',      desc: 'Affordable data plans',       href: '/#services' },
+  { icon: Tv,            name: 'Cable TV',           desc: 'DSTV, GOTV subscriptions',    href: '/#services' },
+  { icon: Zap,           name: 'Electricity',        desc: 'Pay electricity bills',        href: '/#services' },
+  { icon: Printer,       name: 'Print Recharge',     desc: 'Generate recharge pins',       href: '/#services' },
+  { icon: Globe,         name: 'Internet',           desc: 'Internet subscriptions',       href: '/#services' },
+  { icon: GraduationCap, name: 'Education',          desc: 'WAEC, NECO, JAMB',            href: '/#services' },
+  { icon: DollarSign,    name: 'Betting & Transfer', desc: 'Fund wallets & transfers',     href: '/#services' },
 ];
 
 const NAV_LINKS = [
-  { href: '/',             label: 'Home',         isRoute: true  },
-  { href: '#how-it-works', label: 'How it works', isRoute: false },
-  { href: '#features',     label: 'Why us',       isRoute: false },
-  { href: '#pricing',      label: 'Pricing',      isRoute: false },
+  { href: '/',              label: 'Home',         isRoute: true },
+  { href: '/#how-it-works', label: 'How it works', isRoute: true },
+  { href: '/#features',     label: 'Why us',       isRoute: true },
+  { href: '/#pricing',      label: 'Pricing',      isRoute: true },
 ];
 
 export default function Header() {
@@ -125,27 +125,17 @@ export default function Header() {
 
             {/* Desktop nav links */}
             <div className="hidden lg:flex items-center gap-1">
-              {NAV_LINKS.map((link) =>
-                link.isRoute ? (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    className={`nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide rounded-lg transition-colors ${
-                      pathname === link.href ? 'text-red-600 active' : 'text-gray-600 hover:text-gray-900'
-                    }`}
-                  >
-                    {link.label}
-                  </Link>
-                ) : (
-                  <a
-                    key={link.href}
-                    href={link.href}
-                    className="nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide text-gray-600 hover:text-gray-900 rounded-lg transition-colors"
-                  >
-                    {link.label}
-                  </a>
-                )
-              )}
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className={`nav-link-underline px-4 py-2 text-[13.5px] font-semibold tracking-wide rounded-lg transition-colors ${
+                    pathname === link.href ? 'text-red-600 active' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
 
               {/* Services mega dropdown */}
               <div className="services-trigger relative">
@@ -163,15 +153,15 @@ export default function Header() {
                       <p className="text-[13px] font-bold text-gray-900">All Services</p>
                       <p className="text-[11px] text-gray-400 mt-0.5">Fast, reliable digital solutions</p>
                     </div>
-                    <a href="#services" className="text-[11px] font-semibold text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors">
+                    <Link href="/#services" className="text-[11px] font-semibold text-red-600 hover:text-red-700 flex items-center gap-1 transition-colors">
                       View all <ArrowRight className="w-3 h-3" />
-                    </a>
+                    </Link>
                   </div>
                   <div className="grid grid-cols-2 gap-1.5">
                     {SERVICES_CONFIG.map((s) => {
                       const Icon = s.icon;
                       return (
-                        <a key={s.name} href={s.href} className="service-card flex items-center gap-3 p-3 rounded-xl cursor-pointer">
+                        <Link key={s.name} href={s.href} className="service-card flex items-center gap-3 p-3 rounded-xl cursor-pointer">
                           <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center flex-shrink-0">
                             <Icon className="w-4 h-4 text-red-600" />
                           </div>
@@ -179,7 +169,7 @@ export default function Header() {
                             <p className="text-[13px] font-semibold text-gray-800 leading-tight">{s.name}</p>
                             <p className="text-[11px] text-gray-400 mt-0.5">{s.desc}</p>
                           </div>
-                        </a>
+                        </Link>
                       );
                     })}
                   </div>
@@ -227,29 +217,18 @@ export default function Header() {
           {/* ── Mobile menu ── */}
           {mobileMenuOpen && (
             <div className="lg:hidden border-t border-gray-100 py-4 space-y-1 pb-6">
-              {NAV_LINKS.map((link) =>
-                link.isRoute ? (
-                  <Link
-                    key={link.href}
-                    href={link.href}
-                    onClick={closeMenu}
-                    className={`flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors ${
-                      pathname === link.href ? 'text-red-600 bg-red-50' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
-                    }`}
-                  >
-                    {link.label}
-                  </Link>
-                ) : (
-                  <a
-                    key={link.href}
-                    href={link.href}
-                    onClick={closeMenu}
-                    className="flex items-center px-4 py-2.5 text-sm font-semibold text-gray-700 hover:text-gray-900 hover:bg-gray-50 rounded-xl transition-colors"
-                  >
-                    {link.label}
-                  </a>
-                )
-              )}
+              {NAV_LINKS.map((link) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={closeMenu}
+                  className={`flex items-center px-4 py-2.5 text-sm font-semibold rounded-xl transition-colors ${
+                    pathname === link.href ? 'text-red-600 bg-red-50' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-50'
+                  }`}
+                >
+                  {link.label}
+                </Link>
+              ))}
 
               {/* Mobile services accordion */}
               <div>
@@ -266,7 +245,7 @@ export default function Header() {
                     {SERVICES_CONFIG.map((s) => {
                       const Icon = s.icon;
                       return (
-                        <a
+                        <Link
                           key={s.name}
                           href={s.href}
                           onClick={closeMenu}
@@ -279,7 +258,7 @@ export default function Header() {
                             <p className="text-[13px] font-semibold text-gray-800">{s.name}</p>
                             <p className="text-[11px] text-gray-400">{s.desc}</p>
                           </div>
-                        </a>
+                        </Link>
                       );
                     })}
                   </div>

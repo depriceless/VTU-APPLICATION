@@ -133,36 +133,37 @@ export default function TwoFactorAuthPage() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="page-container">
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          minHeight: '400px',
-          flexDirection: 'column',
-          gap: '16px'
-        }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            border: '4px solid #e5e7eb',
-            borderTopColor: '#ff2b2b',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }}></div>
-          <p style={{ color: '#6b7280', fontSize: '14px', fontWeight: '500' }}>Loading...</p>
-        </div>
-        <style jsx>{`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}</style>
+if (isLoading) {
+  return (
+    <div className="page-container">
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ height: 24, width: 200, background: '#e5e7eb', borderRadius: 6, marginBottom: 10, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 14, width: 140, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
       </div>
-    );
-  }
-
+      <div style={{ background: 'white', borderRadius: 8, padding: 24, border: '1px solid #e5e7eb', marginBottom: 24 }}>
+        <div style={{ height: 20, width: 220, background: '#e5e7eb', borderRadius: 6, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+          {[0, 1].map(i => (
+            <div key={i}>
+              <div style={{ height: 13, width: 80, background: '#e5e7eb', borderRadius: 4, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+              <div style={{ height: 44, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ height: 13, width: 140, background: '#e5e7eb', borderRadius: 4, marginBottom: 8, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 44, background: '#f3f4f6', borderRadius: 6, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 44, width: 140, background: '#e5e7eb', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <div style={{ background: 'white', borderRadius: 8, padding: 24, border: '1px solid #e5e7eb' }}>
+        <div style={{ height: 20, width: 280, background: '#e5e7eb', borderRadius: 6, marginBottom: 20, animation: 'pulse 1.5s infinite' }} />
+        <div style={{ height: 60, background: '#f3f4f6', borderRadius: 6, animation: 'pulse 1.5s infinite' }} />
+      </div>
+      <style jsx>{`
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+      `}</style>
+    </div>
+  );
+}
   return (
     <div className="page-container">
       {alert.show && (
