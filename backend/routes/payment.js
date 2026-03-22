@@ -97,7 +97,7 @@ async function createPaystackAccount(userId) {
     } catch (error) {
       if (error.response?.status === 400) {
         const fetchResponse = await axios.get(
-          `${PAYSTACK_CONFIG.baseUrl}/customer/${user.email}`,
+         `${PAYSTACK_CONFIG.baseUrl}/customer/${encodeURIComponent(user.email)}`,
           { headers: { Authorization: `Bearer ${PAYSTACK_CONFIG.secretKey}` } }
         );
         customerId = fetchResponse.data.data.customer_code;

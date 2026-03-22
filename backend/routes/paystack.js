@@ -4,6 +4,7 @@ const router   = express.Router();
 const axios    = require('axios');
 const crypto   = require('crypto');
 const mongoose = require('mongoose');
+const rateLimit = require('express-rate-limit');
 const User            = require('../models/User');
 const Wallet          = require('../models/Wallet');
 const Transaction     = require('../models/Transaction');
@@ -20,9 +21,32 @@ const PAYSTACK_CONFIG = {
 if (!PAYSTACK_CONFIG.secretKey) logger.warn('PAYSTACK_SECRET_KEY is not set');
 if (!PAYSTACK_CONFIG.publicKey)  logger.warn('PAYSTACK_PUBLIC_KEY is not set');
 
+// FIX: rate limiter on payment initialization — prevents abuse
+const initPaymentLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.userId || req.ip,
+  handler: (req, res) => {
+    logger.warn(`Payment init rate limit hit for user ${req.user?.userId || req.ip}`);
+    res.status(429).json({ success: false, message: 'Too many payment requests. Please slow down.' });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// FIX: rate limiter on virtual account creation — one per user anyway but belt-and-suspenders
+const createAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.userId || req.ip,
+  handler: (req, res) => {
+    res.status(429).json({ success: false, message: 'Too many requests. Please try again later.' });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Webhook ────────────────────────────────────────────────────
-// Uses rawBody (set by app.js) for HMAC — JSON.stringify(req.body)
-// can silently reorder keys and break the signature check.
 router.post('/webhook', async (req, res) => {
   let session;
 
@@ -58,6 +82,28 @@ router.post('/webhook', async (req, res) => {
     }
 
     const amountInNaira = parseFloat((amount / 100).toFixed(2));
+
+    // FIX: minimum and maximum amount guard — reject suspiciously small or large amounts
+    if (amountInNaira < 100) {
+      logger.warn(`Paystack webhook: suspiciously small amount ₦${amountInNaira} for reference ${reference}`);
+      return res.status(200).json({ success: true });
+    }
+    if (amountInNaira > 5_000_000) {
+      logger.warn(`Paystack webhook: amount ₦${amountInNaira} exceeds maximum for reference ${reference}`);
+      // Still log and return 200 so Paystack doesn't retry — but don't credit
+      await Transaction.create({
+        type: 'credit', amount: amountInNaira,
+        description: 'Paystack deposit - AMOUNT EXCEEDS MAXIMUM (RECONCILE)',
+        reference, status: 'pending_reconciliation', category: 'funding',
+        userId: new mongoose.Types.ObjectId(),
+        walletId: new mongoose.Types.ObjectId(),
+        previousBalance: 0, newBalance: 0,
+        gateway: { provider: 'paystack', gatewayReference: reference },
+        metadata: { amountExceeded: true, rawAmount: amount },
+      }).catch(e => logger.error('Failed to log oversized amount', e.message));
+      return res.status(200).json({ success: true });
+    }
+
     const customerEmail = customer?.email?.toLowerCase().trim();
 
     // STEP 3: Idempotency check
@@ -134,7 +180,7 @@ router.post('/webhook', async (req, res) => {
       return res.status(200).json({ success: true });
     }
 
-    // STEP 7: Database transaction
+    // STEP 7: Database transaction — wallet + transaction record atomic
     session = await mongoose.startSession();
     session.startTransaction();
 
@@ -208,7 +254,8 @@ router.post('/webhook', async (req, res) => {
         walletId: new mongoose.Types.ObjectId(),
         previousBalance: 0, newBalance: 0,
         gateway: { provider: 'paystack', gatewayReference: req.body.data?.reference || 'unknown' },
-        metadata: { error: error.message, event: req.body.event },
+        // FIX: don't store raw error message — could contain sensitive internals
+        metadata: { error: 'webhook_processing_error', event: req.body.event },
       });
     } catch (logError) {
       logger.error('Failed to log webhook error', logError.message);
@@ -220,7 +267,7 @@ router.post('/webhook', async (req, res) => {
 });
 
 // ── Create virtual account ─────────────────────────────────────
-router.post('/create-virtual-account', authenticate, async (req, res) => {
+router.post('/create-virtual-account', authenticate, createAccountLimiter, async (req, res) => {
   try {
     const userId = req.user.id;
     const user   = await User.findById(userId);
@@ -339,10 +386,14 @@ router.get('/user-account', authenticate, async (req, res) => {
 });
 
 // ── Verify transaction ─────────────────────────────────────────
-// Only returns data for transactions belonging to the requesting user.
 router.get('/verify/:reference', authenticate, async (req, res) => {
   try {
     const { reference } = req.params;
+
+    // FIX: validate reference format before using it
+    if (!reference || !/^[a-zA-Z0-9_\-]+$/.test(reference) || reference.length > 100) {
+      return res.status(400).json({ success: false, message: 'Invalid reference format' });
+    }
 
     // Always check local DB first — scoped to this user
     const localTx = await Transaction.findOne({ reference, userId: req.user.id });
@@ -350,8 +401,7 @@ router.get('/verify/:reference', authenticate, async (req, res) => {
       return res.status(200).json({ success: true, source: 'local', data: localTx });
     }
 
-    // Only hit Paystack API if the transaction was initiated by this user
-    // (pending transactions may not be in DB yet — verify it was theirs)
+    // Only hit Paystack API if there is a pending transaction for this user
     const pendingTx = await Transaction.findOne({
       reference,
       userId: req.user.id,
@@ -359,12 +409,11 @@ router.get('/verify/:reference', authenticate, async (req, res) => {
     });
 
     if (!pendingTx) {
-      // No local record for this user — don't proxy to Paystack
       return res.status(404).json({ success: false, message: 'Transaction not found.' });
     }
 
     const response = await axios.get(
-      `${PAYSTACK_CONFIG.baseUrl}/transaction/verify/${reference}`,
+      `${PAYSTACK_CONFIG.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`,
       { headers: { Authorization: `Bearer ${PAYSTACK_CONFIG.secretKey}` } }
     );
 
@@ -386,17 +435,18 @@ router.get('/verify/:reference', authenticate, async (req, res) => {
 });
 
 // ── Initialize payment ─────────────────────────────────────────
-router.post('/initialize-payment', authenticate, async (req, res) => {
+router.post('/initialize-payment', authenticate, initPaymentLimiter, async (req, res) => {
   try {
     const { amount } = req.body;
     const user = await User.findById(req.user.id);
 
-    if (!amount || amount < 100) {
+    // FIX: validate amount is a number before comparison
+    const parsedAmount = parseFloat(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount < 100) {
       return res.status(400).json({ success: false, message: 'Minimum amount is ₦100' });
     }
 
-    // Cap at ₦1,000,000 per transaction — adjust to your business limits
-    if (amount > 1_000_000) {
+    if (parsedAmount > 1_000_000) {
       return res.status(400).json({ success: false, message: 'Maximum amount per transaction is ₦1,000,000' });
     }
 
@@ -404,7 +454,7 @@ router.post('/initialize-payment', authenticate, async (req, res) => {
       `${PAYSTACK_CONFIG.baseUrl}/transaction/initialize`,
       {
         email:  user.email,
-        amount: amount * 100,
+        amount: Math.round(parsedAmount * 100), // FIX: use Math.round to avoid float precision issues
         callback_url: process.env.FRONTEND_URL
           ? `${process.env.FRONTEND_URL}/payment/callback`
           : `${req.protocol}://${req.get('host')}/api/paystack/callback`,
@@ -426,7 +476,7 @@ router.post('/initialize-payment', authenticate, async (req, res) => {
     await Transaction.create({
       userId: user._id, walletId: wallet._id,
       previousBalance: wallet.balance, newBalance: wallet.balance,
-      type: 'credit', amount,
+      type: 'credit', amount: parsedAmount,
       description: 'Manual wallet funding initiated',
       reference: response.data.data.reference,
       status: 'pending', category: 'funding',
@@ -449,9 +499,6 @@ router.post('/initialize-payment', authenticate, async (req, res) => {
 });
 
 // ── Payment callback ───────────────────────────────────────────
-// This is a browser redirect from Paystack — not authenticated.
-// We verify the transaction with Paystack directly rather than
-// trusting the reference param alone.
 router.get('/callback', async (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
@@ -459,6 +506,11 @@ router.get('/callback', async (req, res) => {
     const txReference = req.query.reference || req.query.trxref;
     if (!txReference) {
       return res.redirect(`${frontendUrl}/payment?error=no_reference`);
+    }
+
+    // FIX: validate reference format before using in Paystack API call
+    if (!/^[a-zA-Z0-9_\-]+$/.test(txReference) || txReference.length > 100) {
+      return res.redirect(`${frontendUrl}/payment?error=invalid_reference`);
     }
 
     // Verify with Paystack — don't trust query param status alone
@@ -470,14 +522,12 @@ router.get('/callback', async (req, res) => {
     const txData = response.data.data;
 
     if (txData.status === 'success') {
-      // Only update if this reference exists in our DB and is still pending
-      // Completed status is set authoritatively by the webhook — this is
-      // just a UI redirect helper, not the source of truth
+      // Webhook is source of truth for balance — this is UI redirect only
       await Transaction.findOneAndUpdate(
         { reference: txReference, status: 'pending' },
         { 'metadata.callbackProcessed': true, 'metadata.callbackAt': new Date() }
       );
-      return res.redirect(`${frontendUrl}/payment?success=true&reference=${txReference}`);
+      return res.redirect(`${frontendUrl}/payment?success=true&reference=${encodeURIComponent(txReference)}`);
     } else {
       await Transaction.findOneAndUpdate(
         { reference: txReference, status: 'pending' },

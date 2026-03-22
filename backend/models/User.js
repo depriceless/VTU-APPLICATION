@@ -82,6 +82,12 @@ const userSchema = new mongoose.Schema({
     }
   },
   isPinSetup: { type: Boolean, default: false },
+  role: {
+  type:    String,
+  enum:    ['user', 'admin', 'support'],
+  default: 'user',
+  index:   true,
+},
   isEmailVerified: { type: Boolean, default: false },
   isPhoneVerified: { type: Boolean, default: false },
   isActive: { type: Boolean, default: true },

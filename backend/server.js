@@ -50,6 +50,7 @@ const adminRoutes          = loadRoute('./routes/admin');
 const dashboardRoutes      = loadRoute('./routes/dashboard');
 const notificationRoutes   = loadRoute('./routes/notifications');
 const userManagementRoutes = loadRoute('./routes/userManagement');
+const accountRoutes        = loadRoute('./routes/account'); // FIX: was missing
 
 let adminAuthRoutes = null;
 try {
@@ -178,7 +179,7 @@ const globalLimiter = rateLimit({
 });
 app.use('/api/', globalLimiter);
 
-// Signup: 5 new accounts per IP per hour — was missing, allowed mass registration
+// Signup: 5 new accounts per IP per hour
 const signupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -367,6 +368,7 @@ const register = (path, router) => {
 register('/api/auth',          authRoutes);
 register('/api/balance',       balanceRoutes);
 register('/api/user',          userRoutes);
+register('/api/account',       accountRoutes); // FIX: was missing
 register('/api',               walletRoutes);
 register('/api/transactions',  transactionRoutes);
 register('/api/data',          dataRoutes);
@@ -402,12 +404,6 @@ for (const [path, routePath] of dynamicRoutes) {
 }
 
 logger.success('All routes registered');
-
-// ── 404 handler ────────────────────────────────────────────────
-// ── Loader.io verification ─────────────────────────────────────
-app.get('/loaderio-214388c4adaf4313bee9a2e56505a732', (req, res) => {
-  res.send('loaderio-214388c4adaf4313bee9a2e56505a732');
-});
 
 // ── 404 handler ────────────────────────────────────────────────
 app.use((req, res) => {

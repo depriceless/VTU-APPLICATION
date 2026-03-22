@@ -74,6 +74,19 @@ const forgotPasswordLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// FIX: rate limiter for PIN endpoints — 5 attempts per minute per user
+const pinLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  keyGenerator: (req) => req.user?.userId || req.ip,
+  handler: (req, res) => {
+    logger.warn(`PIN rate limit hit for user ${req.user?.userId || req.ip}`);
+    res.status(429).json({ success: false, message: 'Too many attempts. Please slow down.' });
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // ── Validation rules ───────────────────────────────────────────
 const signupValidation = [
   body('name').trim().notEmpty().withMessage('Name is required').isLength({ max: 100 }),
@@ -108,6 +121,49 @@ const profileUpdateValidation = [
   body('email').optional().isEmail().normalizeEmail().withMessage('Valid email is required'),
   body('phone').optional().matches(/^\d{10,15}$/).withMessage('Phone must be 10-15 digits'),
 ];
+
+// ── PIN attempt helpers (mirrors purchase.js logic) ────────────
+const PIN_CONFIG    = { MAX_ATTEMPTS: 3, LOCK_DURATION: 15 * 60 * 1000 };
+const pinAttempts   = new Map(); // in-memory fallback only
+
+const getPinAttemptData = async (userId) => {
+  try {
+    const user = await User.findById(userId).select('pinAttempts pinLockedUntil');
+    return { attempts: user?.pinAttempts || 0, lockedUntil: user?.pinLockedUntil || null };
+  } catch {
+    if (!pinAttempts.has(userId)) pinAttempts.set(userId, { attempts: 0, lockedUntil: null });
+    return pinAttempts.get(userId);
+  }
+};
+
+const incrementPinAttempts = async (userId) => {
+  try {
+    const user     = await User.findById(userId).select('pinAttempts pinLockedUntil');
+    const attempts = (user?.pinAttempts || 0) + 1;
+    const update   = { pinAttempts: attempts };
+    if (attempts >= PIN_CONFIG.MAX_ATTEMPTS) {
+      update.pinLockedUntil = new Date(Date.now() + PIN_CONFIG.LOCK_DURATION);
+    }
+    await User.findByIdAndUpdate(userId, update);
+    return { attempts, lockedUntil: update.pinLockedUntil || null };
+  } catch {
+    const data = pinAttempts.get(userId) || { attempts: 0, lockedUntil: null };
+    data.attempts += 1;
+    if (data.attempts >= PIN_CONFIG.MAX_ATTEMPTS) {
+      data.lockedUntil = new Date(Date.now() + PIN_CONFIG.LOCK_DURATION);
+    }
+    pinAttempts.set(userId, data);
+    return data;
+  }
+};
+
+const resetPinAttempts = async (userId) => {
+  try {
+    await User.findByIdAndUpdate(userId, { pinAttempts: 0, pinLockedUntil: null });
+  } catch {
+    pinAttempts.set(userId, { attempts: 0, lockedUntil: null });
+  }
+};
 
 // ── POST /signup ───────────────────────────────────────────────
 router.post('/signup', signupLimiter, signupValidation, async (req, res) => {
@@ -145,6 +201,7 @@ router.post('/signup', signupLimiter, signupValidation, async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Account created successfully.',
+      // FIX: token kept in body for mobile app support — cookie handles web
       token,
       user: {
         id:         user._id,
@@ -177,7 +234,9 @@ router.post('/login', loginLimiter, loginValidation, async (req, res) => {
 
     const user = await User.findOne(query).select('+password');
 
-    if (!user) {
+    // FIX: check existence and isActive together before password compare
+    // — prevents timing attack that reveals whether account exists or is deactivated
+    if (!user || !user.isActive) {
       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
     }
 
@@ -195,10 +254,6 @@ router.post('/login', loginLimiter, loginValidation, async (req, res) => {
       return res.status(401).json({ success: false, message: 'Invalid credentials.' });
     }
 
-    if (!user.isActive) {
-      return res.status(403).json({ success: false, message: 'Account is deactivated.' });
-    }
-
     user.failedLoginAttempts = 0;
     user.lockedUntil         = undefined;
     user.lastLogin           = new Date();
@@ -212,6 +267,7 @@ router.post('/login', loginLimiter, loginValidation, async (req, res) => {
     return res.json({
       success: true,
       message: 'Login successful.',
+      // FIX: token kept in body for mobile app support — cookie handles web
       token,
       user: {
         id:              user._id,
@@ -321,8 +377,10 @@ router.put('/profile', authenticate, profileUpdateValidation, async (req, res) =
 });
 
 // ── POST /setup-pin ────────────────────────────────────────────
-router.post('/setup-pin', authenticate, [
+// FIX: rate limited + requires current PIN if one already exists
+router.post('/setup-pin', authenticate, pinLimiter, [
   body('pin').matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits'),
+  body('currentPin').optional().matches(/^\d{4}$/).withMessage('Current PIN must be exactly 4 digits'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -331,11 +389,41 @@ router.post('/setup-pin', authenticate, [
     }
 
     const user = await User.findById(req.user.userId).select('+pin');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    // FIX: if PIN already set, require current PIN to change it
+    if (user.isPinSetup && user.pin) {
+      const { currentPin } = req.body;
+      if (!currentPin) {
+        return res.status(400).json({ success: false, message: 'Current PIN is required to change your PIN.' });
+      }
+
+      // Check lockout before verifying
+      const attemptData = await getPinAttemptData(req.user.userId);
+      if (attemptData.lockedUntil && new Date() < new Date(attemptData.lockedUntil)) {
+        const remaining = Math.ceil((new Date(attemptData.lockedUntil) - new Date()) / 60000);
+        return res.status(423).json({ success: false, message: `Account locked. Try again in ${remaining} minutes.` });
+      }
+
+      const isMatch = await user.comparePin(currentPin);
+      if (!isMatch) {
+        const updated = await incrementPinAttempts(req.user.userId);
+        if (updated.lockedUntil) {
+          return res.status(423).json({ success: false, message: 'Incorrect PIN. Account locked for 15 minutes.' });
+        }
+        return res.status(401).json({
+          success: false,
+          message: `Incorrect current PIN. ${PIN_CONFIG.MAX_ATTEMPTS - updated.attempts} attempts remaining.`,
+        });
+      }
+      await resetPinAttempts(req.user.userId);
+    }
+
     user.pin        = req.body.pin;
     user.isPinSetup = true;
     await user.save();
 
-    return res.json({ success: true, message: 'PIN set up successfully.' });
+    return res.json({ success: true, message: user.isPinSetup ? 'PIN changed successfully.' : 'PIN set up successfully.' });
   } catch (error) {
     logger.error('PIN setup error', error.message);
     return res.status(500).json({ success: false, message: 'Server error.' });
@@ -343,7 +431,8 @@ router.post('/setup-pin', authenticate, [
 });
 
 // ── POST /verify-pin ───────────────────────────────────────────
-router.post('/verify-pin', authenticate, [
+// FIX: rate limited + PIN lockout after 3 failed attempts
+router.post('/verify-pin', authenticate, pinLimiter, [
   body('pin').matches(/^\d{4}$/).withMessage('PIN must be exactly 4 digits'),
 ], async (req, res) => {
   try {
@@ -353,15 +442,34 @@ router.post('/verify-pin', authenticate, [
     }
 
     const user = await User.findById(req.user.userId).select('+pin');
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
     if (!user.isPinSetup || !user.pin) {
       return res.status(400).json({ success: false, message: 'PIN not set up.' });
     }
 
-    const isMatch = await user.comparePin(req.body.pin);
-    if (!isMatch) {
-      return res.status(401).json({ success: false, message: 'Invalid PIN.' });
+    // FIX: check lockout before verifying
+    const attemptData = await getPinAttemptData(req.user.userId);
+    if (attemptData.lockedUntil && new Date() < new Date(attemptData.lockedUntil)) {
+      const remaining = Math.ceil((new Date(attemptData.lockedUntil) - new Date()) / 60000);
+      return res.status(423).json({ success: false, message: `Account locked. Try again in ${remaining} minutes.` });
     }
 
+    const isMatch = await user.comparePin(req.body.pin);
+    if (!isMatch) {
+      // FIX: increment attempts and lock after 3 failures
+      const updated = await incrementPinAttempts(req.user.userId);
+      if (updated.lockedUntil) {
+        return res.status(423).json({ success: false, message: 'Too many failed attempts. Account locked for 15 minutes.' });
+      }
+      return res.status(401).json({
+        success: false,
+        message: `Invalid PIN. ${PIN_CONFIG.MAX_ATTEMPTS - updated.attempts} attempts remaining.`,
+      });
+    }
+
+    // FIX: reset attempts on success
+    await resetPinAttempts(req.user.userId);
     return res.json({ success: true, message: 'PIN verified.' });
   } catch (error) {
     logger.error('PIN verify error', error.message);

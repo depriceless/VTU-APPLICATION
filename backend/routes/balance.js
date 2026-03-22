@@ -17,7 +17,7 @@ router.get('/', authenticate, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      balance: isNaN(amount) ? 0 : amount,   // flat number — AuthContext reads this directly
+      balance: isNaN(amount) ? 0 : amount,
       currency: wallet.currency || 'NGN',
       lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
     });
@@ -27,50 +27,12 @@ router.get('/', authenticate, async (req, res) => {
   }
 });
 
-// PUT route to update wallet balance (admin/internal use)
+// PUT route — blocked, balance is only updated internally by Paystack webhook and purchase routes
 router.put('/', authenticate, async (req, res) => {
-  try {
-    const { amount, operation } = req.body;
-
-    if (typeof amount !== 'number') {
-      return res.status(400).json({ success: false, message: 'Amount must be a number' });
-    }
-
-    const wallet = await Wallet.findOne({ userId: req.user.userId });
-
-    if (!wallet) {
-      return res.status(404).json({ success: false, message: 'Wallet not found' });
-    }
-
-    const current = parseFloat(wallet.balance || 0);
-    let newBalance;
-
-    switch (operation) {
-      case 'add':      newBalance = current + amount; break;
-      case 'subtract': newBalance = current - amount; break;
-      case 'set':      newBalance = amount;           break;
-      default:
-        return res.status(400).json({ success: false, message: 'Invalid operation. Use add, subtract, or set' });
-    }
-
-    if (newBalance < 0) {
-      return res.status(400).json({ success: false, message: 'Insufficient funds' });
-    }
-
-    wallet.balance = newBalance;
-    await wallet.save();
-
-    res.status(200).json({
-      success: true,
-      message: `Balance ${operation}ed successfully`,
-      balance: parseFloat(wallet.balance),
-      currency: wallet.currency || 'NGN',
-      lastUpdated: wallet.updatedAt?.toISOString() || new Date().toISOString(),
-    });
-  } catch (error) {
-    logger.error('Balance update error', error);
-    res.status(500).json({ success: false, message: 'Server error updating balance' });
-  }
+  return res.status(403).json({
+    success: false,
+    message: 'Forbidden. Balance cannot be updated directly.',
+  });
 });
 
 module.exports = router;
